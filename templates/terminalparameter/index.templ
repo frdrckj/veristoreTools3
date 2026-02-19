@@ -1,0 +1,135 @@
+package terminalparameter
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// TermParamData is a view-layer representation of a terminal parameter.
+type TermParamData struct {
+	ParamID      int
+	ParamTermID  int
+	HostName     string
+	MerchantName string
+	TID          string
+	MID          string
+	Address1     string
+	Address2     string
+	Address3     string
+	Address4     string
+	Address5     string
+	Address6     string
+}
+
+// IndexPage renders the full terminal parameter list page with layout.
+templ IndexPage(page layouts.PageData, params []TermParamData, pagination components.PaginationData, query string) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Terminal Parameters</h3>
+				<div class="card-tools">
+					<div class="d-flex align-items-center">
+						<form
+							class="mr-2"
+							hx-get="/terminalparameter/index"
+							hx-target="#tp-table-container"
+							hx-push-url="true"
+						>
+							<div class="input-group input-group-sm" style="width: 250px;">
+								<input
+									type="text"
+									name="q"
+									class="form-control"
+									placeholder="Search by TID, MID, host..."
+									value={ query }
+								/>
+								<div class="input-group-append">
+									<button type="submit" class="btn btn-default">
+										<i class="fas fa-search"></i>
+									</button>
+								</div>
+							</div>
+						</form>
+						<a href="/terminalparameter/create" class="btn btn-sm btn-primary">
+							<i class="fas fa-plus"></i> Create
+						</a>
+					</div>
+				</div>
+			</div>
+			<div id="tp-table-container">
+				@TablePartial(params, pagination, query)
+			</div>
+		</div>
+	}
+}
+
+// TablePartial renders the table body and pagination for HTMX partial updates.
+templ TablePartial(params []TermParamData, pagination components.PaginationData, query string) {
+	<div class="card-body table-responsive p-0">
+		<table class="table table-hover table-striped">
+			<thead>
+				<tr>
+					<th style="width: 60px;">#</th>
+					<th>Terminal ID</th>
+					<th>Host Name</th>
+					<th>Merchant Name</th>
+					<th>TID</th>
+					<th>MID</th>
+					<th style="width: 180px;">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(params) == 0 {
+					<tr>
+						<td colspan="7" class="text-center text-muted">No terminal parameters found</td>
+					</tr>
+				}
+				for _, p := range params {
+					<tr>
+						<td>{ strconv.Itoa(p.ParamID) }</td>
+						<td>{ strconv.Itoa(p.ParamTermID) }</td>
+						<td>{ p.HostName }</td>
+						<td>{ p.MerchantName }</td>
+						<td>{ p.TID }</td>
+						<td>{ p.MID }</td>
+						<td>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/terminalparameter/view?id=%d", p.ParamID)) }
+								class="btn btn-xs btn-info"
+								title="View"
+							>
+								<i class="fas fa-eye"></i>
+							</a>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/terminalparameter/update?id=%d", p.ParamID)) }
+								class="btn btn-xs btn-warning"
+								title="Edit"
+							>
+								<i class="fas fa-edit"></i>
+							</a>
+							<form
+								method="POST"
+								action={ templ.SafeURL(fmt.Sprintf("/terminalparameter/delete?id=%d", p.ParamID)) }
+								style="display:inline;"
+							>
+								<button
+									type="submit"
+									class="btn btn-xs btn-danger"
+									title="Delete"
+									onclick="return confirm('Are you sure you want to delete this parameter?')"
+								>
+									<i class="fas fa-trash"></i>
+								</button>
+							</form>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<div class="card-footer clearfix">
+		@components.Pagination(pagination)
+	</div>
+}

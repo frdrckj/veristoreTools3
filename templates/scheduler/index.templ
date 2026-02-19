@@ -1,0 +1,67 @@
+package scheduler
+
+import (
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// IndexPage renders the scheduler configuration page.
+templ IndexPage(page layouts.PageData, scheduled string, loginID int) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Scheduler Configuration</h3>
+					</div>
+					<form method="POST" action="/scheduler/update">
+						<input type="hidden" name="login_id" value={ strconv.Itoa(loginID) }/>
+						<div class="card-body">
+							if loginID == 0 {
+								<div class="alert alert-warning">
+									<i class="fas fa-exclamation-triangle"></i>
+									No active TMS login found. Please create a TMS login first.
+								</div>
+							}
+							<div class="callout callout-info">
+								<h5>About Scheduler</h5>
+								<p>
+									The scheduler settings control when automatic sync and background tasks
+									are executed. The configuration is stored as a JSON text and defines
+									the schedule intervals, enabled tasks, and execution times.
+								</p>
+							</div>
+							<div class="form-group">
+								<label for="scheduled">Schedule Configuration (JSON)</label>
+								<textarea
+									class="form-control"
+									id="scheduled"
+									name="scheduled"
+									rows="10"
+									placeholder="Enter scheduler JSON configuration"
+									if loginID == 0 {
+										disabled
+									}
+								>{ scheduled }</textarea>
+								<small class="form-text text-muted">
+									Enter the scheduler configuration in JSON format.
+								</small>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button
+								type="submit"
+								class="btn btn-primary"
+								if loginID == 0 {
+									disabled
+								}
+							>
+								<i class="fas fa-save"></i> Update Schedule
+							</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

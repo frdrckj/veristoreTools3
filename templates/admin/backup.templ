@@ -1,0 +1,25 @@
+package admin
+
+import (
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// BackupPage renders the backup / export information page.
+templ BackupPage(page layouts.PageData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Backup / Export</h3>
+			</div>
+			<div class="card-body">
+				<div class="callout callout-info">
+					<h5>Activity Log Backup</h5>
+					<p>Download the activity log data as an Excel file for archival or analysis purposes.</p>
+					<a href="/backup/download" class="btn btn-primary">
+						<i class="fas fa-download"></i> Download Activity Log
+					</a>
+				</div>
+			</div>
+		</div>
+	}
+}

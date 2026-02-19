@@ -48,6 +48,23 @@ func (r *Repository) DeleteLogin(id int) error {
 	return r.db.Delete(&TmsLogin{}, id).Error
 }
 
+// FindLoginByID retrieves a TMS login row by ID.
+func (r *Repository) FindLoginByID(id int) (*TmsLogin, error) {
+	var login TmsLogin
+	err := r.db.First(&login, "tms_login_id = ?", id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &login, nil
+}
+
+// UpdateScheduled updates the scheduled JSON text for a given TMS login ID.
+func (r *Repository) UpdateScheduled(id int, scheduled string) error {
+	return r.db.Model(&TmsLogin{}).
+		Where("tms_login_id = ?", id).
+		Update("tms_login_scheduled", scheduled).Error
+}
+
 // GetReport retrieves a TMS report by name.
 func (r *Repository) GetReport(name string) (*TmsReport, error) {
 	var report TmsReport

@@ -1,0 +1,159 @@
+package admin
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// TechnicianFormPage renders the technician create/edit form.
+templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">
+							if isEdit {
+								Edit Technician
+							} else {
+								Create Technician
+							}
+						</h3>
+						<div class="card-tools">
+							<a href="/technician/index" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form
+						method="POST"
+						if isEdit {
+							action={ templ.SafeURL(fmt.Sprintf("/technician/update?id=%d", t.TechID)) }
+						} else {
+							action="/technician/create"
+						}
+					>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="tech_name">Name <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_name"
+									name="tech_name"
+									placeholder="Enter name"
+									value={ t.TechName }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tech_nip">NIP <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_nip"
+									name="tech_nip"
+									placeholder="Enter NIP"
+									value={ t.TechNip }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tech_number">Number <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_number"
+									name="tech_number"
+									placeholder="Enter number"
+									value={ t.TechNumber }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tech_gender">Gender</label>
+								<select class="form-control" id="tech_gender" name="tech_gender">
+									<option value="M" if t.TechGender == "M" { selected }>Male</option>
+									<option value="F" if t.TechGender == "F" { selected }>Female</option>
+								</select>
+							</div>
+							<div class="form-group">
+								<label for="tech_company">Company</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_company"
+									name="tech_company"
+									placeholder="Enter company"
+									value={ t.TechCompany }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tech_service_point">Service Point</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_service_point"
+									name="tech_service_point"
+									placeholder="Enter service point"
+									value={ t.TechServicePoint }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tech_phone">Phone</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_phone"
+									name="tech_phone"
+									placeholder="Enter phone number"
+									value={ t.TechPhone }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tech_address">Address</label>
+								<textarea
+									class="form-control"
+									id="tech_address"
+									name="tech_address"
+									rows="3"
+									placeholder="Enter address"
+								>{ t.TechAddress }</textarea>
+							</div>
+							<div class="form-group">
+								<label for="tech_status">Status</label>
+								<select class="form-control" id="tech_status" name="tech_status">
+									<option value="1" if t.TechStatus == "1" || t.TechStatus == "" { selected }>Active</option>
+									<option value="0" if t.TechStatus == "0" { selected }>Inactive</option>
+								</select>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i>
+								if isEdit {
+									Update Technician
+								} else {
+									Create Technician
+								}
+							</button>
+							<a href="/technician/index" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

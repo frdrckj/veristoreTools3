@@ -111,6 +111,39 @@ func (r *Repository) UpdateParameter(p *TerminalParameter) error {
 	return r.db.Save(p).Error
 }
 
+// FindParameterByID retrieves a single terminal parameter by its primary key.
+func (r *Repository) FindParameterByID(id int) (*TerminalParameter, error) {
+	var p TerminalParameter
+	if err := r.db.Preload("Terminal").First(&p, "param_id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// SearchParameters returns a paginated list of terminal parameters matching the query.
+// The query string is matched against param_tid, param_mid, and param_host_name.
+func (r *Repository) SearchParameters(query string, page, perPage int) ([]TerminalParameter, shared.Pagination, error) {
+	var params []TerminalParameter
+	var total int64
+
+	tx := r.db.Model(&TerminalParameter{})
+	if query != "" {
+		like := "%" + query + "%"
+		tx = tx.Where("param_tid LIKE ? OR param_mid LIKE ? OR param_host_name LIKE ?", like, like, like)
+	}
+
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, shared.Pagination{}, err
+	}
+
+	p := shared.NewPagination(page, perPage, total)
+	if err := tx.Offset(p.Offset()).Limit(p.PerPage).Order("param_id DESC").Find(&params).Error; err != nil {
+		return nil, shared.Pagination{}, err
+	}
+
+	return params, p, nil
+}
+
 // DeleteParameter removes a terminal parameter by ID.
 func (r *Repository) DeleteParameter(id int) error {
 	return r.db.Delete(&TerminalParameter{}, "param_id = ?", id).Error

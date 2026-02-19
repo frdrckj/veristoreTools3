@@ -1,0 +1,130 @@
+package terminalparameter
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the terminal parameter detail view page.
+templ ViewPage(page layouts.PageData, p TermParamData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Terminal Parameter Detail</h3>
+				<div class="card-tools">
+					<a href="/terminalparameter/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(p.ParamID) }</td>
+						</tr>
+						<tr>
+							<th>Terminal ID</th>
+							<td>{ strconv.Itoa(p.ParamTermID) }</td>
+						</tr>
+						<tr>
+							<th>Host Name</th>
+							<td>{ p.HostName }</td>
+						</tr>
+						<tr>
+							<th>Merchant Name</th>
+							<td>{ p.MerchantName }</td>
+						</tr>
+						<tr>
+							<th>TID</th>
+							<td>{ p.TID }</td>
+						</tr>
+						<tr>
+							<th>MID</th>
+							<td>{ p.MID }</td>
+						</tr>
+						<tr>
+							<th>Address 1</th>
+							<td>
+								if p.Address1 != "" {
+									{ p.Address1 }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Address 2</th>
+							<td>
+								if p.Address2 != "" {
+									{ p.Address2 }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Address 3</th>
+							<td>
+								if p.Address3 != "" {
+									{ p.Address3 }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Address 4</th>
+							<td>
+								if p.Address4 != "" {
+									{ p.Address4 }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Address 5</th>
+							<td>
+								if p.Address5 != "" {
+									{ p.Address5 }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Address 6</th>
+							<td>
+								if p.Address6 != "" {
+									{ p.Address6 }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/terminalparameter/update?id=%d", p.ParamID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/terminalparameter/delete?id=%d", p.ParamID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this parameter?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

@@ -1,0 +1,158 @@
+package templateparameter
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// FormPage renders the template parameter create/edit form.
+templ FormPage(page layouts.PageData, p TplParamData, isEdit bool, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">
+							if isEdit {
+								Edit Template Parameter
+							} else {
+								Create Template Parameter
+							}
+						</h3>
+						<div class="card-tools">
+							<a href="/templateparameter/index" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form
+						method="POST"
+						if isEdit {
+							action={ templ.SafeURL(fmt.Sprintf("/templateparameter/update?id=%d", p.TparamID)) }
+						} else {
+							action="/templateparameter/create"
+						}
+					>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="tparam_title">Title <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_title"
+									name="tparam_title"
+									placeholder="Enter title"
+									value={ p.TparamTitle }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_index_title">Index Title</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_index_title"
+									name="tparam_index_title"
+									placeholder="Enter index title"
+									value={ p.TparamIndexTitle }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_field">Field <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_field"
+									name="tparam_field"
+									placeholder="Enter field name"
+									value={ p.TparamField }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_index">Index</label>
+								<input
+									type="number"
+									class="form-control"
+									id="tparam_index"
+									name="tparam_index"
+									placeholder="Enter index"
+									value={ strconv.Itoa(p.TparamIndex) }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_type">Type <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_type"
+									name="tparam_type"
+									placeholder="Enter type"
+									value={ p.TparamType }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_operation">Operation</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_operation"
+									name="tparam_operation"
+									placeholder="Enter operation"
+									value={ p.TparamOperation }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_length">Length</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_length"
+									name="tparam_length"
+									placeholder="Enter length"
+									value={ p.TparamLength }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tparam_except">Except</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tparam_except"
+									name="tparam_except"
+									placeholder="Enter exceptions"
+									value={ p.TparamExcept }
+								/>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i>
+								if isEdit {
+									Update Parameter
+								} else {
+									Create Parameter
+								}
+							</button>
+							<a href="/templateparameter/index" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

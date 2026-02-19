@@ -1,0 +1,134 @@
+package appactivation
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// FormPage renders the activation create/edit form.
+templ FormPage(page layouts.PageData, a ActivationData, isEdit bool, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">
+							if isEdit {
+								Edit Activation
+							} else {
+								Create Activation
+							}
+						</h3>
+						<div class="card-tools">
+							<a href="/appactivation/index" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form
+						method="POST"
+						if isEdit {
+							action={ templ.SafeURL(fmt.Sprintf("/appactivation/update?id=%d", a.AppActID)) }
+						} else {
+							action="/appactivation/create"
+						}
+					>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="csi">CSI <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="csi"
+									name="csi"
+									placeholder="Enter CSI"
+									value={ a.AppActCSI }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tid">TID <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tid"
+									name="tid"
+									placeholder="Enter TID"
+									value={ a.AppActTID }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="mid">MID</label>
+								<input
+									type="text"
+									class="form-control"
+									id="mid"
+									name="mid"
+									placeholder="Enter MID"
+									value={ a.AppActMID }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="model">Model</label>
+								<input
+									type="text"
+									class="form-control"
+									id="model"
+									name="model"
+									placeholder="Enter model"
+									value={ a.AppActModel }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="version">Version</label>
+								<input
+									type="text"
+									class="form-control"
+									id="version"
+									name="version"
+									placeholder="Enter version"
+									value={ a.AppActVersion }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="engineer">Engineer</label>
+								<input
+									type="text"
+									class="form-control"
+									id="engineer"
+									name="engineer"
+									placeholder="Enter engineer name"
+									value={ a.AppActEngineer }
+								/>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i>
+								if isEdit {
+									Update Activation
+								} else {
+									Create Activation
+								}
+							</button>
+							<a href="/appactivation/index" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

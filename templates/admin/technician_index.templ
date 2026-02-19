@@ -1,0 +1,168 @@
+package admin
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// TechnicianData is a view-layer representation of a technician.
+type TechnicianData struct {
+	TechID           int
+	TechName         string
+	TechNip          string
+	TechNumber       string
+	TechAddress      string
+	TechCompany      string
+	TechServicePoint string
+	TechPhone        string
+	TechGender       string
+	TechStatus       string
+	CreatedBy        string
+	CreatedDt        string
+	UpdatedBy        string
+	UpdatedDt        string
+}
+
+// StatusLabel returns a human-readable status label.
+func (t TechnicianData) StatusLabel() string {
+	if t.TechStatus == "1" {
+		return "Active"
+	}
+	return "Inactive"
+}
+
+// StatusClass returns the Bootstrap badge CSS class for the status.
+func (t TechnicianData) StatusClass() string {
+	if t.TechStatus == "1" {
+		return "badge-success"
+	}
+	return "badge-danger"
+}
+
+// GenderLabel returns a human-readable gender label.
+func (t TechnicianData) GenderLabel() string {
+	if t.TechGender == "M" {
+		return "Male"
+	}
+	if t.TechGender == "F" {
+		return "Female"
+	}
+	return t.TechGender
+}
+
+// TechnicianIndexPage renders the full technician list page with layout.
+templ TechnicianIndexPage(page layouts.PageData, techs []TechnicianData, pagination components.PaginationData, query string) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Technicians</h3>
+				<div class="card-tools">
+					<div class="d-flex align-items-center">
+						<form
+							class="mr-2"
+							hx-get="/technician/index"
+							hx-target="#tech-table-container"
+							hx-push-url="true"
+						>
+							<div class="input-group input-group-sm" style="width: 250px;">
+								<input
+									type="text"
+									name="q"
+									class="form-control"
+									placeholder="Search by name, number..."
+									value={ query }
+								/>
+								<div class="input-group-append">
+									<button type="submit" class="btn btn-default">
+										<i class="fas fa-search"></i>
+									</button>
+								</div>
+							</div>
+						</form>
+						<a href="/technician/create" class="btn btn-sm btn-primary">
+							<i class="fas fa-plus"></i> Create
+						</a>
+					</div>
+				</div>
+			</div>
+			<div id="tech-table-container">
+				@TechnicianTablePartial(techs, pagination, query)
+			</div>
+		</div>
+	}
+}
+
+// TechnicianTablePartial renders the table body and pagination for HTMX partial updates.
+templ TechnicianTablePartial(techs []TechnicianData, pagination components.PaginationData, query string) {
+	<div class="card-body table-responsive p-0">
+		<table class="table table-hover table-striped">
+			<thead>
+				<tr>
+					<th style="width: 60px;">#</th>
+					<th>Name</th>
+					<th>Number</th>
+					<th>Company</th>
+					<th>Phone</th>
+					<th>Status</th>
+					<th style="width: 180px;">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(techs) == 0 {
+					<tr>
+						<td colspan="7" class="text-center text-muted">No technicians found</td>
+					</tr>
+				}
+				for _, t := range techs {
+					<tr>
+						<td>{ strconv.Itoa(t.TechID) }</td>
+						<td>{ t.TechName }</td>
+						<td>{ t.TechNumber }</td>
+						<td>{ t.TechCompany }</td>
+						<td>{ t.TechPhone }</td>
+						<td>
+							<span class={ "badge", t.StatusClass() }>
+								{ t.StatusLabel() }
+							</span>
+						</td>
+						<td>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/technician/view?id=%d", t.TechID)) }
+								class="btn btn-xs btn-info"
+								title="View"
+							>
+								<i class="fas fa-eye"></i>
+							</a>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/technician/update?id=%d", t.TechID)) }
+								class="btn btn-xs btn-warning"
+								title="Edit"
+							>
+								<i class="fas fa-edit"></i>
+							</a>
+							<form
+								method="POST"
+								action={ templ.SafeURL(fmt.Sprintf("/technician/delete?id=%d", t.TechID)) }
+								style="display:inline;"
+							>
+								<button
+									type="submit"
+									class="btn btn-xs btn-danger"
+									title="Delete"
+									onclick="return confirm('Are you sure you want to delete this technician?')"
+								>
+									<i class="fas fa-trash"></i>
+								</button>
+							</form>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<div class="card-footer clearfix">
+		@components.Pagination(pagination)
+	</div>
+}

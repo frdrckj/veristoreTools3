@@ -1,0 +1,113 @@
+package admin
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ActivityLogData is a view-layer representation of an activity log entry.
+type ActivityLogData struct {
+	ActLogID     int
+	ActLogAction string
+	ActLogDetail string
+	CreatedBy    string
+	CreatedDt    string
+}
+
+// ActivityLogIndexPage renders the full activity log list page with layout.
+templ ActivityLogIndexPage(page layouts.PageData, logs []ActivityLogData, pagination components.PaginationData, query string) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Activity Log</h3>
+				<div class="card-tools">
+					<form
+						hx-get="/activitylog/index"
+						hx-target="#actlog-table-container"
+						hx-push-url="true"
+					>
+						<div class="input-group input-group-sm" style="width: 300px;">
+							<input
+								type="text"
+								name="q"
+								class="form-control"
+								placeholder="Search by action, user..."
+								value={ query }
+							/>
+							<div class="input-group-append">
+								<button type="submit" class="btn btn-default">
+									<i class="fas fa-search"></i>
+								</button>
+							</div>
+						</div>
+					</form>
+				</div>
+			</div>
+			<div id="actlog-table-container">
+				@ActivityLogTablePartial(logs, pagination, query)
+			</div>
+		</div>
+	}
+}
+
+// ActivityLogTablePartial renders the table body and pagination for HTMX partial updates.
+templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.PaginationData, query string) {
+	<div class="card-body table-responsive p-0">
+		<table class="table table-hover table-striped">
+			<thead>
+				<tr>
+					<th style="width: 60px;">#</th>
+					<th>Action</th>
+					<th>Detail</th>
+					<th>User</th>
+					<th>Date</th>
+					<th style="width: 80px;">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(logs) == 0 {
+					<tr>
+						<td colspan="6" class="text-center text-muted">No activity logs found</td>
+					</tr>
+				}
+				for _, l := range logs {
+					<tr>
+						<td>{ strconv.Itoa(l.ActLogID) }</td>
+						<td>{ l.ActLogAction }</td>
+						<td>
+							if l.ActLogDetail != "" {
+								{ truncate(l.ActLogDetail, 80) }
+							} else {
+								<span class="text-muted">-</span>
+							}
+						</td>
+						<td>{ l.CreatedBy }</td>
+						<td>{ l.CreatedDt }</td>
+						<td>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/activitylog/view?id=%d", l.ActLogID)) }
+								class="btn btn-xs btn-info"
+								title="View"
+							>
+								<i class="fas fa-eye"></i>
+							</a>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<div class="card-footer clearfix">
+		@components.Pagination(pagination)
+	</div>
+}
+
+// truncate returns the first n characters of s, appending "..." if truncated.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}

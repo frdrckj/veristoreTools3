@@ -1,0 +1,118 @@
+package admin
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// TechnicianViewPage renders the technician detail view page.
+templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Technician Detail</h3>
+				<div class="card-tools">
+					<a href="/technician/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(t.TechID) }</td>
+						</tr>
+						<tr>
+							<th>Name</th>
+							<td>{ t.TechName }</td>
+						</tr>
+						<tr>
+							<th>NIP</th>
+							<td>{ t.TechNip }</td>
+						</tr>
+						<tr>
+							<th>Number</th>
+							<td>{ t.TechNumber }</td>
+						</tr>
+						<tr>
+							<th>Gender</th>
+							<td>{ t.GenderLabel() }</td>
+						</tr>
+						<tr>
+							<th>Company</th>
+							<td>{ t.TechCompany }</td>
+						</tr>
+						<tr>
+							<th>Service Point</th>
+							<td>{ t.TechServicePoint }</td>
+						</tr>
+						<tr>
+							<th>Phone</th>
+							<td>{ t.TechPhone }</td>
+						</tr>
+						<tr>
+							<th>Address</th>
+							<td>{ t.TechAddress }</td>
+						</tr>
+						<tr>
+							<th>Status</th>
+							<td>
+								<span class={ "badge", t.StatusClass() }>
+									{ t.StatusLabel() }
+								</span>
+							</td>
+						</tr>
+						<tr>
+							<th>Created By</th>
+							<td>{ t.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Created Date</th>
+							<td>{ t.CreatedDt }</td>
+						</tr>
+						<tr>
+							<th>Updated By</th>
+							<td>
+								if t.UpdatedBy != "" {
+									{ t.UpdatedBy }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Updated Date</th>
+							<td>
+								if t.UpdatedDt != "" {
+									{ t.UpdatedDt }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/technician/update?id=%d", t.TechID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/technician/delete?id=%d", t.TechID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this technician?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

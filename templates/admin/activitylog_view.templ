@@ -1,0 +1,54 @@
+package admin
+
+import (
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ActivityLogViewPage renders the activity log detail view page.
+templ ActivityLogViewPage(page layouts.PageData, l ActivityLogData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Activity Log Detail</h3>
+				<div class="card-tools">
+					<a href="/activitylog/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(l.ActLogID) }</td>
+						</tr>
+						<tr>
+							<th>Action</th>
+							<td>{ l.ActLogAction }</td>
+						</tr>
+						<tr>
+							<th>Detail</th>
+							<td>
+								if l.ActLogDetail != "" {
+									<pre style="white-space: pre-wrap; word-wrap: break-word;">{ l.ActLogDetail }</pre>
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>User</th>
+							<td>{ l.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Date</th>
+							<td>{ l.CreatedDt }</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	}
+}

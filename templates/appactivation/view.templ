@@ -1,0 +1,82 @@
+package appactivation
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the activation detail view page.
+templ ViewPage(page layouts.PageData, a ActivationData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Activation Detail</h3>
+				<div class="card-tools">
+					<a href="/appactivation/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(a.AppActID) }</td>
+						</tr>
+						<tr>
+							<th>CSI</th>
+							<td>{ a.AppActCSI }</td>
+						</tr>
+						<tr>
+							<th>TID</th>
+							<td>{ a.AppActTID }</td>
+						</tr>
+						<tr>
+							<th>MID</th>
+							<td>{ a.AppActMID }</td>
+						</tr>
+						<tr>
+							<th>Model</th>
+							<td>{ a.AppActModel }</td>
+						</tr>
+						<tr>
+							<th>Version</th>
+							<td>{ a.AppActVersion }</td>
+						</tr>
+						<tr>
+							<th>Engineer</th>
+							<td>{ a.AppActEngineer }</td>
+						</tr>
+						<tr>
+							<th>Created By</th>
+							<td>{ a.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Created Date</th>
+							<td>{ a.CreatedDt }</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/appactivation/update?id=%d", a.AppActID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/appactivation/delete?id=%d", a.AppActID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this activation?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

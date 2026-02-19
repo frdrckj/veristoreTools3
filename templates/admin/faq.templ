@@ -1,0 +1,47 @@
+package admin
+
+import (
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// FaqData is a view-layer representation of a FAQ entry.
+type FaqData struct {
+	FaqID   int
+	FaqName string
+	FaqLink string
+	FaqSeq  int
+}
+
+// FaqPage renders the FAQ / user guide page.
+templ FaqPage(page layouts.PageData, faqs []FaqData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">FAQ / User Guide</h3>
+				<div class="card-tools">
+					<a href="/faq/download" class="btn btn-sm btn-primary">
+						<i class="fas fa-download"></i> Download User Guide
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				if len(faqs) == 0 {
+					<p class="text-muted">No FAQ entries available.</p>
+				} else {
+					<div class="list-group">
+						for _, f := range faqs {
+							<div class="list-group-item">
+								<h5 class="mb-1">{ f.FaqName }</h5>
+								if f.FaqLink != "" {
+									<a href={ templ.SafeURL(f.FaqLink) } target="_blank" class="text-primary">
+										<i class="fas fa-external-link-alt"></i> View
+									</a>
+								}
+							</div>
+						}
+					</div>
+				}
+			</div>
+		</div>
+	}
+}

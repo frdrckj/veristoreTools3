@@ -1,0 +1,74 @@
+package appcredential
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the credential detail view page.
+templ ViewPage(page layouts.PageData, cr CredentialData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Credential Detail</h3>
+				<div class="card-tools">
+					<a href="/appcredential/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(cr.AppCredID) }</td>
+						</tr>
+						<tr>
+							<th>User</th>
+							<td>{ cr.AppCredUser }</td>
+						</tr>
+						<tr>
+							<th>Name</th>
+							<td>{ cr.AppCredName }</td>
+						</tr>
+						<tr>
+							<th>Status</th>
+							<td>
+								<span class={ "badge", cr.EnableClass() }>
+									{ cr.EnableLabel() }
+								</span>
+							</td>
+						</tr>
+						<tr>
+							<th>Created By</th>
+							<td>{ cr.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Created Date</th>
+							<td>{ cr.CreatedDt }</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/appcredential/update?id=%d", cr.AppCredID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/appcredential/delete?id=%d", cr.AppCredID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this credential?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

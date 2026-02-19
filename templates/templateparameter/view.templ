@@ -1,0 +1,88 @@
+package templateparameter
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the template parameter detail view page.
+templ ViewPage(page layouts.PageData, p TplParamData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Template Parameter Detail</h3>
+				<div class="card-tools">
+					<a href="/templateparameter/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(p.TparamID) }</td>
+						</tr>
+						<tr>
+							<th>Title</th>
+							<td>{ p.TparamTitle }</td>
+						</tr>
+						<tr>
+							<th>Index Title</th>
+							<td>{ p.TparamIndexTitle }</td>
+						</tr>
+						<tr>
+							<th>Field</th>
+							<td>{ p.TparamField }</td>
+						</tr>
+						<tr>
+							<th>Index</th>
+							<td>{ strconv.Itoa(p.TparamIndex) }</td>
+						</tr>
+						<tr>
+							<th>Type</th>
+							<td>{ p.TparamType }</td>
+						</tr>
+						<tr>
+							<th>Operation</th>
+							<td>{ p.TparamOperation }</td>
+						</tr>
+						<tr>
+							<th>Length</th>
+							<td>{ p.TparamLength }</td>
+						</tr>
+						<tr>
+							<th>Except</th>
+							<td>
+								if p.TparamExcept != "" {
+									{ p.TparamExcept }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/templateparameter/update?id=%d", p.TparamID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/templateparameter/delete?id=%d", p.TparamID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this template parameter?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

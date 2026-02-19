@@ -1,0 +1,150 @@
+package terminalparameter
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// FormPage renders the terminal parameter create/edit form.
+templ FormPage(page layouts.PageData, p TermParamData, isEdit bool, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">
+							if isEdit {
+								Edit Terminal Parameter
+							} else {
+								Create Terminal Parameter
+							}
+						</h3>
+						<div class="card-tools">
+							<a href="/terminalparameter/index" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form
+						method="POST"
+						if isEdit {
+							action={ templ.SafeURL(fmt.Sprintf("/terminalparameter/update?id=%d", p.ParamID)) }
+						} else {
+							action="/terminalparameter/create"
+						}
+					>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="term_id">Terminal ID <span class="text-danger">*</span></label>
+								<input
+									type="number"
+									class="form-control"
+									id="term_id"
+									name="term_id"
+									placeholder="Enter terminal ID"
+									value={ strconv.Itoa(p.ParamTermID) }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="host_name">Host Name <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="host_name"
+									name="host_name"
+									placeholder="Enter host name"
+									value={ p.HostName }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="merchant_name">Merchant Name</label>
+								<input
+									type="text"
+									class="form-control"
+									id="merchant_name"
+									name="merchant_name"
+									placeholder="Enter merchant name"
+									value={ p.MerchantName }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tid">TID <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tid"
+									name="tid"
+									placeholder="Enter TID"
+									value={ p.TID }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="mid">MID <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="mid"
+									name="mid"
+									placeholder="Enter MID"
+									value={ p.MID }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="address1">Address 1</label>
+								<input type="text" class="form-control" id="address1" name="address1" value={ p.Address1 }/>
+							</div>
+							<div class="form-group">
+								<label for="address2">Address 2</label>
+								<input type="text" class="form-control" id="address2" name="address2" value={ p.Address2 }/>
+							</div>
+							<div class="form-group">
+								<label for="address3">Address 3</label>
+								<input type="text" class="form-control" id="address3" name="address3" value={ p.Address3 }/>
+							</div>
+							<div class="form-group">
+								<label for="address4">Address 4</label>
+								<input type="text" class="form-control" id="address4" name="address4" value={ p.Address4 }/>
+							</div>
+							<div class="form-group">
+								<label for="address5">Address 5</label>
+								<input type="text" class="form-control" id="address5" name="address5" value={ p.Address5 }/>
+							</div>
+							<div class="form-group">
+								<label for="address6">Address 6</label>
+								<input type="text" class="form-control" id="address6" name="address6" value={ p.Address6 }/>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i>
+								if isEdit {
+									Update Parameter
+								} else {
+									Create Parameter
+								}
+							</button>
+							<a href="/terminalparameter/index" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}
