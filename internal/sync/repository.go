@@ -75,3 +75,16 @@ func (r *Repository) UpdateStatus(id int, status string) error {
 		Where("sync_term_id = ?", id).
 		Update("sync_term_status", status).Error
 }
+
+// LastSyncTime returns the most recent sync_term_created_time value, or an empty
+// string if no sync records exist.
+func (r *Repository) LastSyncTime() string {
+	var s SyncTerminal
+	err := r.db.Model(&SyncTerminal{}).
+		Order("sync_term_created_time DESC").
+		First(&s).Error
+	if err != nil {
+		return ""
+	}
+	return s.SyncTermCreatedTime.Format("2006-01-02 15:04:05")
+}

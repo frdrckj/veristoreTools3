@@ -1,27 +1,22 @@
 package auth
 
 import (
-	"crypto/sha256"
 	"fmt"
-	"strings"
 
+	"github.com/verifone/veristoretools3/internal/shared"
 	"github.com/verifone/veristoretools3/internal/user"
 )
 
-// HashPasswordSHA256 produces a hex-encoded SHA256 hash of the password
-// concatenated with the salt. This matches the algorithm used in
-// veristoreTools v2.
+// HashPasswordSHA256 is a convenience alias for shared.HashPasswordSHA256.
+// Kept for backward compatibility with callers that import auth.HashPasswordSHA256.
 func HashPasswordSHA256(password, salt string) string {
-	data := password + salt
-	hash := sha256.Sum256([]byte(data))
-	return fmt.Sprintf("%x", hash)
+	return shared.HashPasswordSHA256(password, salt)
 }
 
-// VerifyPasswordSHA256 checks that the given password, when hashed with the
-// provided salt, matches the expected hash.
+// VerifyPasswordSHA256 is a convenience alias for shared.VerifyPasswordSHA256.
+// Kept for backward compatibility with callers that import auth.VerifyPasswordSHA256.
 func VerifyPasswordSHA256(password, hash, salt string) bool {
-	computed := HashPasswordSHA256(password, salt)
-	return strings.EqualFold(computed, hash)
+	return shared.VerifyPasswordSHA256(password, hash, salt)
 }
 
 // Service provides authentication functionality.
@@ -46,7 +41,7 @@ func (s *Service) Authenticate(username, password string) (*user.User, error) {
 		return nil, fmt.Errorf("invalid username or password")
 	}
 
-	if !VerifyPasswordSHA256(password, u.Password, s.salt) {
+	if !shared.VerifyPasswordSHA256(password, u.Password, s.salt) {
 		return nil, fmt.Errorf("invalid username or password")
 	}
 

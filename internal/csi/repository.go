@@ -65,3 +65,17 @@ func (r *Repository) Update(rpt *VerificationReport) error {
 func (r *Repository) Delete(id int) error {
 	return r.db.Delete(&VerificationReport{}, "vfi_rpt_id = ?", id).Error
 }
+
+// CountDistinctVerified returns the number of distinct terminal serial numbers
+// that have verification reports. This mirrors the v2 query:
+//
+//	SELECT COUNT(DISTINCT vfi_rpt_term_serial_num) FROM verification_report
+func (r *Repository) CountDistinctVerified() (int64, error) {
+	var count int64
+	if err := r.db.Model(&VerificationReport{}).
+		Distinct("vfi_rpt_term_serial_num").
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}

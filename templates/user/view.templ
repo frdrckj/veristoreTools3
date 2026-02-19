@@ -1,0 +1,107 @@
+package user
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the user detail view page.
+templ ViewPage(page layouts.PageData, u UserData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">User Detail</h3>
+				<div class="card-tools">
+					<a href="/admin/user" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">ID</th>
+							<td>{ strconv.Itoa(u.UserID) }</td>
+						</tr>
+						<tr>
+							<th>Full Name</th>
+							<td>{ u.UserFullname }</td>
+						</tr>
+						<tr>
+							<th>Username</th>
+							<td>{ u.UserName }</td>
+						</tr>
+						<tr>
+							<th>Privileges</th>
+							<td>{ u.UserPrivileges }</td>
+						</tr>
+						<tr>
+							<th>Email</th>
+							<td>
+								if u.Email != "" {
+									{ u.Email }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Status</th>
+							<td>
+								<span class={ "badge", u.StatusClass() }>
+									{ u.StatusLabel() }
+								</span>
+							</td>
+						</tr>
+						<tr>
+							<th>Created By</th>
+							<td>{ u.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Created Date</th>
+							<td>{ u.CreatedDtm }</td>
+						</tr>
+						<tr>
+							<th>Last Password Change</th>
+							<td>
+								if u.LastChangePwd != "" {
+									{ u.LastChangePwd }
+								} else {
+									<span class="text-muted">Never</span>
+								}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/admin/user/%d/activate", u.UserID)) }
+					style="display:inline;"
+				>
+					if u.IsActive() {
+						<button type="submit" class="btn btn-warning" onclick="return confirm('Deactivate this user?')">
+							<i class="fas fa-user-slash"></i> Deactivate
+						</button>
+					} else {
+						<button type="submit" class="btn btn-success" onclick="return confirm('Activate this user?')">
+							<i class="fas fa-user-check"></i> Activate
+						</button>
+					}
+				</form>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/admin/user/%d/delete", u.UserID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this user?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

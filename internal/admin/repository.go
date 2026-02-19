@@ -110,6 +110,15 @@ func (r *Repository) DeleteTechnician(id int) error {
 	return r.db.Delete(&Technician{}, "tech_id = ?", id).Error
 }
 
+// CountActiveTechnicians returns the number of technicians with tech_status = '1'.
+func (r *Repository) CountActiveTechnicians() (int64, error) {
+	var count int64
+	if err := r.db.Model(&Technician{}).Where("tech_status = ?", "1").Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ==================== TemplateParameter ====================
 
 // FindTemplateParameterByID retrieves a template parameter by ID.

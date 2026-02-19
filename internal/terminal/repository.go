@@ -81,6 +81,15 @@ func (r *Repository) Delete(id int) error {
 	return r.db.Delete(&Terminal{}, "term_id = ?", id).Error
 }
 
+// Count returns the total number of terminal records.
+func (r *Repository) Count() (int64, error) {
+	var count int64
+	if err := r.db.Model(&Terminal{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // --- TerminalParameter methods ---
 
 // FindParametersByTermID retrieves all parameters for a given terminal.
