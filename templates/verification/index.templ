@@ -1,0 +1,340 @@
+package verification
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// TerminalResult holds terminal search result data for the template layer.
+// This avoids importing internal packages and breaking the dependency graph.
+type TerminalResult struct {
+	Found        bool
+	Source       string // "local" or "tms"
+	CSI          string
+	TID          string
+	MID          string
+	DeviceType   string
+	MerchantName string
+	AppVersion   string
+	AppName      string
+	DeviceID     string
+	ProductNum   string
+	Parameters   []TerminalParam
+}
+
+// TerminalParam holds parameter data for the template layer.
+type TerminalParam struct {
+	HostName     string
+	MerchantName string
+	TID          string
+	MID          string
+	Address1     string
+	Address2     string
+	Address3     string
+	Address4     string
+	Address5     string
+	Address6     string
+}
+
+// TechnicianOption holds technician data for the dropdown.
+type TechnicianOption struct {
+	ID   int
+	Name string
+}
+
+// VerificationPage renders the full CSI verification page with three states:
+// 1. Initial: search form with CSI input and app version dropdown.
+// 2. Terminal found: display terminal info + verification form.
+// 3. Report saved: success message (handled by flash messages).
+templ VerificationPage(data layouts.PageData, result *TerminalResult, technicians []TechnicianOption, saved bool, password string, appVersions []string) {
+	@layouts.Base(data) {
+		<!-- CSI Search Card -->
+		<div class="card card-primary card-outline">
+			<div class="card-header">
+				<h3 class="card-title">
+					<i class="fas fa-search mr-1"></i>
+					Terminal Verification
+				</h3>
+			</div>
+			<div class="card-body">
+				<form id="formSearch" method="post" action="/verification/index">
+					<div class="row">
+						<div class="col-md-6">
+							<div class="form-group">
+								<label for="csi">CSI</label>
+								<input
+									type="text"
+									id="csi"
+									name="csi"
+									class="form-control"
+									placeholder="Enter CSI number"
+									maxlength="255"
+									if result != nil {
+										value={ result.CSI }
+									}
+									style="max-width: 350px;"
+								/>
+							</div>
+							<div class="form-group">
+								<label for="appVersion">Versi App</label>
+								<select id="appVersion" name="appVersion" class="form-control" style="max-width: 350px;">
+									<option value="">-- Pilih Versi App --</option>
+									for _, v := range appVersions {
+										<option value={ v }>{ v }</option>
+									}
+								</select>
+							</div>
+							<div class="form-group">
+								<button type="submit" class="btn btn-success">
+									<i class="fas fa-search mr-1"></i>
+									Cari
+								</button>
+							</div>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
+		<!-- Terminal Found: show terminal info + verification form -->
+		if result != nil && result.Found {
+			<form id="formSubmit" method="post" action="/verification/index">
+				<!-- Hidden fields to carry forward search context -->
+				<input type="hidden" name="csi" value={ result.CSI }/>
+				<input type="hidden" name="appVersion" value={ result.AppVersion }/>
+				<div class="row">
+					<!-- Left column: Terminal Information -->
+					<div class="col-lg-6">
+						<div class="card card-info card-outline">
+							<div class="card-header">
+								<h3 class="card-title">
+									<i class="fas fa-terminal mr-1"></i>
+									Terminal Information
+								</h3>
+							</div>
+							<div class="card-body p-0">
+								<table class="table table-striped">
+									<tbody>
+										<tr>
+											<th style="width: 35%;">Verifikasi Operator</th>
+											<td>{ data.UserFullname }</td>
+										</tr>
+										<tr>
+											<th>CSI</th>
+											<td>{ result.CSI }</td>
+										</tr>
+										<tr>
+											<th>Serial Number</th>
+											<td>{ result.DeviceID }</td>
+										</tr>
+										if result.ProductNum != "" {
+											<tr>
+												<th>Product Number</th>
+												<td>{ result.ProductNum }</td>
+											</tr>
+										}
+										<tr>
+											<th>Model</th>
+											<td>{ result.DeviceType }</td>
+										</tr>
+										if result.AppName != "" {
+											<tr>
+												<th>App Name</th>
+												<td>{ result.AppName }</td>
+											</tr>
+										}
+										<tr>
+											<th>App Version</th>
+											<td>{ result.AppVersion }</td>
+										</tr>
+										if result.TID != "" {
+											<tr>
+												<th>TID</th>
+												<td>{ result.TID }</td>
+											</tr>
+										}
+										if result.MID != "" {
+											<tr>
+												<th>MID</th>
+												<td>{ result.MID }</td>
+											</tr>
+										}
+										if result.MerchantName != "" {
+											<tr>
+												<th>Merchant</th>
+												<td>{ result.MerchantName }</td>
+											</tr>
+										}
+										if result.Source != "" {
+											<tr>
+												<th>Source</th>
+												<td>
+													if result.Source == "local" {
+														<span class="badge badge-success">Local Database</span>
+													} else {
+														<span class="badge badge-info">TMS</span>
+													}
+												</td>
+											</tr>
+										}
+										<!-- Display parameter details if available -->
+										for _, p := range result.Parameters {
+											<tr>
+												<th>
+													Host<br/>
+													Merchant<br/>
+													TID<br/>
+													MID<br/>
+													Address
+												</th>
+												<td>
+													{ p.HostName }<br/>
+													{ p.MerchantName }<br/>
+													{ p.TID }<br/>
+													{ p.MID }
+													if p.Address1 != "" {
+														<br/>
+														{ p.Address1 }
+													}
+													if p.Address2 != "" {
+														<br/>
+														{ p.Address2 }
+													}
+													if p.Address3 != "" {
+														<br/>
+														{ p.Address3 }
+													}
+													if p.Address4 != "" {
+														<br/>
+														{ p.Address4 }
+													}
+													if p.Address5 != "" {
+														<br/>
+														{ p.Address5 }
+													}
+													if p.Address6 != "" {
+														<br/>
+														{ p.Address6 }
+													}
+												</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					</div>
+					<!-- Right column: Verification Form -->
+					<div class="col-lg-6">
+						<div class="card card-warning card-outline">
+							<div class="card-header">
+								<h3 class="card-title">
+									<i class="fas fa-clipboard-check mr-1"></i>
+									Verification Form
+								</h3>
+							</div>
+							<div class="card-body">
+								<div class="form-group">
+									<label for="teknisiId">Teknisi</label>
+									<select
+										id="teknisiId"
+										name="teknisiId"
+										class="form-control"
+										onchange="loadTechnician(this.value)"
+									>
+										<option value="">-- Pilih Teknisi --</option>
+										for _, t := range technicians {
+											<option value={ fmt.Sprintf("%d", t.ID) }>{ t.Name }</option>
+										}
+									</select>
+								</div>
+								<div class="form-group">
+									<label>NIP</label>
+									<input type="text" id="techNip" class="form-control" disabled="disabled"/>
+								</div>
+								<div class="form-group">
+									<label>ID Number (KTP) Teknisi</label>
+									<input type="text" id="techId" class="form-control" disabled="disabled"/>
+								</div>
+								<div class="form-group">
+									<label>Perusahaan Teknisi</label>
+									<input type="text" id="techCompany" class="form-control" disabled="disabled"/>
+								</div>
+								<hr/>
+								<div class="form-group">
+									<label for="deviceId">Serial Number</label>
+									<input
+										type="text"
+										id="deviceId"
+										name="deviceId"
+										class="form-control"
+										value={ result.DeviceID }
+										readonly="readonly"
+									/>
+								</div>
+								<div class="form-group">
+									<label for="spkNo">SPK No</label>
+									<input
+										type="text"
+										id="spkNo"
+										name="spkNo"
+										class="form-control"
+										maxlength="50"
+										required="required"
+									/>
+								</div>
+								<div class="form-group">
+									<label for="remark">Remark</label>
+									<textarea
+										id="remark"
+										name="remark"
+										class="form-control"
+										rows="4"
+										maxlength="200"
+										style="resize: none;"
+									></textarea>
+								</div>
+								<div class="form-group">
+									<label for="status">Status</label>
+									<select id="status" name="status" class="form-control">
+										<option value="DONE" selected="selected">DONE</option>
+										<option value="PENDING">PENDING</option>
+										<option value="FAILED">FAILED</option>
+									</select>
+								</div>
+								<div class="mt-3 mb-3">
+									<h4 style="color: red;">
+										<strong>Activation Code: { password }</strong>
+									</h4>
+								</div>
+								if result.DeviceID != "" {
+									<div class="form-group">
+										<button type="submit" class="btn btn-success" onclick="return confirm('Apakah anda yakin data sudah benar?');">
+											<i class="fas fa-save mr-1"></i>
+											Simpan
+										</button>
+									</div>
+								}
+							</div>
+						</div>
+					</div>
+				</div>
+			</form>
+			<!-- JavaScript for loading technician details -->
+			<script>
+				function loadTechnician(id) {
+					if (!id) return;
+					fetch('/verification/gettechnician?id=' + id)
+						.then(function(response) { return response.text(); })
+						.then(function(data) {
+							var parts = data.split('|');
+							if (parts.length >= 3) {
+								document.getElementById('techNip').value = parts[0];
+								document.getElementById('techId').value = parts[1];
+								document.getElementById('techCompany').value = parts[2];
+							}
+						});
+				}
+			</script>
+		}
+	}
+}

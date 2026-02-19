@@ -1,0 +1,167 @@
+package verificationreport
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the verification report detail view page.
+templ ViewPage(page layouts.PageData, r ReportData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Verification Report Detail</h3>
+				<div class="card-tools">
+					<a href="/verificationreport/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<div class="row">
+					<div class="col-md-6">
+						<h5>Terminal Information</h5>
+						<table class="table table-bordered">
+							<tbody>
+								<tr>
+									<th style="width: 200px;">Report ID</th>
+									<td>{ strconv.Itoa(r.VfiRptID) }</td>
+								</tr>
+								<tr>
+									<th>Device ID</th>
+									<td>{ r.VfiRptTermDeviceID }</td>
+								</tr>
+								<tr>
+									<th>Serial Number</th>
+									<td>{ r.VfiRptTermSerialNum }</td>
+								</tr>
+								<tr>
+									<th>Product Number</th>
+									<td>{ r.VfiRptTermProductNum }</td>
+								</tr>
+								<tr>
+									<th>Model</th>
+									<td>{ r.VfiRptTermModel }</td>
+								</tr>
+								<tr>
+									<th>App Name</th>
+									<td>{ r.VfiRptTermAppName }</td>
+								</tr>
+								<tr>
+									<th>App Version</th>
+									<td>{ r.VfiRptTermAppVersion }</td>
+								</tr>
+								<tr>
+									<th>Parameter</th>
+									<td>{ r.VfiRptTermParameter }</td>
+								</tr>
+								<tr>
+									<th>TMS Create Operator</th>
+									<td>{ r.VfiRptTermTmsCreateOperator }</td>
+								</tr>
+								<tr>
+									<th>TMS Create Date</th>
+									<td>{ r.VfiRptTermTmsCreateDtOperator }</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+					<div class="col-md-6">
+						<h5>Technician Information</h5>
+						<table class="table table-bordered">
+							<tbody>
+								<tr>
+									<th style="width: 200px;">Name</th>
+									<td>{ r.VfiRptTechName }</td>
+								</tr>
+								<tr>
+									<th>NIP</th>
+									<td>{ r.VfiRptTechNip }</td>
+								</tr>
+								<tr>
+									<th>Number</th>
+									<td>{ r.VfiRptTechNumber }</td>
+								</tr>
+								<tr>
+									<th>Address</th>
+									<td>{ r.VfiRptTechAddress }</td>
+								</tr>
+								<tr>
+									<th>Company</th>
+									<td>{ r.VfiRptTechCompany }</td>
+								</tr>
+								<tr>
+									<th>Service Point</th>
+									<td>{ r.VfiRptTechSercivePoint }</td>
+								</tr>
+								<tr>
+									<th>Phone</th>
+									<td>{ r.VfiRptTechPhone }</td>
+								</tr>
+								<tr>
+									<th>Gender</th>
+									<td>{ r.VfiRptTechGender }</td>
+								</tr>
+							</tbody>
+						</table>
+						<h5>Report Details</h5>
+						<table class="table table-bordered">
+							<tbody>
+								<tr>
+									<th style="width: 200px;">Ticket No</th>
+									<td>{ r.VfiRptTicketNo }</td>
+								</tr>
+								<tr>
+									<th>SPK No</th>
+									<td>{ r.VfiRptSpkNo }</td>
+								</tr>
+								<tr>
+									<th>Work Order</th>
+									<td>{ r.VfiRptWorkOrder }</td>
+								</tr>
+								<tr>
+									<th>Remark</th>
+									<td>{ r.VfiRptRemark }</td>
+								</tr>
+								<tr>
+									<th>Status</th>
+									<td>
+										<span class={ "badge", r.StatusClass() }>
+											{ r.VfiRptStatus }
+										</span>
+									</td>
+								</tr>
+								<tr>
+									<th>Created By</th>
+									<td>{ r.CreatedBy }</td>
+								</tr>
+								<tr>
+									<th>Created Date</th>
+									<td>{ r.CreatedDt }</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/verificationreport/update?id=%d", r.VfiRptID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/verificationreport/delete?id=%d", r.VfiRptID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this report?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

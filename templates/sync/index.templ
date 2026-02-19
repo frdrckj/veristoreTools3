@@ -1,0 +1,170 @@
+package sync
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// SyncData is a view-layer representation of a sync terminal record for template rendering.
+type SyncData struct {
+	SyncTermID          int
+	SyncTermCreatorID   int
+	SyncTermCreatorName string
+	SyncTermCreatedTime string
+	SyncTermStatus      string
+	SyncTermProcess     string
+	CreatedBy           string
+	CreatedDt           string
+}
+
+// StatusLabel returns a human-readable status label.
+func (s SyncData) StatusLabel() string {
+	switch s.SyncTermStatus {
+	case "0":
+		return "Queued"
+	case "1":
+		return "Running"
+	case "2":
+		return "Complete"
+	case "3":
+		return "Reset"
+	case "4":
+		return "Failed"
+	default:
+		return "Unknown"
+	}
+}
+
+// StatusClass returns the Bootstrap badge CSS class for the sync status.
+func (s SyncData) StatusClass() string {
+	switch s.SyncTermStatus {
+	case "0":
+		return "badge-info"
+	case "1":
+		return "badge-primary"
+	case "2":
+		return "badge-success"
+	case "3":
+		return "badge-secondary"
+	case "4":
+		return "badge-danger"
+	default:
+		return "badge-secondary"
+	}
+}
+
+// IndexPage renders the full sync terminal list page with layout.
+templ IndexPage(page layouts.PageData, syncs []SyncData, pagination components.PaginationData, lastSyncTime string) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">
+					Sync Terminal
+					if lastSyncTime != "" {
+						<small class="text-muted ml-2">Last sync: { lastSyncTime }</small>
+					}
+				</h3>
+				<div class="card-tools">
+					<div class="d-flex align-items-center">
+						<form method="POST" action="/sync-terminal/reset" class="mr-2">
+							<button
+								type="submit"
+								class="btn btn-sm btn-warning"
+								onclick="return confirm('Are you sure you want to reset all sync statuses?')"
+							>
+								<i class="fas fa-redo"></i> Reset All
+							</button>
+						</form>
+						<form method="POST" action="/sync-terminal/create">
+							<button type="submit" class="btn btn-sm btn-primary">
+								<i class="fas fa-sync"></i> Trigger Sync
+							</button>
+						</form>
+					</div>
+				</div>
+			</div>
+			<div id="sync-table-container">
+				@SyncTablePartial(syncs, pagination)
+			</div>
+		</div>
+	}
+}
+
+// SyncTablePartial renders the table body and pagination for HTMX partial updates.
+templ SyncTablePartial(syncs []SyncData, pagination components.PaginationData) {
+	<div class="card-body table-responsive p-0">
+		<table class="table table-hover table-striped">
+			<thead>
+				<tr>
+					<th style="width: 60px;">#</th>
+					<th>Creator</th>
+					<th>Created Time</th>
+					<th>Status</th>
+					<th>Process</th>
+					<th style="width: 200px;">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(syncs) == 0 {
+					<tr>
+						<td colspan="6" class="text-center text-muted">No sync records found</td>
+					</tr>
+				}
+				for _, s := range syncs {
+					<tr>
+						<td>{ strconv.Itoa(s.SyncTermID) }</td>
+						<td>{ s.SyncTermCreatorName }</td>
+						<td>{ s.SyncTermCreatedTime }</td>
+						<td>
+							<span class={ "badge", s.StatusClass() }>
+								{ s.StatusLabel() }
+							</span>
+						</td>
+						<td>
+							if s.SyncTermProcess != "" && s.SyncTermProcess != "0" {
+								{ s.SyncTermProcess }%
+							} else {
+								<span class="text-muted">-</span>
+							}
+						</td>
+						<td>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/sync-terminal/view?id=%d", s.SyncTermID)) }
+								class="btn btn-xs btn-info"
+								title="View"
+							>
+								<i class="fas fa-eye"></i>
+							</a>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/sync-terminal/download?id=%d", s.SyncTermID)) }
+								class="btn btn-xs btn-success"
+								title="Download Report"
+							>
+								<i class="fas fa-download"></i>
+							</a>
+							<form
+								method="POST"
+								action={ templ.SafeURL(fmt.Sprintf("/sync-terminal/delete?id=%d", s.SyncTermID)) }
+								style="display:inline;"
+							>
+								<button
+									type="submit"
+									class="btn btn-xs btn-danger"
+									title="Delete"
+									onclick="return confirm('Are you sure you want to delete this sync record?')"
+								>
+									<i class="fas fa-trash"></i>
+								</button>
+							</form>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<div class="card-footer clearfix">
+		@components.Pagination(pagination)
+	</div>
+}

@@ -1,0 +1,96 @@
+package sync
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the sync terminal record detail view page.
+templ ViewPage(page layouts.PageData, s SyncData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Sync Terminal Detail</h3>
+				<div class="card-tools">
+					<a href="/sync-terminal/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">Sync ID</th>
+							<td>{ strconv.Itoa(s.SyncTermID) }</td>
+						</tr>
+						<tr>
+							<th>Creator ID</th>
+							<td>{ strconv.Itoa(s.SyncTermCreatorID) }</td>
+						</tr>
+						<tr>
+							<th>Creator Name</th>
+							<td>{ s.SyncTermCreatorName }</td>
+						</tr>
+						<tr>
+							<th>Created Time</th>
+							<td>{ s.SyncTermCreatedTime }</td>
+						</tr>
+						<tr>
+							<th>Status</th>
+							<td>
+								<span class={ "badge", s.StatusClass() }>
+									{ s.StatusLabel() }
+								</span>
+							</td>
+						</tr>
+						<tr>
+							<th>Process</th>
+							<td>
+								if s.SyncTermProcess != "" && s.SyncTermProcess != "0" {
+									<div class="progress" style="height: 20px;">
+										<div
+											class="progress-bar bg-success"
+											role="progressbar"
+											style={ fmt.Sprintf("width: %s%%", s.SyncTermProcess) }
+										>
+											{ s.SyncTermProcess }%
+										</div>
+									</div>
+								} else {
+									<span class="text-muted">Not started</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Created By</th>
+							<td>{ s.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Created Date</th>
+							<td>{ s.CreatedDt }</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/sync-terminal/download?id=%d", s.SyncTermID)) }
+					class="btn btn-success"
+				>
+					<i class="fas fa-download"></i> Download Report
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/sync-terminal/delete?id=%d", s.SyncTermID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this sync record?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

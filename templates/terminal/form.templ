@@ -1,0 +1,155 @@
+package terminal
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// FormPage renders the terminal create/edit form.
+templ FormPage(page layouts.PageData, t TerminalData, isEdit bool, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">
+							if isEdit {
+								Edit Terminal
+							} else {
+								Create Terminal
+							}
+						</h3>
+						<div class="card-tools">
+							<a href="/terminal/index" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form
+						method="POST"
+						if isEdit {
+							action={ templ.SafeURL(fmt.Sprintf("/terminal/update?id=%d", t.TermID)) }
+						} else {
+							action="/terminal/create"
+						}
+					>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="device_id">Device ID <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="device_id"
+									name="device_id"
+									placeholder="Enter device ID"
+									value={ t.TermDeviceID }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="serial_num">Serial Number <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="serial_num"
+									name="serial_num"
+									placeholder="Enter serial number (CSI)"
+									value={ t.TermSerialNum }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="product_num">Product Number</label>
+								<input
+									type="text"
+									class="form-control"
+									id="product_num"
+									name="product_num"
+									placeholder="Enter product number"
+									value={ t.TermProductNum }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="model">Model</label>
+								<input
+									type="text"
+									class="form-control"
+									id="model"
+									name="model"
+									placeholder="Enter model"
+									value={ t.TermModel }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="app_name">App Name</label>
+								<input
+									type="text"
+									class="form-control"
+									id="app_name"
+									name="app_name"
+									placeholder="Enter app name"
+									value={ t.TermAppName }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="app_version">App Version</label>
+								<input
+									type="text"
+									class="form-control"
+									id="app_version"
+									name="app_version"
+									placeholder="Enter app version"
+									value={ t.TermAppVersion }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tms_create_operator">TMS Create Operator</label>
+								<input
+									type="text"
+									class="form-control"
+									id="tms_create_operator"
+									name="tms_create_operator"
+									placeholder="Enter TMS create operator"
+									value={ t.TermTmsCreateOperator }
+								/>
+							</div>
+							<div class="form-group">
+								<label for="tms_create_dt_operator">TMS Create Date</label>
+								<input
+									type="datetime-local"
+									class="form-control"
+									id="tms_create_dt_operator"
+									name="tms_create_dt_operator"
+									value={ t.TermTmsCreateDtOperator }
+								/>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i>
+								if isEdit {
+									Update Terminal
+								} else {
+									Create Terminal
+								}
+							</button>
+							<a href="/terminal/index" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

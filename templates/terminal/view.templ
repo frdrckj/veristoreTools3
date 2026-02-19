@@ -1,0 +1,197 @@
+package terminal
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// ViewPage renders the terminal detail view page with its parameters.
+templ ViewPage(page layouts.PageData, t TerminalData, params []ParamData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Terminal Detail</h3>
+				<div class="card-tools">
+					<a href="/terminal/index" class="btn btn-sm btn-default">
+						<i class="fas fa-arrow-left"></i> Back to List
+					</a>
+				</div>
+			</div>
+			<div class="card-body">
+				<div class="row">
+					<div class="col-md-6">
+						<h5>Terminal Information</h5>
+						<table class="table table-bordered">
+							<tbody>
+								<tr>
+									<th style="width: 200px;">ID</th>
+									<td>{ strconv.Itoa(t.TermID) }</td>
+								</tr>
+								<tr>
+									<th>Device ID</th>
+									<td>{ t.TermDeviceID }</td>
+								</tr>
+								<tr>
+									<th>Serial Number</th>
+									<td>{ t.TermSerialNum }</td>
+								</tr>
+								<tr>
+									<th>Product Number</th>
+									<td>{ t.TermProductNum }</td>
+								</tr>
+								<tr>
+									<th>Model</th>
+									<td>{ t.TermModel }</td>
+								</tr>
+								<tr>
+									<th>App Name</th>
+									<td>{ t.TermAppName }</td>
+								</tr>
+								<tr>
+									<th>App Version</th>
+									<td>{ t.TermAppVersion }</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+					<div class="col-md-6">
+						<h5>TMS Information</h5>
+						<table class="table table-bordered">
+							<tbody>
+								<tr>
+									<th style="width: 200px;">Create Operator</th>
+									<td>{ t.TermTmsCreateOperator }</td>
+								</tr>
+								<tr>
+									<th>Create Date</th>
+									<td>{ t.TermTmsCreateDtOperator }</td>
+								</tr>
+								<tr>
+									<th>Update Operator</th>
+									<td>
+										if t.TermTmsUpdateOperator != "" {
+											{ t.TermTmsUpdateOperator }
+										} else {
+											<span class="text-muted">-</span>
+										}
+									</td>
+								</tr>
+								<tr>
+									<th>Update Date</th>
+									<td>
+										if t.TermTmsUpdateDtOperator != "" {
+											{ t.TermTmsUpdateDtOperator }
+										} else {
+											<span class="text-muted">-</span>
+										}
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<h5>Audit</h5>
+						<table class="table table-bordered">
+							<tbody>
+								<tr>
+									<th style="width: 200px;">Created By</th>
+									<td>{ t.CreatedBy }</td>
+								</tr>
+								<tr>
+									<th>Created Date</th>
+									<td>{ t.CreatedDt }</td>
+								</tr>
+								<tr>
+									<th>Updated By</th>
+									<td>
+										if t.UpdatedBy != "" {
+											{ t.UpdatedBy }
+										} else {
+											<span class="text-muted">-</span>
+										}
+									</td>
+								</tr>
+								<tr>
+									<th>Updated Date</th>
+									<td>
+										if t.UpdatedDt != "" {
+											{ t.UpdatedDt }
+										} else {
+											<span class="text-muted">-</span>
+										}
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+				<!-- Terminal Parameters -->
+				if len(params) > 0 {
+					<hr/>
+					<h5>Terminal Parameters</h5>
+					<div class="table-responsive">
+						<table class="table table-bordered table-striped">
+							<thead>
+								<tr>
+									<th>#</th>
+									<th>Host Name</th>
+									<th>Merchant Name</th>
+									<th>TID</th>
+									<th>MID</th>
+									<th>Address</th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, p := range params {
+									<tr>
+										<td>{ strconv.Itoa(p.ParamID) }</td>
+										<td>{ p.ParamHostName }</td>
+										<td>{ p.ParamMerchantName }</td>
+										<td>{ p.ParamTID }</td>
+										<td>{ p.ParamMID }</td>
+										<td>
+											if p.ParamAddress1 != "" {
+												{ p.ParamAddress1 }
+											}
+											if p.ParamAddress2 != "" {
+												<br/>{ p.ParamAddress2 }
+											}
+											if p.ParamAddress3 != "" {
+												<br/>{ p.ParamAddress3 }
+											}
+											if p.ParamAddress4 != "" {
+												<br/>{ p.ParamAddress4 }
+											}
+											if p.ParamAddress5 != "" {
+												<br/>{ p.ParamAddress5 }
+											}
+											if p.ParamAddress6 != "" {
+												<br/>{ p.ParamAddress6 }
+											}
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</div>
+			<div class="card-footer">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/terminal/update?id=%d", t.TermID)) }
+					class="btn btn-warning"
+				>
+					<i class="fas fa-edit"></i> Edit
+				</a>
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/terminal/delete?id=%d", t.TermID)) }
+					style="display:inline;"
+				>
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this terminal?')">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				</form>
+			</div>
+		</div>
+	}
+}

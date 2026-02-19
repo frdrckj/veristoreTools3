@@ -1,0 +1,156 @@
+package terminal
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// TerminalData is a view-layer representation of a terminal for template rendering.
+type TerminalData struct {
+	TermID                  int
+	TermDeviceID            string
+	TermSerialNum           string
+	TermProductNum          string
+	TermModel               string
+	TermAppName             string
+	TermAppVersion          string
+	TermTmsCreateOperator   string
+	TermTmsCreateDtOperator string
+	TermTmsUpdateOperator   string
+	TermTmsUpdateDtOperator string
+	CreatedBy               string
+	CreatedDt               string
+	UpdatedBy               string
+	UpdatedDt               string
+}
+
+// ParamData is a view-layer representation of a terminal parameter for template rendering.
+type ParamData struct {
+	ParamID           int
+	ParamTermID       int
+	ParamHostName     string
+	ParamMerchantName string
+	ParamTID          string
+	ParamMID          string
+	ParamAddress1     string
+	ParamAddress2     string
+	ParamAddress3     string
+	ParamAddress4     string
+	ParamAddress5     string
+	ParamAddress6     string
+}
+
+// IndexPage renders the full terminal list page with layout.
+templ IndexPage(page layouts.PageData, terminals []TerminalData, pagination components.PaginationData, query string) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Terminals</h3>
+				<div class="card-tools">
+					<div class="d-flex align-items-center">
+						<form
+							class="mr-2"
+							hx-get="/terminal/index"
+							hx-target="#terminal-table-container"
+							hx-push-url="true"
+						>
+							<div class="input-group input-group-sm" style="width: 250px;">
+								<input
+									type="text"
+									name="q"
+									class="form-control"
+									placeholder="Search by CSI/Device ID..."
+									value={ query }
+								/>
+								<div class="input-group-append">
+									<button type="submit" class="btn btn-default">
+										<i class="fas fa-search"></i>
+									</button>
+								</div>
+							</div>
+						</form>
+						<a href="/terminal/create" class="btn btn-sm btn-primary">
+							<i class="fas fa-plus"></i> Create Terminal
+						</a>
+					</div>
+				</div>
+			</div>
+			<div id="terminal-table-container">
+				@TerminalTablePartial(terminals, pagination, query)
+			</div>
+		</div>
+	}
+}
+
+// TerminalTablePartial renders the table body and pagination for HTMX partial updates.
+templ TerminalTablePartial(terminals []TerminalData, pagination components.PaginationData, query string) {
+	<div class="card-body table-responsive p-0">
+		<table class="table table-hover table-striped">
+			<thead>
+				<tr>
+					<th style="width: 60px;">#</th>
+					<th>Serial Number</th>
+					<th>Device ID</th>
+					<th>Model</th>
+					<th>App Name</th>
+					<th>App Version</th>
+					<th>Created</th>
+					<th style="width: 180px;">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(terminals) == 0 {
+					<tr>
+						<td colspan="8" class="text-center text-muted">No terminals found</td>
+					</tr>
+				}
+				for _, t := range terminals {
+					<tr>
+						<td>{ strconv.Itoa(t.TermID) }</td>
+						<td>{ t.TermSerialNum }</td>
+						<td>{ t.TermDeviceID }</td>
+						<td>{ t.TermModel }</td>
+						<td>{ t.TermAppName }</td>
+						<td>{ t.TermAppVersion }</td>
+						<td>{ t.CreatedDt }</td>
+						<td>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/terminal/view?id=%d", t.TermID)) }
+								class="btn btn-xs btn-info"
+								title="View"
+							>
+								<i class="fas fa-eye"></i>
+							</a>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/terminal/update?id=%d", t.TermID)) }
+								class="btn btn-xs btn-warning"
+								title="Edit"
+							>
+								<i class="fas fa-edit"></i>
+							</a>
+							<form
+								method="POST"
+								action={ templ.SafeURL(fmt.Sprintf("/terminal/delete?id=%d", t.TermID)) }
+								style="display:inline;"
+							>
+								<button
+									type="submit"
+									class="btn btn-xs btn-danger"
+									title="Delete"
+									onclick="return confirm('Are you sure you want to delete this terminal?')"
+								>
+									<i class="fas fa-trash"></i>
+								</button>
+							</form>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<div class="card-footer clearfix">
+		@components.Pagination(pagination)
+	</div>
+}

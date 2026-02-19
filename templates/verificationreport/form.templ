@@ -1,0 +1,311 @@
+package verificationreport
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// FormPage renders the verification report create/edit form.
+templ FormPage(page layouts.PageData, r ReportData, isEdit bool, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-10 offset-md-1">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">
+							if isEdit {
+								Edit Verification Report
+							} else {
+								Create Verification Report
+							}
+						</h3>
+						<div class="card-tools">
+							<a href="/verificationreport/index" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form
+						method="POST"
+						if isEdit {
+							action={ templ.SafeURL(fmt.Sprintf("/verificationreport/update?id=%d", r.VfiRptID)) }
+						} else {
+							action="/verificationreport/create"
+						}
+					>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="row">
+								<div class="col-md-6">
+									<h5>Terminal Information</h5>
+									<div class="form-group">
+										<label for="device_id">Device ID <span class="text-danger">*</span></label>
+										<input
+											type="text"
+											class="form-control"
+											id="device_id"
+											name="device_id"
+											placeholder="Enter device ID"
+											value={ r.VfiRptTermDeviceID }
+											required
+										/>
+									</div>
+									<div class="form-group">
+										<label for="serial_num">Serial Number <span class="text-danger">*</span></label>
+										<input
+											type="text"
+											class="form-control"
+											id="serial_num"
+											name="serial_num"
+											placeholder="Enter serial number"
+											value={ r.VfiRptTermSerialNum }
+											required
+										/>
+									</div>
+									<div class="form-group">
+										<label for="product_num">Product Number</label>
+										<input
+											type="text"
+											class="form-control"
+											id="product_num"
+											name="product_num"
+											placeholder="Enter product number"
+											value={ r.VfiRptTermProductNum }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="model">Model</label>
+										<input
+											type="text"
+											class="form-control"
+											id="model"
+											name="model"
+											placeholder="Enter model"
+											value={ r.VfiRptTermModel }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="app_name">App Name</label>
+										<input
+											type="text"
+											class="form-control"
+											id="app_name"
+											name="app_name"
+											placeholder="Enter app name"
+											value={ r.VfiRptTermAppName }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="app_version">App Version</label>
+										<input
+											type="text"
+											class="form-control"
+											id="app_version"
+											name="app_version"
+											placeholder="Enter app version"
+											value={ r.VfiRptTermAppVersion }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="parameter">Parameter</label>
+										<textarea
+											class="form-control"
+											id="parameter"
+											name="parameter"
+											placeholder="Enter parameter data"
+											rows="3"
+										>{ r.VfiRptTermParameter }</textarea>
+									</div>
+									<div class="form-group">
+										<label for="tms_create_operator">TMS Create Operator</label>
+										<input
+											type="text"
+											class="form-control"
+											id="tms_create_operator"
+											name="tms_create_operator"
+											placeholder="Enter TMS create operator"
+											value={ r.VfiRptTermTmsCreateOperator }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tms_create_dt_operator">TMS Create Date</label>
+										<input
+											type="datetime-local"
+											class="form-control"
+											id="tms_create_dt_operator"
+											name="tms_create_dt_operator"
+											value={ r.VfiRptTermTmsCreateDtOperator }
+										/>
+									</div>
+								</div>
+								<div class="col-md-6">
+									<h5>Technician Information</h5>
+									<div class="form-group">
+										<label for="tech_name">Technician Name <span class="text-danger">*</span></label>
+										<input
+											type="text"
+											class="form-control"
+											id="tech_name"
+											name="tech_name"
+											placeholder="Enter technician name"
+											value={ r.VfiRptTechName }
+											required
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tech_nip">NIP</label>
+										<input
+											type="text"
+											class="form-control"
+											id="tech_nip"
+											name="tech_nip"
+											placeholder="Enter NIP"
+											value={ r.VfiRptTechNip }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tech_number">Number</label>
+										<input
+											type="text"
+											class="form-control"
+											id="tech_number"
+											name="tech_number"
+											placeholder="Enter number"
+											value={ r.VfiRptTechNumber }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tech_address">Address</label>
+										<textarea
+											class="form-control"
+											id="tech_address"
+											name="tech_address"
+											placeholder="Enter address"
+											rows="2"
+										>{ r.VfiRptTechAddress }</textarea>
+									</div>
+									<div class="form-group">
+										<label for="tech_company">Company</label>
+										<input
+											type="text"
+											class="form-control"
+											id="tech_company"
+											name="tech_company"
+											placeholder="Enter company"
+											value={ r.VfiRptTechCompany }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tech_service_point">Service Point</label>
+										<input
+											type="text"
+											class="form-control"
+											id="tech_service_point"
+											name="tech_service_point"
+											placeholder="Enter service point"
+											value={ r.VfiRptTechSercivePoint }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tech_phone">Phone</label>
+										<input
+											type="text"
+											class="form-control"
+											id="tech_phone"
+											name="tech_phone"
+											placeholder="Enter phone"
+											value={ r.VfiRptTechPhone }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="tech_gender">Gender</label>
+										<select class="form-control" id="tech_gender" name="tech_gender">
+											<option value="">-- Select Gender --</option>
+											<option value="Male" selected?={ r.VfiRptTechGender == "Male" }>Male</option>
+											<option value="Female" selected?={ r.VfiRptTechGender == "Female" }>Female</option>
+										</select>
+									</div>
+									<h5>Report Details</h5>
+									<div class="form-group">
+										<label for="ticket_no">Ticket No</label>
+										<input
+											type="text"
+											class="form-control"
+											id="ticket_no"
+											name="ticket_no"
+											placeholder="Enter ticket number"
+											value={ r.VfiRptTicketNo }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="spk_no">SPK No</label>
+										<input
+											type="text"
+											class="form-control"
+											id="spk_no"
+											name="spk_no"
+											placeholder="Enter SPK number"
+											value={ r.VfiRptSpkNo }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="work_order">Work Order</label>
+										<input
+											type="text"
+											class="form-control"
+											id="work_order"
+											name="work_order"
+											placeholder="Enter work order"
+											value={ r.VfiRptWorkOrder }
+										/>
+									</div>
+									<div class="form-group">
+										<label for="remark">Remark</label>
+										<textarea
+											class="form-control"
+											id="remark"
+											name="remark"
+											placeholder="Enter remark"
+											rows="2"
+										>{ r.VfiRptRemark }</textarea>
+									</div>
+									<div class="form-group">
+										<label for="status">Status <span class="text-danger">*</span></label>
+										<select class="form-control" id="status" name="status" required>
+											<option value="">-- Select Status --</option>
+											<option value="PASS" selected?={ r.VfiRptStatus == "PASS" }>PASS</option>
+											<option value="FAIL" selected?={ r.VfiRptStatus == "FAIL" }>FAIL</option>
+											<option value="PENDING" selected?={ r.VfiRptStatus == "PENDING" }>PENDING</option>
+										</select>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i>
+								if isEdit {
+									Update Report
+								} else {
+									Create Report
+								}
+							</button>
+							<a href="/verificationreport/index" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}
