@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS `user` (
+  `user_id` int NOT NULL AUTO_INCREMENT,
+  `user_fullname` varchar(100) NOT NULL,
+  `user_name` varchar(60) NOT NULL,
+  `password` varchar(256) NOT NULL,
+  `user_privileges` varchar(60) NOT NULL,
+  `user_lastchangepassword` datetime DEFAULT NULL,
+  `createddtm` datetime NOT NULL,
+  `createdby` varchar(60) NOT NULL,
+  `auth_key` varchar(32) DEFAULT NULL,
+  `password_hash` varchar(256) DEFAULT NULL,
+  `password_reset_token` varchar(256) DEFAULT NULL,
+  `email` varchar(256) DEFAULT NULL,
+  `status` int DEFAULT NULL,
+  `created_at` int DEFAULT NULL,
+  `updated_at` int DEFAULT NULL,
+  `tms_session` varchar(5120) DEFAULT NULL,
+  `tms_password` varchar(256) DEFAULT NULL,
+  PRIMARY KEY (`user_id`),
+  UNIQUE KEY `user_code` (`user_name`),
+  KEY `user_name` (`user_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;

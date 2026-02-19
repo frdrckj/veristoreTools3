@@ -1,7 +1,8 @@
-.PHONY: build run test templ clean lint dev
+.PHONY: build run test templ clean lint dev migrate
 
 build: templ
 	go build -o bin/veristoretools3 ./cmd/server
+	go build -o bin/migrate ./cmd/migrate
 
 run: templ
 	go run ./cmd/server
@@ -20,3 +21,6 @@ lint:
 
 dev: templ
 	go run ./cmd/server
+
+migrate:
+	go run ./cmd/migrate
