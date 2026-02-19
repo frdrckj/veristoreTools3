@@ -1,5 +1,4 @@
 //go:build tools
-// +build tools
 
 // Package tools tracks tool and future dependencies that are not yet imported
 // in application code. This prevents go mod tidy from removing them.

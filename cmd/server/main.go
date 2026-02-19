@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/labstack/echo/v4"
@@ -14,7 +15,7 @@ func main() {
 	e.Use(middleware.Logger())
 
 	e.GET("/", func(c echo.Context) error {
-		return c.String(200, "VeriStore Tools 3 is running")
+		return c.String(http.StatusOK, "VeriStore Tools 3 is running")
 	})
 
 	port := os.Getenv("PORT")
