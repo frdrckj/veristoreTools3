@@ -66,7 +66,9 @@ func (h *APIHandler) ActivationCode(c echo.Context) error {
 		CreatedDt:      time.Now(),
 	}
 	// Best-effort: log the activation but don't fail the response.
-	_ = h.repo.CreateActivation(act)
+	if h.repo != nil && h.db != nil {
+		_ = h.repo.CreateActivation(act)
+	}
 
 	return shared.APISuccess(c, ActivationCodeResponse{
 		ActivationCode: code,

@@ -17,6 +17,12 @@ import (
 func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
+	// Check for subcommands: "verify" compares v2 and v3 row counts.
+	if len(os.Args) > 1 && os.Args[1] == "verify" {
+		runVerifyCommand()
+		return
+	}
+
 	configPath := "config.yaml"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
@@ -44,6 +50,34 @@ func main() {
 	}
 
 	log.Info().Msg("all migrations completed successfully")
+}
+
+// runVerifyCommand loads config and runs the migration verification that
+// compares row counts between veristoretools2 and veristoretools3 databases.
+func runVerifyCommand() {
+	configPath := "config.yaml"
+	if len(os.Args) > 2 {
+		configPath = os.Args[2]
+	}
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
+	// Build DSNs: v3 uses the configured database, v2 uses the same
+	// connection settings but with "veristoretools2" as the database name.
+	v3DSN := cfg.Database.DSN()
+
+	v2Cfg := cfg.Database
+	v2Cfg.Name = "veristoretools2"
+	v2DSN := v2Cfg.DSN()
+
+	log.Info().Str("v2", "veristoretools2").Str("v3", cfg.Database.Name).Msg("verifying migration")
+
+	if err := runVerify(v2DSN, v3DSN); err != nil {
+		log.Fatal().Err(err).Msg("verification failed")
+	}
 }
 
 func runMigrations(db *sql.DB, dir string) error {

@@ -1,0 +1,15 @@
+[Unit]
+Description=VeriStore Tools 3
+After=network.target mysql.service redis.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/veristoretools3
+ExecStart=/opt/veristoretools3/bin/veristoretools3
+Restart=always
+RestartSec=5
+Environment=CONFIG_PATH=/opt/veristoretools3/config.yaml
+
+[Install]
+WantedBy=multi-user.target

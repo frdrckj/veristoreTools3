@@ -1,4 +1,4 @@
-.PHONY: build run test templ clean lint dev migrate
+.PHONY: build run test templ clean lint dev migrate verify install
 
 build: templ
 	go build -o bin/veristoretools3 ./cmd/server
@@ -24,3 +24,9 @@ dev: templ
 
 migrate:
 	go run ./cmd/migrate
+
+verify:
+	go run ./cmd/migrate verify
+
+install:
+	./deploy/install.sh
