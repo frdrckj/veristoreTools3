@@ -2173,6 +2173,11 @@ func toString(v interface{}) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// ToString is the exported version of toString for use by other packages.
+func ToString(v interface{}) string {
+	return toString(v)
+}
+
 // intDiff returns elements that are in a but not in b.
 func intDiff(a, b []int) []int {
 	set := make(map[int]struct{}, len(b))
