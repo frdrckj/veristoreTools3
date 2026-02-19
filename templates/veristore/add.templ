@@ -1,0 +1,98 @@
+package veristore
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// AddPage renders the add terminal form.
+templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants []map[string]interface{}, groups []map[string]interface{}, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Add Terminal</h3>
+						<div class="card-tools">
+							<a href="/veristore" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form method="POST" action="/veristore/add">
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="sn">Serial Number</label>
+								<input type="text" class="form-control" id="sn" name="sn" placeholder="Enter serial number"/>
+							</div>
+							<div class="form-group">
+								<label for="deviceId">Device ID</label>
+								<input type="text" class="form-control" id="deviceId" name="deviceId" placeholder="Enter device ID"/>
+							</div>
+							<div class="form-group">
+								<label for="vendor">Vendor <span class="text-danger">*</span></label>
+								<select class="form-control select2" id="vendor" name="vendor" required
+									hx-get="/veristore/model"
+									hx-target="#modelSelect"
+									hx-trigger="change"
+									hx-include="[name='vendor']"
+								>
+									<option value="">-- Select Vendor --</option>
+									for _, v := range vendors {
+										<option value={ mapGet(v, "id") }>{ mapGet(v, "name") }</option>
+									}
+								</select>
+							</div>
+							<div class="form-group">
+								<label for="model">Model <span class="text-danger">*</span></label>
+								<select class="form-control select2" id="model" name="model" required>
+									<option value="">-- Select Model --</option>
+								</select>
+								<div id="modelSelect"></div>
+							</div>
+							<div class="form-group">
+								<label for="merchantId">Merchant</label>
+								<select class="form-control select2" id="merchantId" name="merchantId">
+									<option value="">-- Select Merchant --</option>
+									for _, m := range merchants {
+										<option value={ mapGet(m, "id") }>{ mapGet(m, "name") }</option>
+									}
+								</select>
+							</div>
+							<div class="form-group">
+								<label for="groupIds">Groups</label>
+								<select class="form-control select2" id="groupIds" name="groupIds[]" multiple="multiple">
+									for _, g := range groups {
+										<option value={ mapGet(g, "id") }>{ mapGet(g, "name") }</option>
+									}
+								</select>
+							</div>
+							<div class="form-group">
+								<label for="moveConf">IoT Flag</label>
+								<select class="form-control" id="moveConf" name="moveConf">
+									<option value="0">No</option>
+									<option value="1">Yes</option>
+								</select>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-save"></i> Add Terminal
+							</button>
+							<a href="/veristore" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

@@ -1,0 +1,67 @@
+package veristore
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// CopyPage renders the copy terminal form.
+templ CopyPage(page layouts.PageData, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-6 offset-md-3">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Copy Terminal</h3>
+						<div class="card-tools">
+							<a href="/veristore" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form method="POST" action="/veristore/copy">
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="sourceSn">Source Serial Number <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="sourceSn"
+									name="sourceSn"
+									placeholder="Enter source terminal SN"
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="destSn">Destination Serial Number <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="destSn"
+									name="destSn"
+									placeholder="Enter destination terminal SN"
+									required
+								/>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-copy"></i> Copy Terminal
+							</button>
+							<a href="/veristore" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

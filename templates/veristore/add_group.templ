@@ -1,0 +1,200 @@
+package veristore
+
+import (
+	"fmt"
+	"strconv"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// AddGroupPage renders the group add/edit form with terminal selector.
+templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[string]interface{}, isEdit bool, groupId int) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						if isEdit {
+							<h3 class="card-title">Edit Group</h3>
+						} else {
+							<h3 class="card-title">Add Group</h3>
+						}
+						<div class="card-tools">
+							<a href="/veristore/group" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form method="POST" action={ groupFormAction(isEdit) }>
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							if isEdit {
+								<input type="hidden" name="id" value={ strconv.Itoa(groupId) }/>
+							}
+							<div class="form-group">
+								<label for="groupName">Group Name <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="groupName"
+									name="groupName"
+									placeholder="Enter group name"
+									required
+								/>
+							</div>
+							<!-- Terminal Selector -->
+							<div class="form-group">
+								<label>Terminals</label>
+								<div class="input-group input-group-sm mb-2">
+									<input
+										type="text"
+										id="terminalSearch"
+										class="form-control"
+										placeholder="Search terminals to add..."
+										hx-get="/veristore/group/terminal"
+										hx-target="#terminalSearchResults"
+										hx-trigger="keyup changed delay:500ms"
+										hx-include="#terminalSearch"
+										name="q"
+									/>
+									<div class="input-group-append">
+										<button type="button" class="btn btn-default" onclick="document.getElementById('terminalSearch').dispatchEvent(new Event('keyup'))">
+											<i class="fas fa-search"></i>
+										</button>
+									</div>
+								</div>
+								<div id="terminalSearchResults"></div>
+								<!-- Selected terminals table -->
+								<table class="table table-bordered table-sm mt-2" id="selectedTerminals">
+									<thead>
+										<tr>
+											<th>Terminal ID</th>
+											<th>SN</th>
+											<th>Device ID</th>
+											<th style="width: 60px;">Remove</th>
+										</tr>
+									</thead>
+									<tbody>
+										if len(terminals) > 0 {
+											for _, t := range terminals {
+												<tr id={ fmt.Sprintf("terminal-row-%s", mapGet(t, "terminalId")) }>
+													<td>{ mapGet(t, "terminalId") }</td>
+													<td>{ mapGet(t, "sn") }</td>
+													<td>{ mapGet(t, "deviceId") }</td>
+													<td>
+														<button type="button" class="btn btn-xs btn-danger" onclick={ removeTerminalRow(mapGet(t, "terminalId")) }>
+															<i class="fas fa-times"></i>
+														</button>
+													</td>
+													<input type="hidden" name="terminalIds[]" value={ mapGet(t, "terminalId") }/>
+													if isEdit {
+														<input type="hidden" name="oldTerminalIds[]" value={ mapGet(t, "terminalId") }/>
+													}
+												</tr>
+											}
+										} else {
+											<tr id="noTerminals">
+												<td colspan="4" class="text-center text-muted">No terminals added yet</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						</div>
+						<div class="card-footer">
+							if isEdit {
+								<button type="submit" class="btn btn-primary">
+									<i class="fas fa-save"></i> Update Group
+								</button>
+							} else {
+								<button type="submit" class="btn btn-primary">
+									<i class="fas fa-save"></i> Add Group
+								</button>
+							}
+							<a href="/veristore/group" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+		<script>
+			function addTerminal(id, sn, deviceId) {
+				if (document.getElementById('terminal-row-' + id)) return;
+				var noRow = document.getElementById('noTerminals');
+				if (noRow) noRow.remove();
+				var tbody = document.querySelector('#selectedTerminals tbody');
+				var row = document.createElement('tr');
+				row.id = 'terminal-row-' + id;
+				row.innerHTML = '<td>' + id + '</td><td>' + sn + '</td><td>' + deviceId + '</td>' +
+					'<td><button type="button" class="btn btn-xs btn-danger" onclick="removeTerminal(\'' + id + '\')"><i class="fas fa-times"></i></button></td>' +
+					'<input type="hidden" name="terminalIds[]" value="' + id + '">';
+				tbody.appendChild(row);
+			}
+			function removeTerminal(id) {
+				var row = document.getElementById('terminal-row-' + id);
+				if (row) row.remove();
+				if (document.querySelectorAll('#selectedTerminals tbody tr').length === 0) {
+					var tbody = document.querySelector('#selectedTerminals tbody');
+					tbody.innerHTML = '<tr id="noTerminals"><td colspan="4" class="text-center text-muted">No terminals added yet</td></tr>';
+				}
+			}
+		</script>
+	}
+}
+
+// groupFormAction returns the form action URL depending on edit mode.
+func groupFormAction(isEdit bool) templ.SafeURL {
+	if isEdit {
+		return templ.SafeURL("/veristore/group/edit")
+	}
+	return templ.SafeURL("/veristore/group/add")
+}
+
+// removeTerminalRow generates a JS expression for the onclick handler.
+func removeTerminalRow(id string) templ.ComponentScript {
+	return templ.ComponentScript{
+		Name: "removeTerminal",
+		Call: fmt.Sprintf("removeTerminal('%s')", id),
+	}
+}
+
+// GroupTerminalSearchPartial renders the terminal search results for group terminal selector.
+templ GroupTerminalSearchPartial(terminals []map[string]interface{}) {
+	if len(terminals) > 0 {
+		<div class="list-group" style="max-height: 200px; overflow-y: auto;">
+			for _, t := range terminals {
+				<a
+					href="#"
+					class="list-group-item list-group-item-action py-1"
+					onclick={ addTerminalScript(mapGet(t, "terminalId"), mapGet(t, "sn"), mapGet(t, "deviceId")) }
+				>
+					<small>
+						<strong>{ mapGet(t, "sn") }</strong> - { mapGet(t, "deviceId") }
+					</small>
+				</a>
+			}
+		</div>
+	} else {
+		<div class="text-muted text-center py-2">
+			<small>No terminals found</small>
+		</div>
+	}
+}
+
+// addTerminalScript generates a JS expression for adding a terminal.
+func addTerminalScript(id, sn, deviceId string) templ.ComponentScript {
+	return templ.ComponentScript{
+		Name: "addTerminal",
+		Call: fmt.Sprintf("addTerminal('%s','%s','%s')", id, sn, deviceId),
+	}
+}

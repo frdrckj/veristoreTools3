@@ -1,0 +1,29 @@
+package veristore
+
+// CheckPartial renders the parameter preview partial for HTMX requests.
+templ CheckPartial(paraList []map[string]interface{}) {
+	if len(paraList) > 0 {
+		<table class="table table-bordered table-sm">
+			<thead>
+				<tr>
+					<th>Parameter Name</th>
+					<th>Value</th>
+					<th>Description</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, p := range paraList {
+					<tr>
+						<td><code>{ mapGet(p, "dataName") }</code></td>
+						<td>{ mapGet(p, "value") }</td>
+						<td><small class="text-muted">{ mapGet(p, "description") }</small></td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	} else {
+		<div class="text-center text-muted py-3">
+			No parameters found.
+		</div>
+	}
+}

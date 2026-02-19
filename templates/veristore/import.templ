@@ -1,0 +1,87 @@
+package veristore
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// ImportPage renders the terminal import upload form.
+templ ImportPage(page layouts.PageData, errors []string, results []map[string]interface{}) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Import Terminals</h3>
+						<div class="card-tools">
+							<a href="/veristore" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form method="POST" action="/veristore/import" enctype="multipart/form-data">
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="file">Select Excel File (.xlsx)</label>
+								<div class="input-group">
+									<div class="custom-file">
+										<input type="file" class="custom-file-input" id="file" name="file" accept=".xlsx,.xls"/>
+										<label class="custom-file-label" for="file">Choose file</label>
+									</div>
+								</div>
+								<small class="form-text text-muted">
+									Upload an Excel file with terminal data.
+									<a href="/veristore/import-format">Download template</a>
+								</small>
+							</div>
+							if len(results) > 0 {
+								<div class="mt-3">
+									<h5>Import Results:</h5>
+									<table class="table table-bordered table-sm">
+										<thead>
+											<tr>
+												<th>Row</th>
+												<th>Status</th>
+												<th>Message</th>
+											</tr>
+										</thead>
+										<tbody>
+											for _, r := range results {
+												<tr>
+													<td>{ mapGet(r, "row") }</td>
+													<td>{ mapGet(r, "status") }</td>
+													<td>{ mapGet(r, "message") }</td>
+												</tr>
+											}
+										</tbody>
+									</table>
+								</div>
+							}
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-file-import"></i> Import
+							</button>
+							<a href="/veristore" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+		<script>
+			document.querySelector('.custom-file-input')?.addEventListener('change', function(e) {
+				var fileName = e.target.files[0]?.name || 'Choose file';
+				e.target.nextElementSibling.textContent = fileName;
+			});
+		</script>
+	}
+}

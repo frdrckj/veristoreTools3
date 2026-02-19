@@ -1,0 +1,133 @@
+package veristore
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// LoginPage renders the TMS login form with captcha.
+templ LoginPage(page layouts.PageData, errors []string) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-6 offset-md-3">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">TMS Login</h3>
+					</div>
+					<form method="POST" action="/veristore/login" id="tmsLoginForm">
+						<div class="card-body">
+							if len(errors) > 0 {
+								<div class="alert alert-danger alert-dismissible fade show" role="alert">
+									<ul class="mb-0">
+										for _, err := range errors {
+											<li>{ err }</li>
+										}
+									</ul>
+									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+										<span aria-hidden="true">&times;</span>
+									</button>
+								</div>
+							}
+							<div class="form-group">
+								<label for="username">Username <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="username"
+									name="username"
+									placeholder="Enter TMS username"
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="password">Password <span class="text-danger">*</span></label>
+								<input
+									type="password"
+									class="form-control"
+									id="password"
+									name="password"
+									placeholder="Enter TMS password"
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="resellerId">Reseller</label>
+								<select class="form-control select2" id="resellerId" name="resellerId">
+									<option value="">-- Select Reseller --</option>
+								</select>
+								<small class="text-muted">Enter username first, then select reseller.</small>
+							</div>
+							<div class="form-group">
+								<label for="code">Captcha Code <span class="text-danger">*</span></label>
+								<div class="row">
+									<div class="col-md-6">
+										<input
+											type="text"
+											class="form-control"
+											id="code"
+											name="code"
+											placeholder="Enter captcha"
+											required
+										/>
+									</div>
+									<div class="col-md-6">
+										<div id="captchaContainer" class="text-center">
+											<img id="captchaImage" src="" alt="Captcha" style="cursor: pointer; max-height: 40px;" title="Click to refresh"/>
+											<button type="button" class="btn btn-sm btn-outline-secondary ml-2" id="refreshCaptcha">
+												<i class="fas fa-sync-alt"></i>
+											</button>
+										</div>
+									</div>
+								</div>
+								<input type="hidden" id="token" name="token" value=""/>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-primary">
+								<i class="fas fa-sign-in-alt"></i> Login to TMS
+							</button>
+							<a href="/veristore" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+		<script>
+			function loadCaptcha() {
+				fetch('/veristore/verify-code')
+					.then(r => r.json())
+					.then(data => {
+						if (data.code === 0 && data.data) {
+							document.getElementById('captchaImage').src = data.data.image;
+							document.getElementById('token').value = data.data.token;
+						}
+					})
+					.catch(err => console.error('Failed to load captcha:', err));
+			}
+
+			function loadResellers() {
+				var username = document.getElementById('username').value;
+				if (!username) return;
+				fetch('/veristore/operator?username=' + encodeURIComponent(username))
+					.then(r => r.json())
+					.then(data => {
+						var select = document.getElementById('resellerId');
+						select.innerHTML = '<option value="">-- Select Reseller --</option>';
+						if (data.code === 0 && data.data) {
+							data.data.forEach(function(item) {
+								var opt = document.createElement('option');
+								opt.value = item.id || item.value;
+								opt.textContent = item.label || item.name;
+								select.appendChild(opt);
+							});
+						}
+					})
+					.catch(err => console.error('Failed to load resellers:', err));
+			}
+
+			document.getElementById('refreshCaptcha')?.addEventListener('click', loadCaptcha);
+			document.getElementById('captchaImage')?.addEventListener('click', loadCaptcha);
+			document.getElementById('username')?.addEventListener('blur', loadResellers);
+
+			// Load captcha on page load.
+			loadCaptcha();
+		</script>
+	}
+}

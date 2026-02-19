@@ -1,0 +1,246 @@
+package veristore
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// AddMerchantPage renders the merchant add/edit form.
+// When isEdit is true, merchantData contains the existing merchant data.
+templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}, countries []map[string]interface{}, timeZones []map[string]interface{}, isEdit bool) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						if isEdit {
+							<h3 class="card-title">Edit Merchant</h3>
+						} else {
+							<h3 class="card-title">Add Merchant</h3>
+						}
+						<div class="card-tools">
+							<a href="/veristore/merchant" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form method="POST" action={ merchantFormAction(isEdit, merchantData) }>
+						<div class="card-body">
+							if isEdit && merchantData != nil {
+								<input type="hidden" name="id" value={ merchantDataGet(merchantData, "id") }/>
+							}
+							<div class="row">
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="merchantName">Merchant Name <span class="text-danger">*</span></label>
+										<input
+											type="text"
+											class="form-control"
+											id="merchantName"
+											name="merchantName"
+											placeholder="Enter merchant name"
+											value={ merchantDataGet(merchantData, "merchantName") }
+											required
+										/>
+									</div>
+								</div>
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="contact">Contact</label>
+										<input
+											type="text"
+											class="form-control"
+											id="contact"
+											name="contact"
+											placeholder="Enter contact name"
+											value={ merchantDataGet(merchantData, "contact") }
+										/>
+									</div>
+								</div>
+							</div>
+							<div class="row">
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="email">Email</label>
+										<input
+											type="email"
+											class="form-control"
+											id="email"
+											name="email"
+											placeholder="Enter email"
+											value={ merchantDataGet(merchantData, "email") }
+										/>
+									</div>
+								</div>
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="cellPhone">Cell Phone</label>
+										<input
+											type="text"
+											class="form-control"
+											id="cellPhone"
+											name="cellPhone"
+											placeholder="Enter cell phone"
+											value={ merchantDataGet(merchantData, "cellPhone") }
+										/>
+									</div>
+								</div>
+							</div>
+							<div class="row">
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="telePhone">Telephone</label>
+										<input
+											type="text"
+											class="form-control"
+											id="telePhone"
+											name="telePhone"
+											placeholder="Enter telephone"
+											value={ merchantDataGet(merchantData, "telePhone") }
+										/>
+									</div>
+								</div>
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="postCode">Post Code</label>
+										<input
+											type="text"
+											class="form-control"
+											id="postCode"
+											name="postCode"
+											placeholder="Enter post code"
+											value={ merchantDataGet(merchantData, "postCode") }
+										/>
+									</div>
+								</div>
+							</div>
+							<div class="form-group">
+								<label for="address">Address</label>
+								<textarea
+									class="form-control"
+									id="address"
+									name="address"
+									rows="3"
+									placeholder="Enter address"
+								>{ merchantDataGet(merchantData, "address") }</textarea>
+							</div>
+							<div class="row">
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="timeZone">Time Zone</label>
+										<select class="form-control select2" id="timeZone" name="timeZone">
+											<option value="">-- Select Time Zone --</option>
+											for _, tz := range timeZones {
+												<option
+													value={ mapGet(tz, "id") }
+													selected?={ mapGet(tz, "id") == merchantDataGet(merchantData, "timeZone") }
+												>
+													{ mapGet(tz, "name") }
+												</option>
+											}
+										</select>
+									</div>
+								</div>
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="countryId">Country</label>
+										<select
+											class="form-control select2"
+											id="countryId"
+											name="countryId"
+											hx-get="/veristore/state"
+											hx-target="#stateOptions"
+											hx-trigger="change"
+											hx-include="[name='countryId']"
+										>
+											<option value="">-- Select Country --</option>
+											for _, c := range countries {
+												<option
+													value={ mapGet(c, "id") }
+													selected?={ mapGet(c, "id") == merchantDataGet(merchantData, "countryId") }
+												>
+													{ mapGet(c, "name") }
+												</option>
+											}
+										</select>
+									</div>
+								</div>
+							</div>
+							<div class="row">
+								<div class="col-md-4">
+									<div class="form-group">
+										<label for="stateId">State</label>
+										<select class="form-control select2" id="stateId" name="stateId"
+											hx-get="/veristore/city"
+											hx-target="#cityOptions"
+											hx-trigger="change"
+											hx-include="[name='stateId']"
+										>
+											<option value="">-- Select State --</option>
+										</select>
+										<div id="stateOptions"></div>
+									</div>
+								</div>
+								<div class="col-md-4">
+									<div class="form-group">
+										<label for="cityId">City</label>
+										<select class="form-control select2" id="cityId" name="cityId"
+											hx-get="/veristore/district"
+											hx-target="#districtOptions"
+											hx-trigger="change"
+											hx-include="[name='cityId']"
+										>
+											<option value="">-- Select City --</option>
+										</select>
+										<div id="cityOptions"></div>
+									</div>
+								</div>
+								<div class="col-md-4">
+									<div class="form-group">
+										<label for="districtId">District</label>
+										<select class="form-control select2" id="districtId" name="districtId">
+											<option value="">-- Select District --</option>
+										</select>
+										<div id="districtOptions"></div>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="card-footer">
+							if isEdit {
+								<button type="submit" class="btn btn-primary">
+									<i class="fas fa-save"></i> Update Merchant
+								</button>
+							} else {
+								<button type="submit" class="btn btn-primary">
+									<i class="fas fa-save"></i> Add Merchant
+								</button>
+							}
+							<a href="/veristore/merchant" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// merchantFormAction returns the form action URL depending on edit mode.
+func merchantFormAction(isEdit bool, data map[string]interface{}) templ.SafeURL {
+	if isEdit {
+		return templ.SafeURL("/veristore/merchant/edit")
+	}
+	return templ.SafeURL("/veristore/merchant/add")
+}
+
+// merchantDataGet safely retrieves a value from merchant data.
+// When data is from the detail endpoint, the merchant is nested under "merchant" key.
+func merchantDataGet(data map[string]interface{}, key string) string {
+	if data == nil {
+		return ""
+	}
+	// Check if merchant data is nested.
+	if m, ok := data["merchant"]; ok {
+		if mm, ok := m.(map[string]interface{}); ok {
+			return mapGet(mm, key)
+		}
+	}
+	return mapGet(data, key)
+}

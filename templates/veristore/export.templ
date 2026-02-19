@@ -1,0 +1,44 @@
+package veristore
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// ExportPage renders the terminal export form.
+templ ExportPage(page layouts.PageData) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-8 offset-md-2">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Export Terminals</h3>
+						<div class="card-tools">
+							<a href="/veristore" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<form method="POST" action="/veristore/export">
+						<div class="card-body">
+							<p class="text-muted">
+								Export all terminal data to an Excel file. The export will include
+								terminal SN, device ID, model, vendor, merchant, and group information.
+							</p>
+							<div class="form-group">
+								<label for="exportType">Export Type</label>
+								<select class="form-control" id="exportType" name="exportType">
+									<option value="all">All Terminals</option>
+									<option value="filtered">Current Filter Results</option>
+								</select>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="submit" class="btn btn-success">
+								<i class="fas fa-file-export"></i> Export to Excel
+							</button>
+							<a href="/veristore" class="btn btn-default">Cancel</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	}
+}

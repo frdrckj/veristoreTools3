@@ -1,0 +1,108 @@
+package veristore
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// EditPage renders the edit terminal parameters form.
+templ EditPage(page layouts.PageData, serialNum string, appId string, detail map[string]interface{}, paraList []map[string]interface{}) {
+	@layouts.Base(page) {
+		<div class="row">
+			<div class="col-md-12">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Edit Parameters - { serialNum }</h3>
+						<div class="card-tools">
+							<a href="/veristore" class="btn btn-sm btn-default">
+								<i class="fas fa-arrow-left"></i> Back to List
+							</a>
+						</div>
+					</div>
+					<div class="card-body">
+						<!-- Terminal Info -->
+						if detail != nil {
+							<div class="row mb-3">
+								<div class="col-md-4">
+									<strong>SN:</strong> { mapGet(detail, "sn") }
+								</div>
+								<div class="col-md-4">
+									<strong>Device ID:</strong> { mapGet(detail, "deviceId") }
+								</div>
+								<div class="col-md-4">
+									<strong>Model:</strong> { mapGet(detail, "model") }
+								</div>
+							</div>
+							<!-- App List -->
+							if apps, ok := detail["terminalShowApps"].([]interface{}); ok && len(apps) > 0 {
+								<div class="mb-3">
+									<strong>Installed Apps:</strong>
+									<div class="btn-group btn-group-sm ml-2">
+										for _, app := range apps {
+											if am, ok := app.(map[string]interface{}); ok {
+												<a
+													href={ templ.SafeURL(fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, mapGet(am, "id"))) }
+													class={ "btn", templ.KV("btn-primary", mapGet(am, "id") == appId), templ.KV("btn-outline-primary", mapGet(am, "id") != appId) }
+												>
+													{ mapGet(am, "name") } ({ mapGet(am, "version") })
+												</a>
+											}
+										}
+									</div>
+								</div>
+							}
+						}
+						<!-- Parameter Form -->
+						if len(paraList) > 0 && appId != "" {
+							<form method="POST" action="/veristore/edit">
+								<input type="hidden" name="serialNum" value={ serialNum }/>
+								<input type="hidden" name="appId" value={ appId }/>
+								<table class="table table-bordered table-sm">
+									<thead>
+										<tr>
+											<th style="width: 40%;">Parameter</th>
+											<th style="width: 40%;">Value</th>
+											<th style="width: 20%;">Description</th>
+										</tr>
+									</thead>
+									<tbody>
+										for _, p := range paraList {
+											<tr>
+												<td>
+													<code>{ mapGet(p, "dataName") }</code>
+													<input type="hidden" name={ "viewName_" + mapGet(p, "dataName") } value={ mapGet(p, "viewName") }/>
+												</td>
+												<td>
+													<input
+														type="text"
+														class="form-control form-control-sm"
+														name={ "param_" + mapGet(p, "dataName") }
+														value={ mapGet(p, "value") }
+													/>
+												</td>
+												<td>
+													<small class="text-muted">{ mapGet(p, "description") }</small>
+												</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+								<button type="submit" class="btn btn-primary">
+									<i class="fas fa-save"></i> Update Parameters
+								</button>
+							</form>
+						} else if appId == "" && detail != nil {
+							<div class="alert alert-info">
+								Select an app above to edit its parameters.
+							</div>
+						} else {
+							<div class="alert alert-warning">
+								No parameters found for this app.
+							</div>
+						}
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}

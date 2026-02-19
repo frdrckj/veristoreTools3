@@ -1,0 +1,106 @@
+package veristore
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// GroupPage renders the full group list page with layout.
+templ GroupPage(page layouts.PageData, groups []map[string]interface{}, totalPage int, currentPage int, search string, pagination components.PaginationData) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Group List</h3>
+				<div class="card-tools">
+					<div class="d-flex align-items-center">
+						<form
+							class="mr-2"
+							hx-get="/veristore/group"
+							hx-target="#group-table-container"
+							hx-push-url="true"
+						>
+							<div class="input-group input-group-sm" style="width: 250px;">
+								<input
+									type="text"
+									name="q"
+									class="form-control"
+									placeholder="Search groups..."
+									value={ search }
+								/>
+								<div class="input-group-append">
+									<button type="submit" class="btn btn-default">
+										<i class="fas fa-search"></i>
+									</button>
+								</div>
+							</div>
+						</form>
+						<a href="/veristore/group/add" class="btn btn-sm btn-primary" title="Add Group">
+							<i class="fas fa-plus"></i> Add
+						</a>
+					</div>
+				</div>
+			</div>
+			<div id="group-table-container">
+				@GroupTablePartial(groups, pagination, search)
+			</div>
+		</div>
+	}
+}
+
+// GroupTablePartial renders the group table body and pagination for HTMX updates.
+templ GroupTablePartial(groups []map[string]interface{}, pagination components.PaginationData, search string) {
+	<div class="card-body table-responsive p-0">
+		<table class="table table-hover table-striped table-sm">
+			<thead>
+				<tr>
+					<th>ID</th>
+					<th>Group Name</th>
+					<th>Total Terminals</th>
+					<th style="width: 150px;">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(groups) == 0 {
+					<tr>
+						<td colspan="4" class="text-center text-muted">No groups found</td>
+					</tr>
+				}
+				for _, g := range groups {
+					<tr>
+						<td>{ mapGet(g, "id") }</td>
+						<td>{ mapGet(g, "groupName") }</td>
+						<td>{ mapGet(g, "totalTerminals") }</td>
+						<td>
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/veristore/group/edit?id=%s&name=%s", mapGet(g, "id"), mapGet(g, "groupName"))) }
+								class="btn btn-xs btn-info"
+								title="Edit"
+							>
+								<i class="fas fa-edit"></i>
+							</a>
+							<form
+								method="POST"
+								action="/veristore/group/delete"
+								style="display:inline;"
+							>
+								<input type="hidden" name="id" value={ mapGet(g, "id") }/>
+								<button
+									type="submit"
+									class="btn btn-xs btn-danger"
+									title="Delete"
+									onclick="return confirm('Are you sure you want to delete this group?')"
+								>
+									<i class="fas fa-trash"></i>
+								</button>
+							</form>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<div class="card-footer clearfix">
+		@components.Pagination(pagination)
+	</div>
+}
