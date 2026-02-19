@@ -1,8 +1,194 @@
-p, CSI ADMIN, /*, *
-p, CSI OPERATOR, /verification/*, *
-p, CSI OPERATOR, /sync-terminal/*, GET
-p, TMS ADMIN, /*, *
-p, TMS SUPERVISOR, /veristore/*, *
-p, TMS SUPERVISOR, /sync-terminal/*, *
-p, TMS OPERATOR, /veristore/terminal, GET
-p, TMS OPERATOR, /veristore/terminal, POST
+# ============================================================================
+# VeriStore Tools 3 - Casbin RBAC Policies
+# ============================================================================
+# Format: p, role, path_pattern, http_method
+# keyMatch2 is used for URL matching: /path/:param style patterns
+# "*" in the method column matches any HTTP method (via matcher)
+#
+# Role names MUST match user_privileges values stored in the database:
+#   CSI roles: ADMIN, OPERATOR
+#   TMS roles: TMS ADMIN, TMS SUPERVISOR, TMS OPERATOR
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Common routes accessible by ALL authenticated roles
+# ---------------------------------------------------------------------------
+# Dashboard
+p, ADMIN, /, GET
+p, OPERATOR, /, GET
+p, TMS ADMIN, /, GET
+p, TMS SUPERVISOR, /, GET
+p, TMS OPERATOR, /, GET
+
+# Logout
+p, ADMIN, /user/logout, GET
+p, OPERATOR, /user/logout, GET
+p, TMS ADMIN, /user/logout, GET
+p, TMS SUPERVISOR, /user/logout, GET
+p, TMS OPERATOR, /user/logout, GET
+
+# Change password
+p, ADMIN, /user/change-password, GET
+p, ADMIN, /user/change-password, POST
+p, OPERATOR, /user/change-password, GET
+p, OPERATOR, /user/change-password, POST
+p, TMS ADMIN, /user/change-password, GET
+p, TMS ADMIN, /user/change-password, POST
+p, TMS SUPERVISOR, /user/change-password, GET
+p, TMS SUPERVISOR, /user/change-password, POST
+p, TMS OPERATOR, /user/change-password, GET
+p, TMS OPERATOR, /user/change-password, POST
+
+# Get app type
+p, ADMIN, /user/get-app-type, GET
+p, OPERATOR, /user/get-app-type, GET
+p, TMS ADMIN, /user/get-app-type, GET
+p, TMS SUPERVISOR, /user/get-app-type, GET
+p, TMS OPERATOR, /user/get-app-type, GET
+
+# ---------------------------------------------------------------------------
+# ADMIN (CSI Admin) - full CSI access + user management + template params + scheduler
+# ---------------------------------------------------------------------------
+# User management (full)
+p, ADMIN, /user/:action, *
+
+# Verification
+p, ADMIN, /verification/:action, *
+
+# Verification reports
+p, ADMIN, /verificationreport/:action, *
+
+# Sync terminal
+p, ADMIN, /sync-terminal/:action, *
+
+# Terminal (local)
+p, ADMIN, /terminal/:action, *
+
+# Terminal parameter
+p, ADMIN, /terminalparameter/:action, *
+
+# Template parameter (ADMIN only among CSI roles)
+p, ADMIN, /templateparameter/:action, *
+
+# Activity log
+p, ADMIN, /activitylog/:action, *
+
+# Technician
+p, ADMIN, /technician/:action, *
+
+# FAQ
+p, ADMIN, /faq/:action, *
+
+# Backup
+p, ADMIN, /backup/:action, *
+
+# Scheduler (ADMIN only among CSI roles)
+p, ADMIN, /scheduler/:action, *
+
+# ---------------------------------------------------------------------------
+# OPERATOR (CSI Operator) - CSI operations without user mgmt/templates/scheduler
+# ---------------------------------------------------------------------------
+# Verification
+p, OPERATOR, /verification/:action, *
+
+# Verification reports
+p, OPERATOR, /verificationreport/:action, *
+
+# Sync terminal
+p, OPERATOR, /sync-terminal/:action, *
+
+# Terminal (local)
+p, OPERATOR, /terminal/:action, *
+
+# Terminal parameter
+p, OPERATOR, /terminalparameter/:action, *
+
+# Activity log
+p, OPERATOR, /activitylog/:action, *
+
+# Technician
+p, OPERATOR, /technician/:action, *
+
+# FAQ
+p, OPERATOR, /faq/:action, *
+
+# Backup
+p, OPERATOR, /backup/:action, *
+
+# ---------------------------------------------------------------------------
+# TMS ADMIN - full TMS access + user management + activation + scheduler
+# ---------------------------------------------------------------------------
+# User management (full)
+p, TMS ADMIN, /user/:action, *
+
+# Veristore (TMS) terminal/merchant/group
+p, TMS ADMIN, /veristore/:action, *
+p, TMS ADMIN, /veristore/merchant/:action, *
+p, TMS ADMIN, /veristore/group/:action, *
+
+# TMS Login
+p, TMS ADMIN, /tmslogin/:action, *
+
+# Activity log
+p, TMS ADMIN, /activitylog/:action, *
+
+# FAQ
+p, TMS ADMIN, /faq/:action, *
+
+# Backup
+p, TMS ADMIN, /backup/:action, *
+
+# App activation
+p, TMS ADMIN, /appactivation/:action, *
+
+# App credential
+p, TMS ADMIN, /appcredential/:action, *
+
+# Scheduler
+p, TMS ADMIN, /scheduler/:action, *
+
+# ---------------------------------------------------------------------------
+# TMS SUPERVISOR - TMS operations + activation/credential (no user mgmt/scheduler)
+# ---------------------------------------------------------------------------
+# Veristore (TMS)
+p, TMS SUPERVISOR, /veristore/:action, *
+p, TMS SUPERVISOR, /veristore/merchant/:action, *
+p, TMS SUPERVISOR, /veristore/group/:action, *
+
+# TMS Login
+p, TMS SUPERVISOR, /tmslogin/:action, *
+
+# Activity log
+p, TMS SUPERVISOR, /activitylog/:action, *
+
+# FAQ
+p, TMS SUPERVISOR, /faq/:action, *
+
+# Backup
+p, TMS SUPERVISOR, /backup/:action, *
+
+# App activation
+p, TMS SUPERVISOR, /appactivation/:action, *
+
+# App credential
+p, TMS SUPERVISOR, /appcredential/:action, *
+
+# ---------------------------------------------------------------------------
+# TMS OPERATOR - basic TMS operations only
+# ---------------------------------------------------------------------------
+# Veristore (TMS)
+p, TMS OPERATOR, /veristore/:action, *
+p, TMS OPERATOR, /veristore/merchant/:action, *
+p, TMS OPERATOR, /veristore/group/:action, *
+
+# TMS Login
+p, TMS OPERATOR, /tmslogin/:action, *
+
+# Activity log
+p, TMS OPERATOR, /activitylog/:action, *
+
+# FAQ
+p, TMS OPERATOR, /faq/:action, *
+
+# Backup
+p, TMS OPERATOR, /backup/:action, *
