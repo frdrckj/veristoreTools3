@@ -1,0 +1,8 @@
+p, CSI ADMIN, /*, *
+p, CSI OPERATOR, /verification/*, *
+p, CSI OPERATOR, /sync-terminal/*, GET
+p, TMS ADMIN, /*, *
+p, TMS SUPERVISOR, /veristore/*, *
+p, TMS SUPERVISOR, /sync-terminal/*, *
+p, TMS OPERATOR, /veristore/terminal, GET
+p, TMS OPERATOR, /veristore/terminal, POST
