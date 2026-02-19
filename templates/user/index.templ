@@ -52,7 +52,7 @@ templ IndexPage(page layouts.PageData, users []UserData, pagination components.P
 					<div class="d-flex align-items-center">
 						<form
 							class="mr-2"
-							hx-get="/admin/user"
+							hx-get="/user/index"
 							hx-target="#user-table-container"
 							hx-push-url="true"
 						>
@@ -71,7 +71,7 @@ templ IndexPage(page layouts.PageData, users []UserData, pagination components.P
 								</div>
 							</div>
 						</form>
-						<a href="/admin/user/create" class="btn btn-sm btn-primary">
+						<a href="/user/create" class="btn btn-sm btn-primary">
 							<i class="fas fa-plus"></i> Create User
 						</a>
 					</div>
@@ -118,7 +118,7 @@ templ UserTablePartial(users []UserData, pagination components.PaginationData, q
 						</td>
 						<td>
 							<a
-								href={ templ.SafeURL(fmt.Sprintf("/admin/user/%d", u.UserID)) }
+								href={ templ.SafeURL(fmt.Sprintf("/user/view?id=%d", u.UserID)) }
 								class="btn btn-xs btn-info"
 								title="View"
 							>
@@ -126,9 +126,10 @@ templ UserTablePartial(users []UserData, pagination components.PaginationData, q
 							</a>
 							<form
 								method="POST"
-								action={ templ.SafeURL(fmt.Sprintf("/admin/user/%d/activate", u.UserID)) }
+								action="/user/activate"
 								style="display:inline;"
 							>
+								<input type="hidden" name="id" value={ strconv.Itoa(u.UserID) }/>
 								if u.IsActive() {
 									<button
 										type="submit"
@@ -151,9 +152,10 @@ templ UserTablePartial(users []UserData, pagination components.PaginationData, q
 							</form>
 							<form
 								method="POST"
-								action={ templ.SafeURL(fmt.Sprintf("/admin/user/%d/delete", u.UserID)) }
+								action="/user/delete"
 								style="display:inline;"
 							>
+								<input type="hidden" name="id" value={ strconv.Itoa(u.UserID) }/>
 								<button
 									type="submit"
 									class="btn btn-xs btn-danger"

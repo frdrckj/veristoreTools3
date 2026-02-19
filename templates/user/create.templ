@@ -12,12 +12,12 @@ templ CreatePage(page layouts.PageData, privileges []string, successMsg string, 
 					<div class="card-header">
 						<h3 class="card-title">Create New User</h3>
 						<div class="card-tools">
-							<a href="/admin/user" class="btn btn-sm btn-default">
+							<a href="/user/index" class="btn btn-sm btn-default">
 								<i class="fas fa-arrow-left"></i> Back to List
 							</a>
 						</div>
 					</div>
-					<form method="POST" action="/admin/user/create">
+					<form method="POST" action="/user/create">
 						<div class="card-body">
 							if successMsg != "" {
 								<div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -96,7 +96,7 @@ templ CreatePage(page layouts.PageData, privileges []string, successMsg string, 
 							<button type="submit" class="btn btn-primary">
 								<i class="fas fa-save"></i> Create User
 							</button>
-							<a href="/admin/user" class="btn btn-default">Cancel</a>
+							<a href="/user/index" class="btn btn-default">Cancel</a>
 						</div>
 					</form>
 				</div>

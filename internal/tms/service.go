@@ -19,17 +19,19 @@ type AddTerminalRequest struct {
 
 // Service wraps the TMS client and local database operations.
 type Service struct {
-	client *Client
-	repo   *Repository
-	db     *gorm.DB
+	client       *Client
+	repo         *Repository
+	db           *gorm.DB
+	resellerList []int64
 }
 
 // NewService creates a new TMS service layer.
-func NewService(client *Client, db *gorm.DB) *Service {
+func NewService(client *Client, db *gorm.DB, resellerList []int64) *Service {
 	return &Service{
-		client: client,
-		repo:   NewRepository(db),
-		db:     db,
+		client:       client,
+		repo:         NewRepository(db),
+		db:           db,
+		resellerList: resellerList,
 	}
 }
 
@@ -333,8 +335,44 @@ func (s *Service) GetTimeZoneList() (*TMSResponse, error) {
 }
 
 // GetResellerList retrieves the reseller list for a username.
+// When resellerList is configured, only matching resellers are returned
+// (matching v2 appResellerList filtering behavior).
 func (s *Service) GetResellerList(username string) (*TMSResponse, error) {
-	return s.client.GetResellerList(username)
+	resp, err := s.client.GetResellerList(username)
+	if err != nil || resp == nil || resp.ResultCode != 0 {
+		return resp, err
+	}
+
+	rawList, ok := resp.RawData.([]interface{})
+	if !ok || len(s.resellerList) == 0 || len(rawList) == 0 {
+		return resp, nil
+	}
+
+	// Build lookup set.
+	allowed := make(map[int64]bool, len(s.resellerList))
+	for _, id := range s.resellerList {
+		allowed[id] = true
+	}
+
+	// Filter resellers by configured IDs.
+	filtered := make([]interface{}, 0, len(rawList))
+	for _, item := range rawList {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, _ := toInt64(m["id"])
+		if allowed[id] {
+			// Copy marketName to resellerName (v2 compatibility).
+			if mn, ok := m["marketName"]; ok {
+				m["resellerName"] = mn
+			}
+			filtered = append(filtered, m)
+		}
+	}
+	resp.RawData = filtered
+
+	return resp, nil
 }
 
 // GetVerifyCode retrieves a captcha image and token.

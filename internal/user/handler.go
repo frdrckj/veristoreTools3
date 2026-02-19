@@ -167,7 +167,7 @@ func (h *Handler) Index(c echo.Context) error {
 		CurrentPage: pagination.CurrentPage,
 		TotalPages:  pagination.TotalPages,
 		Total:       pagination.Total,
-		BaseURL:     "/admin/user",
+		BaseURL:     "/user/index",
 		HTMXTarget:  "user-table-container",
 	}
 
@@ -184,7 +184,7 @@ func (h *Handler) Index(c echo.Context) error {
 
 // View displays user details by ID.
 func (h *Handler) View(c echo.Context) error {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.Atoi(c.QueryParam("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid user ID")
 	}
@@ -238,12 +238,12 @@ func (h *Handler) Create(c echo.Context) error {
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "User created successfully")
-	return c.Redirect(http.StatusFound, "/admin/user")
+	return c.Redirect(http.StatusFound, "/user/index")
 }
 
 // Delete removes a user by ID and redirects to the user list.
 func (h *Handler) Delete(c echo.Context) error {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.Atoi(c.FormValue("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid user ID")
 	}
@@ -254,12 +254,12 @@ func (h *Handler) Delete(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "User deleted successfully")
 	}
 
-	return c.Redirect(http.StatusFound, "/admin/user")
+	return c.Redirect(http.StatusFound, "/user/index")
 }
 
 // Activate toggles a user's active/inactive status.
 func (h *Handler) Activate(c echo.Context) error {
-	id, err := strconv.Atoi(c.Param("id"))
+	id, err := strconv.Atoi(c.FormValue("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid user ID")
 	}
@@ -270,7 +270,7 @@ func (h *Handler) Activate(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "User status updated successfully")
 	}
 
-	return c.Redirect(http.StatusFound, "/admin/user")
+	return c.Redirect(http.StatusFound, "/user/index")
 }
 
 // ChangePassword handles both GET (show form) and POST (process change) for

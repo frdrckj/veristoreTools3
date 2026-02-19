@@ -32,7 +32,7 @@ templ LoginPage(page layouts.PageData, errors []string) {
 									class="form-control"
 									id="username"
 									name="username"
-									placeholder="Enter TMS username"
+									placeholder="Enter TMS email"
 									required
 								/>
 							</div>
@@ -52,7 +52,7 @@ templ LoginPage(page layouts.PageData, errors []string) {
 								<select class="form-control select2" id="resellerId" name="resellerId">
 									<option value="">-- Select Reseller --</option>
 								</select>
-								<small class="text-muted">Enter username first, then select reseller.</small>
+								<small class="text-muted">Enter username and tab out to load resellers.</small>
 							</div>
 							<div class="form-group">
 								<label for="code">Captcha Code <span class="text-danger">*</span></label>
@@ -83,7 +83,7 @@ templ LoginPage(page layouts.PageData, errors []string) {
 							<button type="submit" class="btn btn-primary">
 								<i class="fas fa-sign-in-alt"></i> Login to TMS
 							</button>
-							<a href="/veristore" class="btn btn-default">Cancel</a>
+							<a href="/veristore/terminal" class="btn btn-default">Cancel</a>
 						</div>
 					</form>
 				</div>
@@ -113,8 +113,8 @@ templ LoginPage(page layouts.PageData, errors []string) {
 						if (data.code === 0 && data.data) {
 							data.data.forEach(function(item) {
 								var opt = document.createElement('option');
-								opt.value = item.id || item.value;
-								opt.textContent = item.label || item.name;
+								opt.value = item.id;
+								opt.textContent = item.resellerName || item.marketName || item.name;
 								select.appendChild(opt);
 							});
 						}

@@ -13,7 +13,7 @@ database:
   host: localhost
   port: 3306
   name: veristoretools3
-  user: VFVeristoretools3
+  user: root
   password: ""
   charset: utf8mb4
   max_open_conns: 25
@@ -25,10 +25,16 @@ redis:
   db: 0
 
 tms:
-  base_url: "http://172.17.30.158:8280"
+  base_url: "https://app.veristore.net"
+  # base_url: "http://10.90.30.158:8280"  # prod onprem
   secret_key: "35136HH7B63C27AA74CDCC2BBRT9"
   secret_iv: "J5g275fgf5H"
   skip_tls_verify: true
+  sync_batch_size: 500
+  reseller_list:
+    - 1528548734193680385
+  # reseller_list:             # prod onprem
+  #   - 1837182866044227586
 
 api:
   basic_auth_user: "Vfiengineering"

@@ -150,7 +150,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 		CurrentPage: pageNum,
 		TotalPages:  totalPage,
 		Total:       int64(len(terminals)),
-		BaseURL:     "/veristore",
+		BaseURL:     "/veristore/terminal",
 		HTMXTarget:  "terminal-table-container",
 	}
 
@@ -206,7 +206,7 @@ func (h *Handler) Add(c echo.Context) error {
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal added successfully")
-	return c.Redirect(http.StatusFound, "/veristore")
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
 // Edit handles GET/POST /veristore/edit - Edit terminal parameters.
@@ -226,14 +226,14 @@ func (h *Handler) Edit(c echo.Context) error {
 	if c.Request().Method == http.MethodGet {
 		if serialNum == "" {
 			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Serial number is required")
-			return c.Redirect(http.StatusFound, "/veristore")
+			return c.Redirect(http.StatusFound, "/veristore/terminal")
 		}
 
 		// Get terminal detail first to list apps.
 		detailResp, err := h.service.GetTerminalDetail(serialNum)
 		if err != nil {
 			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to get terminal detail: %v", err))
-			return c.Redirect(http.StatusFound, "/veristore")
+			return c.Redirect(http.StatusFound, "/veristore/terminal")
 		}
 
 		var paraList []map[string]interface{}
@@ -283,7 +283,7 @@ func (h *Handler) Edit(c echo.Context) error {
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Parameters updated successfully")
-	return c.Redirect(http.StatusFound, "/veristore")
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
 // Copy handles GET/POST /veristore/copy - Copy terminal configuration.
@@ -311,11 +311,16 @@ func (h *Handler) Copy(c echo.Context) error {
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal copied successfully")
-	return c.Redirect(http.StatusFound, "/veristore")
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
 // Delete handles POST /veristore/delete - Delete terminal(s).
 func (h *Handler) Delete(c echo.Context) error {
+	// Check if "select all across all pages" was requested.
+	if c.FormValue("selectAll") == "true" {
+		return h.deleteAllTerminals(c)
+	}
+
 	serialNos := c.Request().Form["serialNos[]"]
 	if len(serialNos) == 0 {
 		serialNos = c.Request().Form["serialNos"]
@@ -329,13 +334,13 @@ func (h *Handler) Delete(c echo.Context) error {
 
 	if len(serialNos) == 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "No terminals selected for deletion")
-		return c.Redirect(http.StatusFound, "/veristore")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
 	resp, err := h.service.DeleteTerminals(serialNos)
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to delete terminal: %v", err))
-		return c.Redirect(http.StatusFound, "/veristore")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
 	if resp != nil && resp.ResultCode != 0 {
@@ -344,7 +349,70 @@ func (h *Handler) Delete(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal(s) deleted successfully")
 	}
 
-	return c.Redirect(http.StatusFound, "/veristore")
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
+}
+
+// deleteAllTerminals fetches all terminal pages and deletes every terminal.
+func (h *Handler) deleteAllTerminals(c echo.Context) error {
+	searchSerialNo := c.FormValue("searchSerialNo")
+	searchType, _ := strconv.Atoi(c.FormValue("searchType"))
+
+	var allDeviceIds []string
+	for page := 1; ; page++ {
+		var resp *TMSResponse
+		var err error
+		if searchSerialNo != "" {
+			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType)
+		} else {
+			resp, err = h.service.GetTerminalList(page)
+		}
+		if err != nil {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load terminals for deletion: %v", err))
+			return c.Redirect(http.StatusFound, "/veristore/terminal")
+		}
+		if resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+			break
+		}
+
+		tl, ok := resp.Data["terminalList"].([]interface{})
+		if !ok || len(tl) == 0 {
+			break
+		}
+		for _, t := range tl {
+			if m, ok := t.(map[string]interface{}); ok {
+				if devId, ok := m["deviceId"].(string); ok && devId != "" {
+					allDeviceIds = append(allDeviceIds, devId)
+				}
+			}
+		}
+
+		totalPage := 0
+		if tp, ok := resp.Data["totalPage"]; ok {
+			totalPage, _ = toInt(tp)
+		}
+		if page >= totalPage {
+			break
+		}
+	}
+
+	if len(allDeviceIds) == 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "No terminals found for deletion")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
+	}
+
+	resp, err := h.service.DeleteTerminals(allDeviceIds)
+	if err != nil {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to delete terminals: %v", err))
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
+	}
+
+	if resp != nil && resp.ResultCode != 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete failed: %s", resp.Desc))
+	} else {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, fmt.Sprintf("%d terminal(s) deleted successfully", len(allDeviceIds)))
+	}
+
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
 // Replacement handles POST /veristore/replacement - Replace terminal.
@@ -354,13 +422,13 @@ func (h *Handler) Replacement(c echo.Context) error {
 
 	if oldSn == "" || newSn == "" {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Old and new serial numbers are required")
-		return c.Redirect(http.StatusFound, "/veristore")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
 	resp, err := h.service.ReplaceTerminal(oldSn, newSn)
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to replace terminal: %v", err))
-		return c.Redirect(http.StatusFound, "/veristore")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
 	if resp.ResultCode != 0 {
@@ -369,7 +437,7 @@ func (h *Handler) Replacement(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal replaced successfully")
 	}
 
-	return c.Redirect(http.StatusFound, "/veristore")
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
 // Check handles POST /veristore/check - Preview terminal parameters (HTMX partial).
@@ -1098,13 +1166,8 @@ func (h *Handler) Login(c echo.Context) error {
 	code := c.FormValue("code")
 	resellerId, _ := strconv.Atoi(c.FormValue("resellerId"))
 
-	// Encrypt password for TMS.
-	encPassword, err := EncryptAES(password)
-	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Encryption error: %v", err)}))
-	}
-
-	resp, err := h.service.Login(username, encPassword, token, code, resellerId)
+	// TMS API expects plain text password (v2 sends it unencrypted).
+	resp, err := h.service.Login(username, password, token, code, resellerId)
 	if err != nil {
 		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Login failed: %v", err)}))
 	}
@@ -1114,7 +1177,7 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login successful")
-	return c.Redirect(http.StatusFound, "/veristore")
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
 // ---------------------------------------------------------------------------

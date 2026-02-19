@@ -32,6 +32,9 @@ tms:
   secret_key: "CHANGE-ME-tms-secret-key"
   secret_iv: "CHANGE-ME-tms-iv"
   skip_tls_verify: false
+  sync_batch_size: 500
+  reseller_list:
+    - 1528548734193680385
 
 api:
   basic_auth_user: "your_api_user"

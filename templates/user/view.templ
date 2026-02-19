@@ -1,7 +1,6 @@
 package user
 
 import (
-	"fmt"
 	"strconv"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
@@ -13,7 +12,7 @@ templ ViewPage(page layouts.PageData, u UserData) {
 			<div class="card-header">
 				<h3 class="card-title">User Detail</h3>
 				<div class="card-tools">
-					<a href="/admin/user" class="btn btn-sm btn-default">
+					<a href="/user/index" class="btn btn-sm btn-default">
 						<i class="fas fa-arrow-left"></i> Back to List
 					</a>
 				</div>
@@ -79,9 +78,10 @@ templ ViewPage(page layouts.PageData, u UserData) {
 			<div class="card-footer">
 				<form
 					method="POST"
-					action={ templ.SafeURL(fmt.Sprintf("/admin/user/%d/activate", u.UserID)) }
+					action="/user/activate"
 					style="display:inline;"
 				>
+					<input type="hidden" name="id" value={ strconv.Itoa(u.UserID) }/>
 					if u.IsActive() {
 						<button type="submit" class="btn btn-warning" onclick="return confirm('Deactivate this user?')">
 							<i class="fas fa-user-slash"></i> Deactivate
@@ -94,9 +94,10 @@ templ ViewPage(page layouts.PageData, u UserData) {
 				</form>
 				<form
 					method="POST"
-					action={ templ.SafeURL(fmt.Sprintf("/admin/user/%d/delete", u.UserID)) }
+					action="/user/delete"
 					style="display:inline;"
 				>
+					<input type="hidden" name="id" value={ strconv.Itoa(u.UserID) }/>
 					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this user?')">
 						<i class="fas fa-trash"></i> Delete
 					</button>

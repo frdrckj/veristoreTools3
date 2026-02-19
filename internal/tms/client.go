@@ -2155,6 +2155,26 @@ func toInt(v interface{}) (int, bool) {
 	}
 }
 
+// toInt64 converts an interface{} to int64 (JSON numbers can exceed int range).
+func toInt64(v interface{}) (int64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return int64(val), true
+	case int:
+		return int64(val), true
+	case int64:
+		return val, true
+	case string:
+		n, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
 // toIntDefault converts v to int, returning defaultVal if conversion fails.
 func toIntDefault(v interface{}, defaultVal int) int {
 	n, ok := toInt(v)

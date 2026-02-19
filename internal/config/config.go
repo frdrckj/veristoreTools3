@@ -53,10 +53,12 @@ type RedisConfig struct {
 }
 
 type TMSConfig struct {
-	BaseURL       string `yaml:"base_url"`
-	SecretKey     string `yaml:"secret_key"`
-	SecretIV      string `yaml:"secret_iv"`
-	SkipTLSVerify bool   `yaml:"skip_tls_verify"`
+	BaseURL       string  `yaml:"base_url"`
+	SecretKey     string  `yaml:"secret_key"`
+	SecretIV      string  `yaml:"secret_iv"`
+	SkipTLSVerify bool    `yaml:"skip_tls_verify"`
+	SyncBatchSize int     `yaml:"sync_batch_size"`
+	ResellerList  []int64 `yaml:"reseller_list"`
 }
 
 type APIConfig struct {
@@ -103,6 +105,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Export.BatchSize == 0 {
 		cfg.Export.BatchSize = 100
+	}
+	if cfg.TMS.SyncBatchSize == 0 {
+		cfg.TMS.SyncBatchSize = 500
 	}
 
 	return &cfg, nil

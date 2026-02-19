@@ -111,7 +111,7 @@ func main() {
 	userService := user.NewService(userRepo, cfg.App.PasswordSalt)
 	authService := auth.NewService(userRepo, cfg.App.PasswordSalt)
 	terminalService := terminal.NewService(terminalRepo, db)
-	tmsService := tms.NewService(tmsClient, db)
+	tmsService := tms.NewService(tmsClient, db, cfg.TMS.ResellerList)
 	syncService := syncpkg.NewService(syncRepo, db)
 	csiService := csi.NewService(db, tmsService)
 
@@ -355,7 +355,7 @@ func main() {
 	importTermHandler := queue.NewImportTerminalHandler(tmsService, tmsClient, adminRepo, db)
 	exportTermHandler := queue.NewExportTerminalHandler(tmsService, tmsClient, adminRepo, db, cfg.Export.OutputDir)
 	importMerchHandler := queue.NewImportMerchantHandler(tmsService, tmsClient, adminRepo, db)
-	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.Import.BatchSize)
+	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.TMS.SyncBatchSize)
 	tmsPingHandler := queue.NewTMSPingHandler(tmsService, tmsRepo)
 	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient)
 
