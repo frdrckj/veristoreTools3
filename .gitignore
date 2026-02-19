@@ -9,6 +9,7 @@ vendor/
 *.test
 *.out
 .env
+config.yaml
 config.local.yaml
 tmp/
 static/export/*

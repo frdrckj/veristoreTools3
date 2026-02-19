@@ -28,6 +28,7 @@ tms:
   base_url: "http://172.17.30.158:8280"
   secret_key: "35136HH7B63C27AA74CDCC2BBRT9"
   secret_iv: "J5g275fgf5H"
+  skip_tls_verify: true
 
 api:
   basic_auth_user: "Vfiengineering"

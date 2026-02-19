@@ -45,6 +45,7 @@ type activityLogEntry struct {
 	ActLogAction string    `gorm:"column:act_log_action;type:varchar(100);not null"`
 	ActLogDetail *string   `gorm:"column:act_log_detail;type:text"`
 	CreatedBy    string    `gorm:"column:created_by;type:varchar(100);not null"`
+	LogIP        string    `gorm:"column:log_ip;type:varchar(50)"`
 	CreatedDt    time.Time `gorm:"column:created_dt;not null"`
 }
 
@@ -60,6 +61,7 @@ func LogActivity(db *gorm.DB, logType, logDesc, logUser, logIP string) {
 		ActLogAction: logType,
 		ActLogDetail: &logDesc,
 		CreatedBy:    logUser,
+		LogIP:        logIP,
 		CreatedDt:    time.Now(),
 	}
 	db.Create(&entry)

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/model"
+	stringadapter "github.com/casbin/casbin/v2/persist/string-adapter"
 	"github.com/gorilla/sessions"
 	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
@@ -69,22 +71,28 @@ func main() {
 		Path:     "/",
 		MaxAge:   cfg.App.SessionTimeout,
 		HttpOnly: true,
+		Secure:   !cfg.App.Debug,
 		SameSite: http.SameSiteLaxMode,
 	}
 	sessionName := cfg.App.SessionName
 
 	// -----------------------------------------------------------------------
-	// 5. Initialize Casbin enforcer
+	// 5. Initialize Casbin enforcer (embedded model and policy)
 	// -----------------------------------------------------------------------
-	enforcer, err := casbin.NewEnforcer("internal/auth/casbin_model.conf", "internal/auth/casbin_policy.csv")
+	casbinModel, err := model.NewModelFromString(auth.CasbinModel)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to parse embedded Casbin model")
+	}
+	policyAdapter := stringadapter.NewAdapter(auth.CasbinPolicy)
+	enforcer, err := casbin.NewEnforcer(casbinModel, policyAdapter)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to initialize Casbin enforcer")
 	}
 
 	// -----------------------------------------------------------------------
-	// 6. Create TMS API client
+	// 6. Create TMS API client (TLS skip verify from config)
 	// -----------------------------------------------------------------------
-	tmsClient := tms.NewClient(cfg.TMS.BaseURL, db)
+	tmsClient := tms.NewClient(cfg.TMS.BaseURL, db, cfg.TMS.SkipTLSVerify)
 
 	// -----------------------------------------------------------------------
 	// 7. Create all repositories
@@ -331,12 +339,38 @@ func main() {
 	api.POST("/activation-code", apiHandler.ActivationCode)
 
 	// -----------------------------------------------------------------------
-	// 16. Start Asynq worker in a goroutine
+	// 16. Build Redis config and Asynq client for queue system
 	// -----------------------------------------------------------------------
-	asynqWorker := queue.NewWorker(cfg.Redis.Addr)
+	redisCfg := queue.RedisConfig{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	}
+	asynqClient := queue.NewClient(redisCfg)
+	defer asynqClient.Close()
+
+	// -----------------------------------------------------------------------
+	// 17. Instantiate queue task handlers
+	// -----------------------------------------------------------------------
+	importTermHandler := queue.NewImportTerminalHandler(tmsService, tmsClient, adminRepo, db)
+	exportTermHandler := queue.NewExportTerminalHandler(tmsService, tmsClient, adminRepo, db, cfg.Export.OutputDir)
+	importMerchHandler := queue.NewImportMerchantHandler(tmsService, tmsClient, adminRepo, db)
+	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.Import.BatchSize)
+	tmsPingHandler := queue.NewTMSPingHandler(tmsService, tmsRepo)
+	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient)
+
+	// -----------------------------------------------------------------------
+	// 18. Start Asynq worker in a goroutine
+	// -----------------------------------------------------------------------
+	asynqWorker := queue.NewWorker(redisCfg)
 	asynqMux := queue.NewMux(map[string]asynq.Handler{
-		// Register task handlers here as they are implemented.
-		// e.g. queue.TaskSyncParameter: syncTaskHandler,
+		queue.TaskImportTerminal: importTermHandler,
+		queue.TaskExportTerminal: exportTermHandler,
+		queue.TaskImportMerchant: importMerchHandler,
+		queue.TaskSyncParameter:  syncParamHandler,
+		queue.TaskExportAll:      exportTermHandler, // reuse export handler for export-all
+		queue.TaskTMSPing:        tmsPingHandler,
+		queue.TaskSchedulerCheck: schedulerCheckHandler,
 	})
 
 	go func() {
@@ -347,10 +381,14 @@ func main() {
 	}()
 
 	// -----------------------------------------------------------------------
-	// 17. Start Asynq scheduler in a goroutine
+	// 19. Start Asynq scheduler in a goroutine
 	// -----------------------------------------------------------------------
 	asynqScheduler := asynq.NewScheduler(
-		asynq.RedisClientOpt{Addr: cfg.Redis.Addr},
+		asynq.RedisClientOpt{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		},
 		nil,
 	)
 
@@ -372,7 +410,7 @@ func main() {
 	}()
 
 	// -----------------------------------------------------------------------
-	// 18. Start Echo web server
+	// 20. Start Echo web server
 	// -----------------------------------------------------------------------
 	addr := fmt.Sprintf(":%d", cfg.App.Port)
 	go func() {
@@ -383,7 +421,7 @@ func main() {
 	}()
 
 	// -----------------------------------------------------------------------
-	// 19. Handle graceful shutdown on SIGINT/SIGTERM
+	// 21. Handle graceful shutdown on SIGINT/SIGTERM
 	// -----------------------------------------------------------------------
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

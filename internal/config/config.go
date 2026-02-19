@@ -53,9 +53,10 @@ type RedisConfig struct {
 }
 
 type TMSConfig struct {
-	BaseURL   string `yaml:"base_url"`
-	SecretKey string `yaml:"secret_key"`
-	SecretIV  string `yaml:"secret_iv"`
+	BaseURL       string `yaml:"base_url"`
+	SecretKey     string `yaml:"secret_key"`
+	SecretIV      string `yaml:"secret_iv"`
+	SkipTLSVerify bool   `yaml:"skip_tls_verify"`
 }
 
 type APIConfig struct {

@@ -2,6 +2,7 @@ package shared
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"strings"
 )
@@ -16,8 +17,9 @@ func HashPasswordSHA256(password, salt string) string {
 }
 
 // VerifyPasswordSHA256 checks that the given password, when hashed with the
-// provided salt, matches the expected hash.
+// provided salt, matches the expected hash. Uses constant-time comparison to
+// prevent timing side-channel attacks.
 func VerifyPasswordSHA256(password, hash, salt string) bool {
 	computed := HashPasswordSHA256(password, salt)
-	return strings.EqualFold(computed, hash)
+	return subtle.ConstantTimeCompare([]byte(computed), []byte(strings.ToLower(hash))) == 1
 }

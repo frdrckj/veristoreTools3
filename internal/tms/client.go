@@ -73,16 +73,18 @@ type Client struct {
 //
 // baseURL is the root URL of the TMS API (e.g. "https://tms.example.com").
 // db is a GORM database handle used for token-renewal persistence.
-func NewClient(baseURL string, db *gorm.DB) *Client {
+// skipTLSVerify controls whether TLS certificate verification is skipped
+// (matches v2 CURLOPT_SSL_VERIFYPEER: false when true).
+func NewClient(baseURL string, db *gorm.DB, skipTLSVerify bool) *Client {
+	transport := &http.Transport{}
+	if skipTLSVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // configurable per deployment
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true, // matches v2 CURLOPT_SSL_VERIFYPEER: false
-				},
-			},
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 		db: db,
 	}

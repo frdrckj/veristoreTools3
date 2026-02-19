@@ -4,12 +4,23 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+// RedisConfig holds the Redis connection parameters for the queue system.
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
+}
+
 // NewWorker creates a new Asynq server (worker) configured with the given
-// Redis address. It uses three priority queues: critical (6), default (3),
+// Redis config. It uses three priority queues: critical (6), default (3),
 // and low (1), with a concurrency of 10.
-func NewWorker(redisAddr string) *asynq.Server {
+func NewWorker(redisCfg RedisConfig) *asynq.Server {
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: redisAddr},
+		asynq.RedisClientOpt{
+			Addr:     redisCfg.Addr,
+			Password: redisCfg.Password,
+			DB:       redisCfg.DB,
+		},
 		asynq.Config{
 			Concurrency: 10,
 			Queues: map[string]int{
@@ -32,7 +43,11 @@ func NewMux(handlers map[string]asynq.Handler) *asynq.ServeMux {
 	return mux
 }
 
-// NewClient creates a new Asynq client connected to the given Redis address.
-func NewClient(redisAddr string) *asynq.Client {
-	return asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+// NewClient creates a new Asynq client connected to the given Redis config.
+func NewClient(redisCfg RedisConfig) *asynq.Client {
+	return asynq.NewClient(asynq.RedisClientOpt{
+		Addr:     redisCfg.Addr,
+		Password: redisCfg.Password,
+		DB:       redisCfg.DB,
+	})
 }

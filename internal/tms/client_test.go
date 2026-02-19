@@ -44,7 +44,7 @@ func TestMapResponseCode(t *testing.T) {
 
 func TestRenewToken_DetectsRenewal(t *testing.T) {
 	// Create client without DB (nil) to test detection only.
-	client := NewClient("https://example.com", nil)
+	client := NewClient("https://example.com", nil, true)
 
 	response := map[string]interface{}{
 		"code": float64(200),
@@ -58,7 +58,7 @@ func TestRenewToken_DetectsRenewal(t *testing.T) {
 }
 
 func TestRenewToken_NoRenewalOnNormalResponse(t *testing.T) {
-	client := NewClient("https://example.com", nil)
+	client := NewClient("https://example.com", nil, true)
 
 	response := map[string]interface{}{
 		"code": float64(200),
@@ -72,7 +72,7 @@ func TestRenewToken_NoRenewalOnNormalResponse(t *testing.T) {
 }
 
 func TestRenewToken_NoRenewalOnErrorCode(t *testing.T) {
-	client := NewClient("https://example.com", nil)
+	client := NewClient("https://example.com", nil, true)
 
 	response := map[string]interface{}{
 		"code": float64(400),
@@ -86,7 +86,7 @@ func TestRenewToken_NoRenewalOnErrorCode(t *testing.T) {
 }
 
 func TestRenewToken_NilResponse(t *testing.T) {
-	client := NewClient("https://example.com", nil)
+	client := NewClient("https://example.com", nil, true)
 
 	newToken, ok := client.renewToken("session", nil)
 	assert.False(t, ok, "should not detect renewal on nil response")
@@ -94,7 +94,7 @@ func TestRenewToken_NilResponse(t *testing.T) {
 }
 
 func TestRenewToken_EmptyTokenData(t *testing.T) {
-	client := NewClient("https://example.com", nil)
+	client := NewClient("https://example.com", nil, true)
 
 	response := map[string]interface{}{
 		"code": float64(200),
@@ -108,7 +108,7 @@ func TestRenewToken_EmptyTokenData(t *testing.T) {
 }
 
 func TestRenewToken_StringCodeMatches(t *testing.T) {
-	client := NewClient("https://example.com", nil)
+	client := NewClient("https://example.com", nil, true)
 
 	// Some APIs return code as string "200" instead of number.
 	response := map[string]interface{}{
@@ -127,7 +127,7 @@ func TestRenewToken_StringCodeMatches(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewClient_Initialization(t *testing.T) {
-	client := NewClient("https://tms.example.com/", nil)
+	client := NewClient("https://tms.example.com/", nil, false)
 
 	assert.NotNil(t, client)
 	assert.Equal(t, "https://tms.example.com", client.baseURL, "trailing slash should be trimmed")
@@ -136,16 +136,25 @@ func TestNewClient_Initialization(t *testing.T) {
 }
 
 func TestNewClient_HTTPTimeout(t *testing.T) {
-	client := NewClient("https://tms.example.com", nil)
+	client := NewClient("https://tms.example.com", nil, false)
 	assert.Equal(t, 30*1000*1000*1000, int(client.httpClient.Timeout), "timeout should be 30 seconds")
 }
 
 func TestNewClient_TLSSkipVerify(t *testing.T) {
-	client := NewClient("https://tms.example.com", nil)
+	client := NewClient("https://tms.example.com", nil, true)
 
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "transport should be *http.Transport")
+	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set when skip is true")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify, "TLS verification should be skipped")
+}
+
+func TestNewClient_TLSVerifyEnabled(t *testing.T) {
+	client := NewClient("https://tms.example.com", nil, false)
+
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	require.True(t, ok, "transport should be *http.Transport")
+	assert.Nil(t, transport.TLSClientConfig, "TLS config should be nil when verification is enabled")
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +189,7 @@ func TestDoPost_SendsCorrectHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	result, err := client.doPost("test-session-token", "/test/path", map[string]interface{}{
 		"key": "test-value",
 	})
@@ -202,7 +211,7 @@ func TestDoPost_NoAuthWhenSessionEmpty(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	_, err := client.doPost("", "/test", nil)
 	require.NoError(t, err)
 }
@@ -232,7 +241,7 @@ func TestDoPost_TokenRenewalRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	result, err := client.doPost("old-token", "/test", map[string]interface{}{})
 
 	require.NoError(t, err)
@@ -263,7 +272,7 @@ func TestDoGet_SendsCorrectHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 
 	params := make(map[string][]string)
 	params["testKey"] = []string{"testValue"}
@@ -287,7 +296,7 @@ func TestDoGet_NilParams(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	_, err := client.doGet("session", "/test", nil)
 	require.NoError(t, err)
 }
@@ -371,7 +380,7 @@ func TestGetResellerList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetResellerList("testuser")
 
 	require.NoError(t, err)
@@ -399,7 +408,7 @@ func TestGetVerifyCode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetVerifyCode()
 
 	require.NoError(t, err)
@@ -432,7 +441,7 @@ func TestLogin_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.Login("admin", "pass123", "uuid-1", "captcha", 5)
 
 	require.NoError(t, err)
@@ -451,7 +460,7 @@ func TestLogin_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.Login("admin", "wrong", "uuid", "code", 1)
 
 	require.NoError(t, err)
@@ -486,7 +495,7 @@ func TestGetTerminalList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetTerminalList("session-token", 1)
 
 	require.NoError(t, err)
@@ -514,7 +523,7 @@ func TestCheckToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.CheckToken("valid-session")
 
 	require.NoError(t, err)
@@ -538,7 +547,7 @@ func TestDeleteMerchant(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.DeleteMerchant("session", 42)
 
 	require.NoError(t, err)
@@ -561,7 +570,7 @@ func TestGetCountryList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetCountryList("session")
 
 	require.NoError(t, err)
@@ -591,7 +600,7 @@ func TestGetVendorList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetVendorList("session")
 
 	require.NoError(t, err)
@@ -624,7 +633,7 @@ func TestGetModelList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetModelList("session", "V1")
 
 	require.NoError(t, err)
@@ -655,7 +664,7 @@ func TestDeleteGroup(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.DeleteGroup("session", 7)
 
 	require.NoError(t, err)
@@ -677,7 +686,7 @@ func TestGetTimeZoneList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetTimeZoneList("session")
 
 	require.NoError(t, err)
@@ -705,7 +714,7 @@ func TestGetMerchantList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetMerchantList("session")
 
 	require.NoError(t, err)
@@ -734,7 +743,7 @@ func TestGetGroupList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.GetGroupList("session")
 
 	require.NoError(t, err)
@@ -756,7 +765,7 @@ func TestDoPost_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	_, err := client.doPost("session", "/test", nil)
 
 	assert.Error(t, err)
@@ -769,7 +778,7 @@ func TestDoGet_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	_, err := client.doGet("session", "/test", nil)
 
 	assert.Error(t, err)
@@ -796,7 +805,7 @@ func TestAddMerchant(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.AddMerchant("session", MerchantData{
 		MerchantName: "Test Merchant",
 		Email:        "test@example.com",
@@ -826,7 +835,7 @@ func TestEditMerchant(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.EditMerchant("session", MerchantData{
 		ID:           "42",
 		MerchantName: "Updated Merchant",
@@ -855,7 +864,7 @@ func TestReplaceTerminal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil)
+	client := NewClient(server.URL, nil, false)
 	resp, err := client.ReplaceTerminal("session", "OLD-SN", "NEW-SN")
 
 	require.NoError(t, err)

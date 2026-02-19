@@ -11,13 +11,19 @@ import (
 
 // TestNewWorker verifies that NewWorker creates a non-nil Asynq server.
 func TestNewWorker(t *testing.T) {
-	srv := NewWorker("localhost:6379")
+	srv := NewWorker(RedisConfig{Addr: "localhost:6379"})
 	assert.NotNil(t, srv, "NewWorker should return a non-nil server")
+}
+
+// TestNewWorkerWithAuth verifies that NewWorker accepts password and DB config.
+func TestNewWorkerWithAuth(t *testing.T) {
+	srv := NewWorker(RedisConfig{Addr: "localhost:6379", Password: "secret", DB: 2})
+	assert.NotNil(t, srv, "NewWorker should return a non-nil server with auth config")
 }
 
 // TestNewClient verifies that NewClient creates a non-nil Asynq client.
 func TestNewClient(t *testing.T) {
-	client := NewClient("localhost:6379")
+	client := NewClient(RedisConfig{Addr: "localhost:6379"})
 	assert.NotNil(t, client, "NewClient should return a non-nil client")
 	defer client.Close()
 }

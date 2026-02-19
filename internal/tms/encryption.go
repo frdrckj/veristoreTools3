@@ -12,20 +12,29 @@ import (
 	"time"
 )
 
-// AES-256-CBC constants matching veristoreTools2 TmsHelper.php.
+// Default AES-256-CBC constants matching veristoreTools2 TmsHelper.php.
+// Deprecated: Use Encryptor with explicit keys from config instead.
 const (
 	aesSecretKey = "35136HH7B63C27AA74CDCC2BBRT9"
 	aesSecretIV  = "J5g275fgf5H"
 )
 
-// EncryptAES encrypts plaintext using AES-256-CBC with double base64 encoding,
+// Encryptor holds configurable AES-256-CBC encryption keys. Use NewEncryptor
+// to create an instance with keys from config rather than hard-coded defaults.
+type Encryptor struct {
+	secretKey string
+	secretIV  string
+}
+
+// NewEncryptor creates an Encryptor with the provided secret key and IV.
+func NewEncryptor(secretKey, secretIV string) *Encryptor {
+	return &Encryptor{secretKey: secretKey, secretIV: secretIV}
+}
+
+// Encrypt encrypts plaintext using AES-256-CBC with double base64 encoding,
 // matching the PHP encrypt_decrypt() function in TmsHelper.php.
-//
-// Key derivation: SHA-256 hex of secret key, first 32 chars used as key bytes.
-// IV derivation: SHA-256 hex of secret IV, first 16 chars used as IV bytes.
-// Output: base64(base64(AES-CBC-encrypt(PKCS7-padded plaintext)))
-func EncryptAES(plaintext string) (string, error) {
-	key, iv := deriveAESKeyAndIV()
+func (e *Encryptor) Encrypt(plaintext string) (string, error) {
+	key, iv := deriveKeyAndIV(e.secretKey, e.secretIV)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -38,27 +47,22 @@ func EncryptAES(plaintext string) (string, error) {
 	mode := cipher.NewCBCEncrypter(block, iv)
 	mode.CryptBlocks(encrypted, padded)
 
-	// PHP openssl_encrypt with flag 0 returns base64, then the code wraps
-	// that in another base64_encode -> double base64.
 	inner := base64.StdEncoding.EncodeToString(encrypted)
 	outer := base64.StdEncoding.EncodeToString([]byte(inner))
 
 	return outer, nil
 }
 
-// DecryptAES decrypts ciphertext that was encrypted by EncryptAES (or the
-// equivalent PHP encrypt_decrypt function). It reverses the double base64
-// encoding and AES-256-CBC decryption with PKCS7 unpadding.
-func DecryptAES(ciphertext string) (string, error) {
-	key, iv := deriveAESKeyAndIV()
+// Decrypt decrypts ciphertext that was encrypted by Encrypt (or the
+// equivalent PHP encrypt_decrypt function).
+func (e *Encryptor) Decrypt(ciphertext string) (string, error) {
+	key, iv := deriveKeyAndIV(e.secretKey, e.secretIV)
 
-	// Outer base64 decode.
 	innerB64, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", fmt.Errorf("tms: outer base64 decode: %w", err)
 	}
 
-	// Inner base64 decode (the openssl_encrypt flag-0 base64).
 	raw, err := base64.StdEncoding.DecodeString(string(innerB64))
 	if err != nil {
 		return "", fmt.Errorf("tms: inner base64 decode: %w", err)
@@ -85,7 +89,28 @@ func DecryptAES(ciphertext string) (string, error) {
 	return string(unpadded), nil
 }
 
-// deriveAESKeyAndIV computes the AES key and IV from the hard-coded secrets,
+// EncryptAES encrypts plaintext using AES-256-CBC with double base64 encoding,
+// matching the PHP encrypt_decrypt() function in TmsHelper.php.
+//
+// Deprecated: Use Encryptor.Encrypt with keys from config instead.
+// This function uses hard-coded default keys for backward compatibility.
+func EncryptAES(plaintext string) (string, error) {
+	return defaultEncryptor.Encrypt(plaintext)
+}
+
+// DecryptAES decrypts ciphertext that was encrypted by EncryptAES (or the
+// equivalent PHP encrypt_decrypt function).
+//
+// Deprecated: Use Encryptor.Decrypt with keys from config instead.
+// This function uses hard-coded default keys for backward compatibility.
+func DecryptAES(ciphertext string) (string, error) {
+	return defaultEncryptor.Decrypt(ciphertext)
+}
+
+// defaultEncryptor uses the hard-coded keys for backward compatibility.
+var defaultEncryptor = NewEncryptor(aesSecretKey, aesSecretIV)
+
+// deriveKeyAndIV computes the AES key and IV from the provided secrets,
 // matching the PHP derivation in TmsHelper.php:
 //
 //	$key = hash('sha256', $secret_key);          -> 64 hex chars
@@ -93,16 +118,22 @@ func DecryptAES(ciphertext string) (string, error) {
 //
 // PHP openssl_encrypt for AES-256-CBC uses the first 32 bytes of the key
 // parameter and expects exactly 16 bytes for the IV.
-func deriveAESKeyAndIV() (key []byte, iv []byte) {
-	keyHash := sha256.Sum256([]byte(aesSecretKey))
+func deriveKeyAndIV(secretKey, secretIV string) (key []byte, iv []byte) {
+	keyHash := sha256.Sum256([]byte(secretKey))
 	keyHex := fmt.Sprintf("%x", keyHash) // 64 hex chars
 	key = []byte(keyHex[:32])            // first 32 bytes (chars) for AES-256
 
-	ivHash := sha256.Sum256([]byte(aesSecretIV))
+	ivHash := sha256.Sum256([]byte(secretIV))
 	ivHex := fmt.Sprintf("%x", ivHash) // 64 hex chars
 	iv = []byte(ivHex[:16])            // first 16 bytes (chars) for CBC IV
 
 	return key, iv
+}
+
+// deriveAESKeyAndIV is kept for backward compatibility.
+// Deprecated: Use deriveKeyAndIV with explicit keys instead.
+func deriveAESKeyAndIV() (key []byte, iv []byte) {
+	return deriveKeyAndIV(aesSecretKey, aesSecretIV)
 }
 
 // pkcs7Pad appends PKCS#7 padding to data so its length is a multiple of
