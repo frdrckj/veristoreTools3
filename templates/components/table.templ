@@ -1,0 +1,29 @@
+package components
+
+// Table renders a data table wrapper with AdminLTE card styling.
+// The children slot should contain the actual <table> element.
+templ Table(title string) {
+	<div class="card">
+		if title != "" {
+			<div class="card-header">
+				<h3 class="card-title">{ title }</h3>
+			</div>
+		}
+		<div class="card-body table-responsive p-0">
+			{ children... }
+		</div>
+	</div>
+}
+
+// TableCard renders a table inside a card with an optional header toolbar.
+// Use this when you need search forms or action buttons above the table.
+templ TableCard(title string) {
+	<div class="card">
+		<div class="card-header">
+			<h3 class="card-title">{ title }</h3>
+			<div class="card-tools">
+				{ children... }
+			</div>
+		</div>
+	</div>
+}

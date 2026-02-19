@@ -1,0 +1,55 @@
+package layouts
+
+// LoginData holds data needed by the login page layout.
+type LoginData struct {
+	AppName    string
+	AppVersion string
+	AppIcon    string
+	AppLogo    string
+	AppBgImage string
+}
+
+// Login renders the login page layout (no sidebar, centered login box).
+templ Login(data LoginData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>Login - { data.AppName }</title>
+			if data.AppIcon != "" {
+				<link rel="icon" href={ "/static/img/" + data.AppIcon }/>
+			}
+			<!-- Font Awesome -->
+			<link rel="stylesheet" href="/static/adminlte/plugins/fontawesome-free/css/all.min.css"/>
+			<!-- AdminLTE -->
+			<link rel="stylesheet" href="/static/adminlte/css/adminlte.min.css"/>
+			<!-- Site CSS -->
+			<link rel="stylesheet" href="/static/css/site.css"/>
+			if data.AppBgImage != "" {
+				<style>
+					.login-page {
+						background-image: url("/static/img/{ data.AppBgImage }");
+						background-position: center;
+						background-repeat: repeat;
+						background-size: cover;
+					}
+				</style>
+			}
+		</head>
+		<body class="hold-transition login-page">
+			{ children... }
+			<!-- jQuery -->
+			<script src="/static/adminlte/plugins/jquery/dist/jquery.min.js"></script>
+			<!-- Bootstrap 4 -->
+			<script src="/static/adminlte/plugins/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+			<!-- AdminLTE -->
+			<script src="/static/adminlte/js/adminlte.min.js"></script>
+			<script>
+				if (window.history.replaceState) {
+					window.history.replaceState(null, null, window.location.href);
+				}
+			</script>
+		</body>
+	</html>
+}

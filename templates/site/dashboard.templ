@@ -1,0 +1,259 @@
+package site
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// CSIDashboardData holds data for the CSI dashboard.
+type CSIDashboardData struct {
+	TotalTerminal   int
+	TotalVerifikasi int
+	TotalTechnician int
+	LastSync        string
+}
+
+// TMSDashboardData holds data for the TMS dashboard.
+type TMSDashboardData struct {
+	TerminalTotalNum  int
+	TerminalActivedNum int
+	AppTotalNum       int
+	AppDownloadsNum   int
+	DownloadsTasks    int
+	MerchTotalNum     int
+}
+
+// Dashboard renders the main dashboard page with role-based content.
+templ Dashboard(page layouts.PageData) {
+	@layouts.Base(page) {
+		<div class="site-index">
+			if page.IsCSI() {
+				@csiDashboardPlaceholder()
+			} else if page.IsTMS() {
+				@tmsDashboardPlaceholder()
+			} else {
+				@defaultDashboard(page)
+			}
+		</div>
+	}
+}
+
+// CSIDashboard renders the CSI-specific dashboard content with data.
+templ CSIDashboard(page layouts.PageData, data CSIDashboardData) {
+	@layouts.Base(page) {
+		<div class="site-index">
+			<div class="row">
+				<div class="col-lg-4">
+					<div class="small-box bg-info">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.TotalTerminal) }</h2>
+							<h4><strong>Total CSI</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-tablet-alt"></i>
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-4">
+					<div class="small-box bg-success">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.TotalVerifikasi) }</h2>
+							<h4><strong>Total Verifikasi</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-check-circle"></i>
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-4">
+					<div class="small-box bg-warning">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.TotalTechnician) }</h2>
+							<h4><strong>Total Teknisi</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-user-cog"></i>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-12">
+					<div class="callout callout-info">
+						<h5><strong>Sinkronisasi Data CSI Terakhir Pada { data.LastSync }</strong></h5>
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// TMSDashboard renders the TMS-specific dashboard content with data.
+templ TMSDashboard(page layouts.PageData, data TMSDashboardData) {
+	@layouts.Base(page) {
+		<div class="site-index">
+			<div class="row">
+				<div class="col-lg-4">
+					<div class="small-box bg-info">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.TerminalTotalNum) }</h2>
+							<h4><strong>TOTAL TERMINAL</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-tablet-alt"></i>
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-4">
+					<div class="small-box bg-success">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.TerminalActivedNum) }</h2>
+							<h4><strong>ACTIVE TERMINAL</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-check"></i>
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-4">
+					<div class="small-box bg-warning">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.AppTotalNum) }</h2>
+							<h4><strong>TOTAL APPS</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-mobile-alt"></i>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-lg-4">
+					<div class="small-box bg-warning">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.AppDownloadsNum) }</h2>
+							<h4><strong>TOTAL APP DOWNLOADS</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-download"></i>
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-4">
+					<div class="small-box bg-info">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.DownloadsTasks) }</h2>
+							<h4><strong>DOWNLOADING TASKS</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-tasks"></i>
+						</div>
+					</div>
+				</div>
+				<div class="col-lg-4">
+					<div class="small-box bg-success">
+						<div class="inner text-center">
+							<h2>{ fmt.Sprintf("%d", data.MerchTotalNum) }</h2>
+							<h4><strong>MERCHANTS</strong></h4>
+						</div>
+						<div class="icon">
+							<i class="fas fa-store"></i>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// csiDashboardPlaceholder renders a placeholder when no data is loaded yet.
+templ csiDashboardPlaceholder() {
+	<div class="row">
+		<div class="col-lg-4">
+			<div class="small-box bg-info">
+				<div class="inner text-center">
+					<h2>-</h2>
+					<h4><strong>Total CSI</strong></h4>
+				</div>
+				<div class="icon">
+					<i class="fas fa-tablet-alt"></i>
+				</div>
+			</div>
+		</div>
+		<div class="col-lg-4">
+			<div class="small-box bg-success">
+				<div class="inner text-center">
+					<h2>-</h2>
+					<h4><strong>Total Verifikasi</strong></h4>
+				</div>
+				<div class="icon">
+					<i class="fas fa-check-circle"></i>
+				</div>
+			</div>
+		</div>
+		<div class="col-lg-4">
+			<div class="small-box bg-warning">
+				<div class="inner text-center">
+					<h2>-</h2>
+					<h4><strong>Total Teknisi</strong></h4>
+				</div>
+				<div class="icon">
+					<i class="fas fa-user-cog"></i>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// tmsDashboardPlaceholder renders a placeholder when no data is loaded yet.
+templ tmsDashboardPlaceholder() {
+	<div class="row">
+		<div class="col-lg-4">
+			<div class="small-box bg-info">
+				<div class="inner text-center">
+					<h2>-</h2>
+					<h4><strong>TOTAL TERMINAL</strong></h4>
+				</div>
+				<div class="icon">
+					<i class="fas fa-tablet-alt"></i>
+				</div>
+			</div>
+		</div>
+		<div class="col-lg-4">
+			<div class="small-box bg-success">
+				<div class="inner text-center">
+					<h2>-</h2>
+					<h4><strong>ACTIVE TERMINAL</strong></h4>
+				</div>
+				<div class="icon">
+					<i class="fas fa-check"></i>
+				</div>
+			</div>
+		</div>
+		<div class="col-lg-4">
+			<div class="small-box bg-warning">
+				<div class="inner text-center">
+					<h2>-</h2>
+					<h4><strong>MERCHANTS</strong></h4>
+				</div>
+				<div class="icon">
+					<i class="fas fa-store"></i>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// defaultDashboard renders the default dashboard for users without specific roles.
+templ defaultDashboard(page layouts.PageData) {
+	<div class="jumbotron text-center">
+		if page.AppLogo != "" {
+			<h1>
+				<img style="width:100px;" alt="" src={ "/static/img/" + page.AppLogo }/>
+				<strong>{ page.AppName }</strong>
+			</h1>
+		} else {
+			<h1><strong>{ page.AppName }</strong></h1>
+		}
+	</div>
+}

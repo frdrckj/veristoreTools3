@@ -1,0 +1,127 @@
+package layouts
+
+import (
+	"fmt"
+	"time"
+	"github.com/verifone/veristoretools3/templates/components"
+)
+
+// PageData holds common data needed by all pages.
+type PageData struct {
+	Title           string
+	AppName         string
+	AppVersion      string
+	AppIcon         string
+	AppLogo         string
+	AppClientLogo   string
+	AppVeristoreLogo string
+	AppTmsURL       string
+	AppBgColor      string
+	UserName        string
+	UserFullname    string
+	UserPrivileges  string
+	CopyrightTitle  string
+	CopyrightURL    string
+	Flashes         map[string][]string
+}
+
+// IsCSI returns true if the user has CSI-type privileges.
+func (p PageData) IsCSI() bool {
+	return p.UserPrivileges == "ADMIN" || p.UserPrivileges == "OPERATOR"
+}
+
+// IsTMS returns true if the user has TMS-type privileges.
+func (p PageData) IsTMS() bool {
+	return p.UserPrivileges == "TMS ADMIN" || p.UserPrivileges == "TMS SUPERVISOR" || p.UserPrivileges == "TMS OPERATOR"
+}
+
+// AppTypeLabel returns the header label based on user role.
+func (p PageData) AppTypeLabel() string {
+	if p.IsCSI() {
+		return "Verifikasi CSI"
+	}
+	if p.IsTMS() {
+		return "Profiling"
+	}
+	return ""
+}
+
+// CurrentYear returns the current year as a string for the footer.
+func CurrentYear() string {
+	return fmt.Sprintf("%d", time.Now().Year())
+}
+
+// Base renders the main authenticated layout with AdminLTE structure.
+templ Base(data PageData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ data.Title } - { data.AppName }</title>
+			<!-- Favicon -->
+			if data.AppIcon != "" {
+				<link rel="icon" href={ "/static/img/" + data.AppIcon }/>
+			}
+			<!-- Font Awesome -->
+			<link rel="stylesheet" href="/static/adminlte/plugins/fontawesome-free/css/all.min.css"/>
+			<!-- overlayScrollbars -->
+			<link rel="stylesheet" href="/static/adminlte/plugins/overlayScrollbars/css/OverlayScrollbars.min.css"/>
+			<!-- Select2 -->
+			<link rel="stylesheet" href="/static/adminlte/plugins/select2/css/select2.min.css"/>
+			<!-- AdminLTE -->
+			<link rel="stylesheet" href="/static/adminlte/css/adminlte.min.css"/>
+			<!-- Site CSS -->
+			<link rel="stylesheet" href="/static/css/site.css"/>
+		</head>
+		<body class="hold-transition sidebar-mini">
+			<div class="wrapper">
+				@Header(data)
+				@Sidebar(data)
+				<div class="content-wrapper">
+					<section class="content-header">
+						<div class="container-fluid">
+							<div class="row mb-2">
+								<div class="col-sm-6">
+									<h1>{ data.Title }</h1>
+								</div>
+							</div>
+						</div>
+					</section>
+					<section class="content">
+						<div class="container-fluid">
+							@components.Alert(data.Flashes)
+							{ children... }
+						</div>
+					</section>
+				</div>
+				<footer class="main-footer">
+					<div class="float-right d-none d-sm-block">
+						<strong>Version { data.AppVersion }</strong>
+					</div>
+					<strong>
+						Copyright &copy; { CurrentYear() } <a href={ templ.SafeURL(data.CopyrightURL) }>{ data.CopyrightTitle }</a>.
+					</strong> All rights reserved.
+				</footer>
+			</div>
+			<!-- jQuery -->
+			<script src="/static/adminlte/plugins/jquery/dist/jquery.min.js"></script>
+			<!-- Bootstrap 4 -->
+			<script src="/static/adminlte/plugins/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+			<!-- overlayScrollbars -->
+			<script src="/static/adminlte/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
+			<!-- Select2 -->
+			<script src="/static/adminlte/plugins/select2/js/select2.full.min.js"></script>
+			<!-- SweetAlert2 -->
+			<script src="/static/adminlte/plugins/sweetalert2/dist/sweetalert2.all.min.js"></script>
+			<!-- AdminLTE App -->
+			<script src="/static/adminlte/js/adminlte.min.js"></script>
+			<!-- HTMX -->
+			<script src="/static/js/htmx.min.js"></script>
+			<!-- Alpine.js -->
+			<script defer src="/static/js/alpine.min.js"></script>
+			<!-- App JS -->
+			<script src="/static/js/app.js"></script>
+		</body>
+	</html>
+}

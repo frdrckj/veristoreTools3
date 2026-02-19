@@ -1,0 +1,110 @@
+package components
+
+import (
+	"fmt"
+	"strconv"
+)
+
+// PaginationData holds pagination state for rendering controls.
+type PaginationData struct {
+	CurrentPage int
+	TotalPages  int
+	Total       int64
+	BaseURL     string // The base URL for pagination links, e.g., "/csi/terminal"
+	HTMXTarget  string // The HTMX target element ID for partial updates
+}
+
+// Pagination renders pagination controls with HTMX support.
+templ Pagination(data PaginationData) {
+	if data.TotalPages > 1 {
+		<nav aria-label="Page navigation">
+			<ul class="pagination pagination-sm m-0 float-right">
+				<!-- Previous -->
+				<li class={ "page-item", templ.KV("disabled", data.CurrentPage <= 1) }>
+					if data.CurrentPage > 1 {
+						<a
+							class="page-link"
+							href={ templ.SafeURL(data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage-1)) }
+							if data.HTMXTarget != "" {
+								hx-get={ data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage-1) }
+								hx-target={ "#" + data.HTMXTarget }
+								hx-push-url="true"
+							}
+						>
+							&laquo;
+						</a>
+					} else {
+						<span class="page-link">&laquo;</span>
+					}
+				</li>
+				<!-- Page numbers -->
+				for _, page := range pageRange(data.CurrentPage, data.TotalPages) {
+					<li class={ "page-item", templ.KV("active", page == data.CurrentPage) }>
+						<a
+							class="page-link"
+							href={ templ.SafeURL(data.BaseURL + "?page=" + strconv.Itoa(page)) }
+							if data.HTMXTarget != "" {
+								hx-get={ data.BaseURL + "?page=" + strconv.Itoa(page) }
+								hx-target={ "#" + data.HTMXTarget }
+								hx-push-url="true"
+							}
+						>
+							{ strconv.Itoa(page) }
+						</a>
+					</li>
+				}
+				<!-- Next -->
+				<li class={ "page-item", templ.KV("disabled", data.CurrentPage >= data.TotalPages) }>
+					if data.CurrentPage < data.TotalPages {
+						<a
+							class="page-link"
+							href={ templ.SafeURL(data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage+1)) }
+							if data.HTMXTarget != "" {
+								hx-get={ data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage+1) }
+								hx-target={ "#" + data.HTMXTarget }
+								hx-push-url="true"
+							}
+						>
+							&raquo;
+						</a>
+					} else {
+						<span class="page-link">&raquo;</span>
+					}
+				</li>
+			</ul>
+			<span class="text-muted ml-2" style="line-height:32px;">
+				{ fmt.Sprintf("Total: %d", data.Total) }
+			</span>
+		</nav>
+	}
+}
+
+// pageRange calculates which page numbers to show. Shows up to 7 pages around
+// the current page with ellipsis-like behavior at the boundaries.
+func pageRange(current, total int) []int {
+	if total <= 7 {
+		pages := make([]int, total)
+		for i := range pages {
+			pages[i] = i + 1
+		}
+		return pages
+	}
+
+	pages := make([]int, 0, 7)
+	start := current - 3
+	if start < 1 {
+		start = 1
+	}
+	end := start + 6
+	if end > total {
+		end = total
+		start = end - 6
+		if start < 1 {
+			start = 1
+		}
+	}
+	for i := start; i <= end; i++ {
+		pages = append(pages, i)
+	}
+	return pages
+}

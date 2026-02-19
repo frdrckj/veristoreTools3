@@ -3,10 +3,13 @@ package auth
 import (
 	"net/http"
 
+	"github.com/a-h/templ"
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
+	"github.com/verifone/veristoretools3/templates/layouts"
+	userTmpl "github.com/verifone/veristoretools3/templates/user"
 )
 
 // Handler holds dependencies for authentication HTTP handlers.
@@ -14,43 +17,49 @@ type Handler struct {
 	service     *Service
 	store       sessions.Store
 	sessionName string
+	appName     string
+	appVersion  string
+	appIcon     string
+	appLogo     string
 }
 
 // NewHandler creates a new auth handler.
-func NewHandler(service *Service, store sessions.Store, sessionName string) *Handler {
+func NewHandler(service *Service, store sessions.Store, sessionName, appName, appVersion string) *Handler {
 	return &Handler{
 		service:     service,
 		store:       store,
 		sessionName: sessionName,
+		appName:     appName,
+		appVersion:  appVersion,
+		appIcon:     "favicon.png",
+		appLogo:     "verifone_logo.png",
 	}
 }
 
-// LoginPage renders the login page.
-// TODO: Replace with Templ component in Phase 4.
+// Render is a helper to render templ components as Echo responses.
+func Render(c echo.Context, statusCode int, component templ.Component) error {
+	c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextHTMLCharsetUTF8)
+	c.Response().WriteHeader(statusCode)
+	return component.Render(c.Request().Context(), c.Response())
+}
+
+// LoginPage renders the login page using the Templ login template.
 func (h *Handler) LoginPage(c echo.Context) error {
-	html := `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - VeriStore Tools</title>
-</head>
-<body>
-    <h1>VeriStore Tools Login</h1>
-    <form method="POST" action="/user/login">
-        <div>
-            <label for="username">Username</label>
-            <input type="text" id="username" name="username" required />
-        </div>
-        <div>
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" required />
-        </div>
-        <button type="submit">Login</button>
-    </form>
-</body>
-</html>`
-	return c.HTML(http.StatusOK, html)
+	// Get flash messages for error display.
+	flashes := shared.GetFlashes(c, h.store, h.sessionName)
+	errorMsg := ""
+	if errs, ok := flashes[shared.FlashError]; ok && len(errs) > 0 {
+		errorMsg = errs[0]
+	}
+
+	loginData := layouts.LoginData{
+		AppName:    h.appName,
+		AppVersion: h.appVersion,
+		AppIcon:    h.appIcon,
+		AppLogo:    h.appLogo,
+	}
+
+	return Render(c, http.StatusOK, userTmpl.LoginPage(loginData, errorMsg))
 }
 
 // Login processes the login form submission. On success it creates a session

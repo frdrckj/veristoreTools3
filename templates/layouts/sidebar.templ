@@ -1,0 +1,181 @@
+package layouts
+
+// MenuItem represents a navigation menu item in the sidebar.
+type MenuItem struct {
+	Label    string
+	URL      string
+	Icon     string
+	Active   bool
+	Children []MenuItem
+}
+
+// Sidebar renders the left sidebar with user panel and navigation menu.
+templ Sidebar(data PageData) {
+	<aside class="main-sidebar sidebar-dark-primary elevation-4">
+		<!-- Brand Logo -->
+		<a href="/" class="brand-link"
+			if data.AppBgColor != "" {
+				style={ "background-color:" + data.AppBgColor }
+			}
+		>
+			if data.AppLogo != "" {
+				<img
+					src={ "/static/img/" + data.AppLogo }
+					alt="Logo"
+					class="brand-image img-circle elevation-3"
+					style="opacity:.8"
+				/>
+			}
+			<span class="brand-text font-weight-light">{ data.AppName }</span>
+		</a>
+		<!-- Sidebar -->
+		<div class="sidebar">
+			<!-- Sidebar user panel -->
+			<div class="user-panel mt-3 pb-3 mb-3 d-flex">
+				<div class="image">
+					<img src="/static/img/male-users.jpg" class="img-circle elevation-2" alt="User Image"/>
+				</div>
+				<div class="info">
+					<a href="/" class="d-block">{ data.UserFullname }</a>
+					<span class="text-success"><i class="fas fa-circle text-success" style="font-size:10px;"></i> Online</span>
+				</div>
+			</div>
+			<!-- Sidebar Menu -->
+			<nav class="mt-2">
+				<ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="false">
+					<!-- Dashboard -->
+					<li class="nav-item">
+						<a href="/" class="nav-link">
+							<i class="nav-icon fas fa-tachometer-alt"></i>
+							<p>Dashboard</p>
+						</a>
+					</li>
+					if data.IsCSI() {
+						@csiMenu()
+					}
+					if data.IsTMS() {
+						@tmsMenu()
+					}
+				</ul>
+			</nav>
+			<!-- Client Logo -->
+			if data.AppClientLogo != "" {
+				<div class="text-center mt-4 mb-2">
+					<img
+						src={ "/static/img/" + data.AppClientLogo }
+						alt="Client Logo"
+						style="width:200px;"
+					/>
+				</div>
+			}
+			<!-- Veristore Logo for TMS users -->
+			if data.IsTMS() && data.AppVeristoreLogo != "" {
+				<div class="text-center mt-2 mb-2">
+					<a href={ templ.SafeURL(data.AppTmsURL) } target="_blank">
+						<img
+							src={ "/static/img/" + data.AppVeristoreLogo }
+							alt="Veristore Logo"
+							style="width:125px;"
+						/>
+					</a>
+				</div>
+			}
+		</div>
+	</aside>
+}
+
+// csiMenu renders the CSI-specific sidebar menu items.
+templ csiMenu() {
+	<li class="nav-item">
+		<a href="/csi/verification" class="nav-link">
+			<i class="nav-icon fas fa-check-circle"></i>
+			<p>Verifikasi CSI</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/csi/terminal" class="nav-link">
+			<i class="nav-icon fas fa-tablet-alt"></i>
+			<p>Data Terminal</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/csi/technician" class="nav-link">
+			<i class="nav-icon fas fa-user-cog"></i>
+			<p>Data Teknisi</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/csi/sync" class="nav-link">
+			<i class="nav-icon fas fa-sync-alt"></i>
+			<p>Sinkronisasi</p>
+		</a>
+	</li>
+	<li class="nav-item has-treeview">
+		<a href="#" class="nav-link">
+			<i class="nav-icon fas fa-cogs"></i>
+			<p>
+				Pengaturan
+				<i class="right fas fa-angle-left"></i>
+			</p>
+		</a>
+		<ul class="nav nav-treeview">
+			<li class="nav-item">
+				<a href="/admin/user" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Pengguna</p>
+				</a>
+			</li>
+		</ul>
+	</li>
+}
+
+// tmsMenu renders the TMS-specific sidebar menu items.
+templ tmsMenu() {
+	<li class="nav-item">
+		<a href="/tms/terminal" class="nav-link">
+			<i class="nav-icon fas fa-tablet-alt"></i>
+			<p>Terminal</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/tms/merchant" class="nav-link">
+			<i class="nav-icon fas fa-store"></i>
+			<p>Merchant</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/tms/group" class="nav-link">
+			<i class="nav-icon fas fa-layer-group"></i>
+			<p>Group</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/tms/application" class="nav-link">
+			<i class="nav-icon fas fa-mobile-alt"></i>
+			<p>Application</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/tms/activation" class="nav-link">
+			<i class="nav-icon fas fa-key"></i>
+			<p>Activation</p>
+		</a>
+	</li>
+	<li class="nav-item has-treeview">
+		<a href="#" class="nav-link">
+			<i class="nav-icon fas fa-cogs"></i>
+			<p>
+				Settings
+				<i class="right fas fa-angle-left"></i>
+			</p>
+		</a>
+		<ul class="nav nav-treeview">
+			<li class="nav-item">
+				<a href="/admin/user" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Users</p>
+				</a>
+			</li>
+		</ul>
+	</li>
+}

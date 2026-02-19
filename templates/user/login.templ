@@ -1,0 +1,76 @@
+package user
+
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// LoginPage renders the full login page with the login layout wrapper.
+templ LoginPage(data layouts.LoginData, errorMsg string) {
+	@layouts.Login(data) {
+		<div class="login-box">
+			<div class="login-box-body card card-outline card-primary" style="border-radius:10px;">
+				<div class="card-body">
+					<div class="login-logo">
+						<a href="/">
+							if data.AppLogo != "" {
+								<img style="width:50px;" alt="" src={ "/static/img/" + data.AppLogo }/>
+							}
+							<strong>{ data.AppName }</strong>
+						</a>
+					</div>
+					if errorMsg != "" {
+						<div class="alert alert-danger alert-dismissible fade show" role="alert">
+							{ errorMsg }
+							<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+								<span aria-hidden="true">&times;</span>
+							</button>
+						</div>
+					}
+					<form method="POST" action="/user/login" id="login-form">
+						<div class="input-group mb-3">
+							<input
+								type="text"
+								class="form-control"
+								name="username"
+								placeholder="Username"
+								required
+								autofocus
+							/>
+							<div class="input-group-append">
+								<div class="input-group-text">
+									<span class="fas fa-envelope"></span>
+								</div>
+							</div>
+						</div>
+						<div class="input-group mb-3">
+							<input
+								type="password"
+								class="form-control"
+								name="password"
+								placeholder="Password"
+								required
+							/>
+							<div class="input-group-append">
+								<div class="input-group-text">
+									<span class="fas fa-lock"></span>
+								</div>
+							</div>
+						</div>
+						<div class="row">
+							<div class="col-8">
+								<div class="icheck-primary">
+									<input type="checkbox" id="remember" name="remember"/>
+									<label for="remember">Remember Me</label>
+								</div>
+							</div>
+							<div class="col-4">
+								<button type="submit" class="btn btn-primary btn-block">Sign In</button>
+							</div>
+						</div>
+					</form>
+					<p class="mt-3 mb-0 text-muted">
+						Version { data.AppVersion }
+					</p>
+				</div>
+			</div>
+		</div>
+	}
+}

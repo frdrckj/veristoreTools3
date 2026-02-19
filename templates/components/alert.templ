@@ -1,0 +1,32 @@
+package components
+
+// Alert renders flash message alerts.
+// The flashes map is keyed by flash type: "success", "error", "info", "warning".
+templ Alert(flashes map[string][]string) {
+	for flashType, messages := range flashes {
+		for _, msg := range messages {
+			<div class={ "alert", alertClass(flashType), "alert-dismissible fade show" } role="alert">
+				{ msg }
+				<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+					<span aria-hidden="true">&times;</span>
+				</button>
+			</div>
+		}
+	}
+}
+
+// alertClass maps flash types to Bootstrap alert CSS classes.
+func alertClass(flashType string) string {
+	switch flashType {
+	case "success":
+		return "alert-success"
+	case "error":
+		return "alert-danger"
+	case "warning":
+		return "alert-warning"
+	case "info":
+		return "alert-info"
+	default:
+		return "alert-info"
+	}
+}
