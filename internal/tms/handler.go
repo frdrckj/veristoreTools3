@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/sessions"
+	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
+	"github.com/verifone/veristoretools3/internal/admin"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
 	"github.com/verifone/veristoretools3/templates/components"
@@ -31,10 +34,12 @@ type Handler struct {
 	appBgColor       string
 	copyrightTitle   string
 	copyrightURL     string
+	adminRepo        *admin.Repository
+	queueClient      *asynq.Client
 }
 
 // NewHandler creates a new veristore handler.
-func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string) *Handler {
+func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client) *Handler {
 	return &Handler{
 		service:          service,
 		store:            store,
@@ -49,7 +54,17 @@ func NewHandler(service *Service, store sessions.Store, sessionName string, appN
 		appBgColor:       "",
 		copyrightTitle:   "Verifone",
 		copyrightURL:     "https://www.verifone.com",
+		adminRepo:        adminRepo,
+		queueClient:      queueClient,
 	}
+}
+
+// exportPayload mirrors queue.ExportTerminalPayload to avoid import cycle.
+type exportPayload struct {
+	SerialNos []string `json:"serial_nos"`
+	Session   string   `json:"session"`
+	User      string   `json:"user"`
+	ExportID  int      `json:"export_id"`
 }
 
 // SetBranding configures optional branding fields on the handler.
@@ -236,22 +251,100 @@ func (h *Handler) Edit(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/terminal")
 		}
 
-		var paraList []map[string]interface{}
-		// If appId is provided, get parameters.
+		var paramGroups []vsTmpl.ParamGroup
+		// If appId is provided, get parameters from the old session-based API.
 		if appId != "" {
-			paramResp, err := h.service.GetTerminalParameter(serialNum, appId)
+			// Query template_parameter table for distinct group titles and their tab names.
+			type tplGroup struct {
+				Title      string
+				IndexTitle string
+				Index      int
+				TabName    string
+			}
+			var tplGroups []tplGroup
+			h.service.db.Raw(`
+				SELECT tparam_title AS title,
+				       tparam_index_title AS index_title,
+				       tparam_index AS ` + "`index`" + `,
+				       MAX(tparam_field) AS tab_name
+				FROM template_parameter
+				GROUP BY tparam_title, tparam_index_title, tparam_index
+				ORDER BY MIN(tparam_id)
+			`).Scan(&tplGroups)
+
+			// Collect unique tab names for API calls.
+			var tabNames []string
+			seen := map[string]bool{}
+			for _, tg := range tplGroups {
+				parts := strings.SplitN(tg.TabName, "-", 3)
+				if len(parts) >= 2 && !seen[parts[1]] {
+					tabNames = append(tabNames, parts[1])
+					seen[parts[1]] = true
+				}
+			}
+
+			// Fetch all parameters across all tabs.
+			paramResp, err := h.service.GetTerminalParameter(serialNum, appId, tabNames)
+			var paraLookup map[string]string
 			if err == nil && paramResp.ResultCode == 0 && paramResp.Data != nil {
 				if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
+					paraLookup = make(map[string]string, len(pl))
 					for _, p := range pl {
-						if m, ok := p.(map[string]interface{}); ok {
-							paraList = append(paraList, m)
+						m, _ := p.(map[string]interface{})
+						if m == nil {
+							continue
+						}
+						paraLookup[fmt.Sprintf("%v", m["dataName"])] = fmt.Sprintf("%v", m["value"])
+					}
+				}
+			}
+
+			// Build two-level tree from template_parameter.
+			for _, tg := range tplGroups {
+				subTitles := strings.Split(tg.IndexTitle, "|")
+				var subItems []vsTmpl.ParamSubItem
+				for i := 0; i < tg.Index && i < len(subTitles); i++ {
+					subTitle := subTitles[i]
+					// Dynamic titles: prefixed with * means resolve from parameter value.
+					if len(subTitle) > 0 && subTitle[0] == '*' {
+						dataName := subTitle[1:]
+						if v, ok := paraLookup[dataName]; ok && v != "" {
+							subTitle = v
+						} else {
+							subTitle = subTitle[1:]
+						}
+					}
+					subItems = append(subItems, vsTmpl.ParamSubItem{
+						Title: subTitle,
+						Index: i + 1,
+					})
+				}
+				paramGroups = append(paramGroups, vsTmpl.ParamGroup{
+					Name:     tg.Title,
+					SubItems: subItems,
+				})
+			}
+		}
+
+		// Find selected app name/version.
+		appName := ""
+		if detailResp.Data != nil {
+			if apps, ok := detailResp.Data["terminalShowApps"].([]interface{}); ok {
+				for _, a := range apps {
+					if am, ok := a.(map[string]interface{}); ok {
+						if fmt.Sprintf("%v", am["id"]) == appId {
+							appName = fmt.Sprintf("%v", am["name"])
+							if v, ok := am["version"].(string); ok && v != "" {
+								appName += " " + v
+							}
+							break
 						}
 					}
 				}
 			}
 		}
 
-		return shared.Render(c, http.StatusOK, vsTmpl.EditPage(page, serialNum, appId, detailResp.Data, paraList))
+		return shared.Render(c, http.StatusOK, vsTmpl.EditPage(page, serialNum, appId, appName, detailResp.Data, paramGroups))
 	}
 
 	// POST - update parameters.
@@ -284,6 +377,129 @@ func (h *Handler) Edit(c echo.Context) error {
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Parameters updated successfully")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
+}
+
+// EditParam handles GET /veristore/edit/param - AJAX endpoint returning parameter form HTML.
+func (h *Handler) EditParam(c echo.Context) error {
+	serialNum := c.QueryParam("serialNum")
+	appId := c.QueryParam("appId")
+	group := c.QueryParam("group")
+	index := c.QueryParam("index")
+
+	if serialNum == "" || appId == "" || group == "" {
+		return c.HTML(http.StatusBadRequest, `<div class="alert alert-danger">Missing parameters.</div>`)
+	}
+
+	// Find the tab name for this group from template_parameter.
+	var tabName string
+	h.service.db.Raw(`
+		SELECT MAX(tparam_field) FROM template_parameter WHERE tparam_title = ?
+	`, group).Scan(&tabName)
+	if tabName == "" {
+		return c.HTML(http.StatusNotFound, `<div class="alert alert-warning">Group not found.</div>`)
+	}
+
+	// Extract the tab name (second segment of tparam_field).
+	parts := strings.SplitN(tabName, "-", 3)
+	if len(parts) < 2 {
+		return c.HTML(http.StatusBadRequest, `<div class="alert alert-danger">Invalid field format.</div>`)
+	}
+	tab := parts[1]
+
+	// Fetch parameters for this tab from old API.
+	resp, err := h.service.GetTerminalParameterTab(serialNum, appId, tab)
+	if err != nil {
+		return c.HTML(http.StatusInternalServerError, fmt.Sprintf(`<div class="alert alert-danger">%s</div>`, err.Error()))
+	}
+
+	// Get template_parameter rows for this group to know field definitions.
+	var tplParams []admin.TemplateParameter
+	h.service.db.Where("tparam_title = ?", group).Order("tparam_id").Find(&tplParams)
+
+	// Filter parameters for the selected sub-item index.
+	var filteredParams []map[string]interface{}
+	if resp.ResultCode == 0 && resp.Data != nil {
+		if pl, ok := resp.Data["paraList"].([]interface{}); ok {
+			for _, p := range pl {
+				m, _ := p.(map[string]interface{})
+				if m == nil {
+					continue
+				}
+				dn := fmt.Sprintf("%v", m["dataName"])
+				// dataName format is "fieldKey-NUMBER", match by NUMBER suffix.
+				if strings.HasSuffix(dn, "-"+index) {
+					filteredParams = append(filteredParams, m)
+				}
+			}
+		}
+	}
+
+	// Build HTML form.
+	html := fmt.Sprintf(`<div class="card card-success">
+		<div class="card-header"><h4 class="card-title mb-0">%s</h4></div>
+		<div class="card-body">
+		<form method="POST" action="/veristore/edit">
+		<input type="hidden" name="serialNum" value="%s"/>
+		<input type="hidden" name="appId" value="%s"/>`, group, serialNum, appId)
+
+	for _, p := range filteredParams {
+		dn := fmt.Sprintf("%v", p["dataName"])
+		desc := fmt.Sprintf("%v", p["description"])
+		val := fmt.Sprintf("%v", p["value"])
+		vn := fmt.Sprintf("%v", p["viewName"])
+
+		// Check tparam_type for this field.
+		fieldType := "text"
+		maxLen := ""
+		for _, tp := range tplParams {
+			fieldParts := strings.SplitN(tp.TparamField, "-", 3)
+			if len(fieldParts) >= 3 && strings.HasSuffix(dn, "-"+index) {
+				fieldKey := strings.TrimSuffix(dn, "-"+index)
+				if fieldParts[2] == fieldKey {
+					if tp.TparamType == "C" {
+						fieldType = "checkbox"
+					}
+					// Parse tparam_length for maxlength.
+					lengths := strings.Split(tp.TparamLength, "|")
+					idx, _ := strconv.Atoi(index)
+					if idx > 0 && idx <= len(lengths) {
+						maxLen = lengths[idx-1]
+					}
+					break
+				}
+			}
+		}
+
+		if fieldType == "checkbox" {
+			checked := ""
+			if val == "true" || val == "1" {
+				checked = "checked"
+			}
+			html += fmt.Sprintf(`<div class="form-group">
+				<div class="custom-control custom-checkbox">
+					<input type="hidden" name="param_%s" value="%s" id="hidden_%s"/>
+					<input type="checkbox" class="custom-control-input" id="cb_%s" %s onchange="document.getElementById('hidden_%s').value=this.checked?'true':'false'"/>
+					<label class="custom-control-label" for="cb_%s">%s</label>
+				</div>
+				<input type="hidden" name="viewName_%s" value="%s"/>
+			</div>`, dn, val, dn, dn, checked, dn, dn, desc, dn, vn)
+		} else {
+			maxAttr := ""
+			if maxLen != "" && maxLen != "0" {
+				maxAttr = fmt.Sprintf(` maxlength="%s"`, maxLen)
+			}
+			html += fmt.Sprintf(`<div class="form-group">
+				<label>%s</label>
+				<input type="text" class="form-control" name="param_%s" value="%s"%s/>
+				<input type="hidden" name="viewName_%s" value="%s"/>
+			</div>`, desc, dn, val, maxAttr, dn, vn)
+		}
+	}
+
+	html += `<button type="submit" class="btn btn-success"><i class="fas fa-save"></i> Submit</button>
+		</form></div></div>`
+
+	return c.HTML(http.StatusOK, html)
 }
 
 // Copy handles GET/POST /veristore/copy - Copy terminal configuration.
@@ -449,7 +665,20 @@ func (h *Handler) Check(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "serialNum and appId are required")
 	}
 
-	resp, err := h.service.GetTerminalParameter(serialNum, appId)
+	// Collect all tab names from template_parameter for full check.
+	var tabFields []string
+	h.service.db.Raw(`SELECT DISTINCT MAX(tparam_field) as f FROM template_parameter GROUP BY tparam_title ORDER BY MIN(tparam_id)`).Scan(&tabFields)
+	var checkTabs []string
+	seen := map[string]bool{}
+	for _, f := range tabFields {
+		parts := strings.SplitN(f, "-", 3)
+		if len(parts) >= 2 && !seen[parts[1]] {
+			checkTabs = append(checkTabs, parts[1])
+			seen[parts[1]] = true
+		}
+	}
+
+	resp, err := h.service.GetTerminalParameter(serialNum, appId, checkTabs)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, fmt.Sprintf("Error: %v", err))
 	}
@@ -487,30 +716,195 @@ func (h *Handler) Report(c echo.Context) error {
 
 // Export handles GET/POST /veristore/export - Export terminal data.
 func (h *Handler) Export(c echo.Context) error {
-	page := h.pageData(c, "Export Terminals")
+	page := h.pageData(c, "CSI (Export)")
+	data := vsTmpl.ExportData{}
+
+	// Check if there is an export in progress.
+	inProgress, _ := h.adminRepo.FindInProgressExport()
+	if inProgress != nil {
+		data.InProgress = true
+		data.RequestDate = parseExportFilenameDate(inProgress.ExpFilename)
+		return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+	}
 
 	if c.Request().Method == http.MethodPost {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashInfo, "Export initiated. Download will be available shortly.")
-		return c.Redirect(http.StatusFound, "/veristore/export")
+		// Check if this is a "Create" action (start the export job).
+		if c.FormValue("buttonCreate") != "" {
+			serialNoList := c.FormValue("serialNoList")
+			var serialNos []string
+			_ = json.Unmarshal([]byte(serialNoList), &serialNos)
+
+			if len(serialNos) == 0 {
+				data.Count = 0
+				return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+			}
+
+			// Create export record.
+			filename := fmt.Sprintf("csi_%s.xlsx", time.Now().Format("20060102_1504"))
+			total := strconv.Itoa(len(serialNos))
+			current := "0"
+			export := &admin.Export{
+				ExpFilename: filename,
+				ExpCurrent:  &current,
+				ExpTotal:    &total,
+			}
+			if err := h.adminRepo.CreateExport(export); err != nil {
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to create export record: %v", err))
+				return c.Redirect(http.StatusFound, "/veristore/export?refresh=true")
+			}
+
+			// Enqueue the background job.
+			session := h.service.GetSession()
+			payload := exportPayload{
+				SerialNos: serialNos,
+				Session:   session,
+				ExportID:  export.ExpID,
+			}
+			payloadBytes, _ := json.Marshal(payload)
+			task := asynq.NewTask("export:terminal", payloadBytes)
+			if _, err := h.queueClient.Enqueue(task); err != nil {
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to enqueue export job: %v", err))
+				return c.Redirect(http.StatusFound, "/veristore/terminal")
+			}
+
+			data.InProgress = true
+			data.RequestDate = time.Now().Format("2006-01-02 15:04")
+			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+		}
+
+		// Initial POST from terminal page — collect serial numbers and show count.
+		selectAll := c.FormValue("selectAll")
+		if selectAll == "true" {
+			// Fetch all terminals across all pages.
+			serialNos := h.collectAllTerminalIDs(c)
+			data.Count = len(serialNos)
+			serialNoJSON, _ := json.Marshal(serialNos)
+			data.SerialNoList = string(serialNoJSON)
+			data.ShowCreate = data.Count > 0
+			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+		}
+
+		serialNoList := c.FormValue("serialNoList")
+		if serialNoList != "" {
+			var serialNos []string
+			_ = json.Unmarshal([]byte(serialNoList), &serialNos)
+			data.Count = len(serialNos)
+			data.SerialNoList = serialNoList
+			data.ShowCreate = data.Count > 0
+			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+		}
+
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page))
+	// GET request
+	if c.QueryParam("refresh") == "true" {
+		// Check latest export status.
+		latest, err := h.adminRepo.FindLatestExport()
+		if err != nil || latest == nil {
+			data.Count = 0
+			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+		}
+
+		// Check if export is complete: current == total (data may or may not be in BLOB).
+		isComplete := false
+		if latest.ExpCurrent != nil && latest.ExpTotal != nil {
+			cur, _ := strconv.Atoi(*latest.ExpCurrent)
+			tot, _ := strconv.Atoi(*latest.ExpTotal)
+			if cur > 0 && cur >= tot {
+				isComplete = true
+			}
+		}
+		// Also treat as complete if file data exists.
+		if latest.ExpData != nil && len(latest.ExpData) > 0 {
+			isComplete = true
+		}
+
+		if isComplete {
+			data.DownloadReady = true
+			data.LastExportDate = parseExportFilenameDate(latest.ExpFilename)
+			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+		}
+
+		// Still in progress.
+		data.InProgress = true
+		data.RequestDate = parseExportFilenameDate(latest.ExpFilename)
+		return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+	}
+
+	// Bare GET — redirect to terminal page (same as v2).
+	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
-// ExportResult handles GET /veristore/export-result - Download export file.
+// collectAllTerminalIDs fetches all terminal deviceIds across all pages.
+func (h *Handler) collectAllTerminalIDs(c echo.Context) []string {
+	searchSerialNo := c.FormValue("searchSerialNo")
+	searchType, _ := strconv.Atoi(c.FormValue("searchType"))
+
+	var allIDs []string
+	for page := 1; ; page++ {
+		var resp *TMSResponse
+		var err error
+		if searchSerialNo != "" {
+			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType)
+		} else {
+			resp, err = h.service.GetTerminalList(page)
+		}
+		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+			break
+		}
+		tl, ok := resp.Data["terminalList"].([]interface{})
+		if !ok || len(tl) == 0 {
+			break
+		}
+		for _, t := range tl {
+			if m, ok := t.(map[string]interface{}); ok {
+				if devId, ok := m["deviceId"].(string); ok && devId != "" {
+					allIDs = append(allIDs, devId)
+				}
+			}
+		}
+		totalPage := 0
+		if tp, ok := resp.Data["totalPage"]; ok {
+			totalPage, _ = toInt(tp)
+		}
+		if page >= totalPage {
+			break
+		}
+	}
+	return allIDs
+}
+
+// parseExportFilenameDate extracts a human-readable date from filenames like "csi_20260219_2037.xlsx".
+func parseExportFilenameDate(filename string) string {
+	// Expected format: csi_YYYYMMDD_HHMM.xlsx
+	parts := strings.Split(strings.TrimSuffix(filename, ".xlsx"), "_")
+	if len(parts) >= 3 {
+		d := parts[1]
+		t := parts[2]
+		if len(d) == 8 && len(t) >= 4 {
+			return d[0:4] + "-" + d[4:6] + "-" + d[6:8] + " " + t[0:2] + ":" + t[2:4]
+		}
+	}
+	return filename
+}
+
+// ExportResult handles GET /veristore/exportresult - Download latest export file.
 func (h *Handler) ExportResult(c echo.Context) error {
-	name := c.QueryParam("name")
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "missing report name")
+	latest, err := h.adminRepo.FindLatestExport()
+	if err != nil || latest == nil || latest.ExpData == nil {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "No export file available")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
-	report, err := h.service.repo.GetReport(name)
-	if err != nil || report == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "report not found")
-	}
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="export_%s"`, latest.ExpFilename))
+	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", latest.ExpData)
+}
 
-	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.xlsx"`, name))
-	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", report.TmsRptFile)
+// ExportReset handles GET /veristore/exportreset - Remove stuck/incomplete exports.
+func (h *Handler) ExportReset(c echo.Context) error {
+	_ = h.adminRepo.DeleteIncompleteExports()
+	return c.Redirect(http.StatusFound, "/veristore/export?refresh=true")
 }
 
 // Import handles GET/POST /veristore/import - Import terminals from Excel.

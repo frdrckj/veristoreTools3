@@ -1,43 +1,74 @@
 package veristore
 
-import "github.com/verifone/veristoretools3/templates/layouts"
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
 
-// ExportPage renders the terminal export form.
-templ ExportPage(page layouts.PageData) {
+// ExportData holds the state for the export page.
+type ExportData struct {
+	// Count of selected terminals to export (shown on initial POST).
+	Count int
+	// SerialNoList is the JSON-encoded list of selected serial numbers.
+	SerialNoList string
+	// InProgress is true when an export job is currently running.
+	InProgress bool
+	// RequestDate is the date the in-progress export was requested.
+	RequestDate string
+	// DownloadReady is true when the last export file is available.
+	DownloadReady bool
+	// LastExportDate is the date of the last completed export.
+	LastExportDate string
+	// ShowCreate is true when the Create button should be shown.
+	ShowCreate bool
+}
+
+// ExportPage renders the terminal export page.
+templ ExportPage(page layouts.PageData, data ExportData) {
 	@layouts.Base(page) {
-		<div class="row">
-			<div class="col-md-8 offset-md-2">
-				<div class="card card-primary">
-					<div class="card-header">
-						<h3 class="card-title">Export Terminals</h3>
-						<div class="card-tools">
-							<a href="/veristore" class="btn btn-sm btn-default">
-								<i class="fas fa-arrow-left"></i> Back to List
-							</a>
-						</div>
+		<div class="row mb-3">
+			<div class="col">
+				if data.InProgress {
+					<div class="alert alert-info" style="font-size: 1.1rem;">
+						Export is on process, please wait until finish!
+						<br/>
+						Request date: { data.RequestDate }
+					</div>
+					<a href="/veristore/export?refresh=true" class="btn btn-success">
+						<i class="fas fa-sync-alt"></i> Refresh
+					</a>
+				} else if data.DownloadReady {
+					<div class="alert alert-info" style="font-size: 1.1rem;">
+						Last export on { data.LastExportDate }
+					</div>
+					<a href="/veristore/terminal" class="btn btn-danger">
+						<i class="fas fa-arrow-circle-left"></i> Back
+					</a>
+					<a href="/veristore/exportresult" class="btn btn-danger">
+						<i class="fas fa-list-alt"></i> Export Result
+					</a>
+				} else if data.Count > 0 {
+					<div class="alert alert-info" style="font-size: 1.1rem;">
+						Total { fmt.Sprintf("%d", data.Count) } CSI will be exported
 					</div>
 					<form method="POST" action="/veristore/export">
-						<div class="card-body">
-							<p class="text-muted">
-								Export all terminal data to an Excel file. The export will include
-								terminal SN, device ID, model, vendor, merchant, and group information.
-							</p>
-							<div class="form-group">
-								<label for="exportType">Export Type</label>
-								<select class="form-control" id="exportType" name="exportType">
-									<option value="all">All Terminals</option>
-									<option value="filtered">Current Filter Results</option>
-								</select>
-							</div>
-						</div>
-						<div class="card-footer">
-							<button type="submit" class="btn btn-success">
-								<i class="fas fa-file-export"></i> Export to Excel
-							</button>
-							<a href="/veristore" class="btn btn-default">Cancel</a>
-						</div>
+						<input type="hidden" name="serialNoList" value={ data.SerialNoList }/>
+						<input type="hidden" name="buttonCreate" value="1"/>
+						<a href="/veristore/terminal" class="btn btn-danger">
+							<i class="fas fa-arrow-circle-left"></i> Back
+						</a>
+						<button type="submit" class="btn btn-success">
+							<i class="fas fa-download"></i> Create
+						</button>
 					</form>
-				</div>
+				} else {
+					<div class="alert alert-info" style="font-size: 1.1rem;">
+						No terminals selected for export. Please go back and select terminals.
+					</div>
+					<a href="/veristore/terminal" class="btn btn-danger">
+						<i class="fas fa-arrow-circle-left"></i> Back
+					</a>
+				}
 			</div>
 		</div>
 	}

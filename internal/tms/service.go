@@ -2,9 +2,26 @@ package tms
 
 import (
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
+
+// GetAllTabNames returns the unique tab names from template_parameter table.
+func GetAllTabNames(db *gorm.DB) []string {
+	var fields []string
+	db.Raw(`SELECT DISTINCT MAX(tparam_field) as f FROM template_parameter GROUP BY tparam_title ORDER BY MIN(tparam_id)`).Scan(&fields)
+	var tabs []string
+	seen := map[string]bool{}
+	for _, f := range fields {
+		parts := strings.SplitN(f, "-", 3)
+		if len(parts) >= 2 && !seen[parts[1]] {
+			tabs = append(tabs, parts[1])
+			seen[parts[1]] = true
+		}
+	}
+	return tabs
+}
 
 // AddTerminalRequest holds the parameters for adding a terminal.
 type AddTerminalRequest struct {
@@ -45,57 +62,73 @@ func (s *Service) GetSession() string {
 }
 
 // GetTerminalList retrieves a paginated terminal list.
+// Uses new signed API (no session needed).
 func (s *Service) GetTerminalList(page int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetTerminalList(session, page)
+	return s.client.GetTerminalList("", page)
 }
 
 // SearchTerminals searches terminals with filters.
+// Uses new signed API (no session needed).
 func (s *Service) SearchTerminals(page int, search string, queryType int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetTerminalListSearch(session, page, search, queryType)
+	return s.client.GetTerminalListSearch("", page, search, queryType)
 }
 
 // GetTerminalDetail retrieves detailed information about a terminal.
+// Uses new signed API (no session needed).
 func (s *Service) GetTerminalDetail(serialNum string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetTerminalDetail(session, serialNum)
+	return s.client.GetTerminalDetail("", serialNum)
 }
 
-// GetTerminalParameter retrieves terminal app parameters.
-func (s *Service) GetTerminalParameter(serialNum, appId string) (*TMSResponse, error) {
+// GetTerminalParameter retrieves terminal app parameters for all tabs.
+// Uses old session-based API, iterating over tab names from template_parameter table.
+func (s *Service) GetTerminalParameter(serialNum, appId string, tabNames []string) (*TMSResponse, error) {
 	session := s.GetSession()
 	if session == "" {
 		return nil, fmt.Errorf("no active TMS session")
 	}
-	return s.client.GetTerminalParameter(session, serialNum, appId)
+
+	allParams := []interface{}{}
+	for _, tabName := range tabNames {
+		resp, err := s.client.GetTerminalParameter(session, serialNum, appId, tabName)
+		if err != nil {
+			continue
+		}
+		if resp.ResultCode != 0 {
+			continue
+		}
+		if resp.Data != nil {
+			if pl, ok := resp.Data["paraList"].([]interface{}); ok {
+				allParams = append(allParams, pl...)
+			}
+		}
+	}
+
+	return &TMSResponse{
+		ResultCode: 0,
+		Data:       map[string]interface{}{"paraList": allParams},
+	}, nil
+}
+
+// GetTerminalParameterTab retrieves parameters for a single tab.
+// Used by the AJAX endpoint to load parameters for one sub-item.
+func (s *Service) GetTerminalParameterTab(serialNum, appId, tabName string) (*TMSResponse, error) {
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.GetTerminalParameter(session, serialNum, appId, tabName)
 }
 
 // AddTerminal registers a new terminal.
+// Uses new signed API (no session needed).
 func (s *Service) AddTerminal(data AddTerminalRequest) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.AddTerminal(session, data.DeviceID, data.Vendor, data.Model, data.MerchantID, data.GroupIDs, data.SN, data.MoveConf)
+	return s.client.AddTerminal("", data.DeviceID, data.Vendor, data.Model, data.MerchantID, data.GroupIDs, data.SN, data.MoveConf)
 }
 
 // EditTerminal updates terminal parameters.
+// Uses new signed API (no session needed).
 func (s *Service) EditTerminal(serialNum string, paraList []map[string]interface{}, appId string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.UpdateParameter(session, serialNum, paraList, appId)
+	return s.client.UpdateParameter("", serialNum, paraList, appId)
 }
 
 // CopyTerminal copies configuration from one terminal to another.
@@ -108,14 +141,11 @@ func (s *Service) CopyTerminal(sourceSn, destSn string) (*TMSResponse, error) {
 }
 
 // DeleteTerminals removes terminals by their serial numbers.
+// Uses new signed API (no session needed).
 func (s *Service) DeleteTerminals(serialNos []string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
 	var lastResp *TMSResponse
 	for _, sn := range serialNos {
-		resp, err := s.client.DeleteTerminal(session, sn)
+		resp, err := s.client.DeleteTerminal("", sn)
 		if err != nil {
 			return nil, err
 		}
@@ -146,57 +176,39 @@ func (s *Service) GetMerchantList() (*TMSResponse, error) {
 }
 
 // GetMerchantManageList retrieves a paginated merchant list.
+// Uses new signed API (no session needed).
 func (s *Service) GetMerchantManageList(page int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetMerchantManageList(session, page)
+	return s.client.GetMerchantManageList("", page)
 }
 
 // SearchMerchants searches merchants by name.
+// Uses new signed API (no session needed).
 func (s *Service) SearchMerchants(page int, search string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetMerchantManageListSearch(session, page, search)
+	return s.client.GetMerchantManageListSearch("", page, search)
 }
 
 // GetMerchantDetail retrieves detailed merchant information.
+// Uses new signed API (no session needed).
 func (s *Service) GetMerchantDetail(merchantId int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetMerchantManageDetail(session, merchantId)
+	return s.client.GetMerchantManageDetail("", merchantId)
 }
 
 // AddMerchant creates a new merchant.
+// Uses new signed API (no session needed).
 func (s *Service) AddMerchant(data MerchantData) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.AddMerchant(session, data)
+	return s.client.AddMerchant("", data)
 }
 
 // EditMerchant updates an existing merchant.
+// Uses new signed API (no session needed).
 func (s *Service) EditMerchant(data MerchantData) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.EditMerchant(session, data)
+	return s.client.EditMerchant("", data)
 }
 
 // DeleteMerchant removes a merchant by ID.
+// Uses new signed API (no session needed).
 func (s *Service) DeleteMerchant(merchantId int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.DeleteMerchant(session, merchantId)
+	return s.client.DeleteMerchant("", merchantId)
 }
 
 // GetGroupList retrieves the group selector list.
@@ -209,21 +221,15 @@ func (s *Service) GetGroupList() (*TMSResponse, error) {
 }
 
 // GetGroupManageList retrieves a paginated group list.
+// Uses new signed API (no session needed).
 func (s *Service) GetGroupManageList(page int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetGroupManageList(session, page)
+	return s.client.GetGroupManageList("", page)
 }
 
 // SearchGroups searches groups by name.
+// Uses new signed API (no session needed).
 func (s *Service) SearchGroups(page int, search string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetGroupManageListSearch(session, page, search)
+	return s.client.GetGroupManageListSearch("", page, search)
 }
 
 // GetGroupDetail retrieves group detail with terminals.
@@ -236,30 +242,21 @@ func (s *Service) GetGroupDetail(groupId int) (*TMSResponse, error) {
 }
 
 // AddGroup creates a new terminal group.
+// Uses new signed API (no session needed).
 func (s *Service) AddGroup(name string, terminals []int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.AddGroup(session, name, terminals)
+	return s.client.AddGroup("", name, terminals)
 }
 
 // EditGroup updates a group's name and terminal membership.
+// Uses new signed API (no session needed).
 func (s *Service) EditGroup(id int, name string, newTerminals, oldTerminals []int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.EditGroup(session, id, name, newTerminals, oldTerminals)
+	return s.client.EditGroup("", id, name, newTerminals, oldTerminals)
 }
 
 // DeleteGroup removes a group by ID.
+// Uses new signed API (no session needed).
 func (s *Service) DeleteGroup(groupId int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.DeleteGroup(session, groupId)
+	return s.client.DeleteGroup("", groupId)
 }
 
 // GetDashboard retrieves the TMS dashboard data.
@@ -272,66 +269,45 @@ func (s *Service) GetDashboard() (*TMSResponse, error) {
 }
 
 // GetVendorList retrieves the vendor selector list.
+// Uses new signed API (no session needed).
 func (s *Service) GetVendorList() (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetVendorList(session)
+	return s.client.GetVendorList("")
 }
 
 // GetModelList retrieves terminal models for a given vendor.
+// Uses new signed API (no session needed).
 func (s *Service) GetModelList(vendorId string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetModelList(session, vendorId)
+	return s.client.GetModelList("", vendorId)
 }
 
 // GetCountryList retrieves the country list.
+// Uses new signed API (no session needed).
 func (s *Service) GetCountryList() (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetCountryList(session)
+	return s.client.GetCountryList("")
 }
 
 // GetStateList retrieves states by country.
+// Uses new signed API (no session needed).
 func (s *Service) GetStateList(countryId int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetStateList(session, countryId)
+	return s.client.GetStateList("", countryId)
 }
 
 // GetCityList retrieves cities by state.
+// Uses new signed API (no session needed).
 func (s *Service) GetCityList(stateId int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetCityList(session, stateId)
+	return s.client.GetCityList("", stateId)
 }
 
 // GetDistrictList retrieves districts by city.
+// Uses new signed API (no session needed).
 func (s *Service) GetDistrictList(cityId int) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetDistrictList(session, cityId)
+	return s.client.GetDistrictList("", cityId)
 }
 
 // GetTimeZoneList retrieves the time zone list.
+// Uses new signed API (no session needed).
 func (s *Service) GetTimeZoneList() (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetTimeZoneList(session)
+	return s.client.GetTimeZoneList("")
 }
 
 // GetResellerList retrieves the reseller list for a username.
@@ -417,28 +393,19 @@ func (s *Service) GetGroupTerminalSearch(search string) (*TMSResponse, error) {
 }
 
 // GetAppList retrieves all available apps and their versions.
+// Uses new signed API (no session needed).
 func (s *Service) GetAppList() (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetAppList(session)
+	return s.client.GetAppList("")
 }
 
 // GetAppListSearch retrieves apps installed on a specific terminal.
+// Uses new signed API (no session needed).
 func (s *Service) GetAppListSearch(serialNum string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.GetAppListSearch(session, serialNum)
+	return s.client.GetAppListSearch("", serialNum)
 }
 
 // UpdateDeviceId updates a terminal's device ID, model, merchant, and groups.
+// Uses new signed API (no session needed).
 func (s *Service) UpdateDeviceId(serialNum, model string, merchantId int, groupList []int, deviceId string) (*TMSResponse, error) {
-	session := s.GetSession()
-	if session == "" {
-		return nil, fmt.Errorf("no active TMS session")
-	}
-	return s.client.UpdateDeviceId(session, serialNum, model, merchantId, groupList, deviceId)
+	return s.client.UpdateDeviceId("", serialNum, model, merchantId, groupList, deviceId)
 }

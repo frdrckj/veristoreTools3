@@ -54,9 +54,15 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 				<a href="/veristore/import" class="btn btn-primary">
 					<i class="fas fa-file-import"></i> Import
 				</a>
-				<a href="/veristore/export" class="btn btn-success">
+				<button type="button" class="btn btn-success" onclick="return submitExport()">
 					<i class="fas fa-file-export"></i> Export
-				</a>
+				</button>
+				<form method="POST" action="/veristore/export" id="exportForm" style="display:none;">
+					<input type="hidden" name="serialNoList" id="exportSerialNoList"/>
+					<input type="hidden" name="selectAll" id="exportSelectAll" value="false"/>
+					<input type="hidden" name="searchSerialNo" id="exportSearchSerialNo"/>
+					<input type="hidden" name="searchType" id="exportSearchType"/>
+				</form>
 			</div>
 			<!-- Center: Update + Search -->
 			<div class="col text-center">
@@ -240,6 +246,30 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 					form.appendChild(input);
 				});
 				form.submit();
+				return false;
+			};
+
+			// Expose for the export button
+			window.submitExport = function() {
+				var exportForm = document.getElementById('exportForm');
+				if (!exportForm) { return false; }
+				if (window._terminalSelectAll) {
+					document.getElementById('exportSelectAll').value = 'true';
+					// Read search params from the delete form's hidden inputs
+					var deleteForm = document.getElementById('bulkDeleteForm');
+					var sn = deleteForm ? deleteForm.querySelector('input[name="searchSerialNo"]') : null;
+					var st = deleteForm ? deleteForm.querySelector('input[name="searchType"]') : null;
+					document.getElementById('exportSearchSerialNo').value = sn ? sn.value : '';
+					document.getElementById('exportSearchType').value = st ? st.value : '0';
+					exportForm.submit();
+					return false;
+				}
+				var checked = document.querySelectorAll('.terminal-checkbox:checked');
+				if (checked.length === 0) { alert('Please select at least one terminal'); return false; }
+				var ids = [];
+				checked.forEach(function(cb) { ids.push(cb.value); });
+				document.getElementById('exportSerialNoList').value = JSON.stringify(ids);
+				exportForm.submit();
 				return false;
 			};
 		})();

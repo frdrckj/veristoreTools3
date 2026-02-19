@@ -92,7 +92,7 @@ func main() {
 	// -----------------------------------------------------------------------
 	// 6. Create TMS API client (TLS skip verify from config)
 	// -----------------------------------------------------------------------
-	tmsClient := tms.NewClient(cfg.TMS.BaseURL, db, cfg.TMS.SkipTLSVerify)
+	tmsClient := tms.NewClient(cfg.TMS.BaseURL, cfg.TMS.APIBaseURL, db, cfg.TMS.SkipTLSVerify, cfg.TMS.AccessKey, cfg.TMS.AccessSecret)
 
 	// -----------------------------------------------------------------------
 	// 7. Create all repositories
@@ -116,7 +116,18 @@ func main() {
 	csiService := csi.NewService(db, tmsService)
 
 	// -----------------------------------------------------------------------
-	// 9. Create all handlers
+	// 9. Build Redis config and Asynq client (needed by handlers)
+	// -----------------------------------------------------------------------
+	redisCfg := queue.RedisConfig{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	}
+	asynqClient := queue.NewClient(redisCfg)
+	defer asynqClient.Close()
+
+	// -----------------------------------------------------------------------
+	// 10. Create all handlers
 	// -----------------------------------------------------------------------
 	appName := cfg.App.Name
 	appVersion := cfg.App.Version
@@ -127,7 +138,7 @@ func main() {
 	termHandler := terminal.NewHandler(terminalService, sessionStore, sessionName, appName, appVersion)
 	paramHandler := terminal.NewParamHandler(terminalRepo, sessionStore, sessionName, appName, appVersion)
 	tplParamHandler := admin.NewTemplateParamHandler(adminRepo, sessionStore, sessionName, appName, appVersion)
-	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion)
+	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient)
 	tmsLoginHandler := tms.NewLoginHandler(tmsRepo, tmsService, sessionStore, sessionName, appName, appVersion)
 	verifyHandler := csi.NewHandler(csiService, sessionStore, sessionName, appName, appVersion)
 	reportHandler := csi.NewReportHandler(csiRepo, sessionStore, sessionName, appName, appVersion)
@@ -213,6 +224,7 @@ func main() {
 	protected.POST("/veristore/add", tmsHandler.Add)
 	protected.GET("/veristore/edit", tmsHandler.Edit)
 	protected.POST("/veristore/edit", tmsHandler.Edit)
+	protected.GET("/veristore/edit/param", tmsHandler.EditParam)
 	protected.GET("/veristore/copy", tmsHandler.Copy)
 	protected.POST("/veristore/copy", tmsHandler.Copy)
 	protected.POST("/veristore/delete", tmsHandler.Delete)
@@ -222,7 +234,8 @@ func main() {
 	protected.POST("/veristore/report", tmsHandler.Report)
 	protected.GET("/veristore/export", tmsHandler.Export)
 	protected.POST("/veristore/export", tmsHandler.Export)
-	protected.GET("/veristore/export-result", tmsHandler.ExportResult)
+	protected.GET("/veristore/exportresult", tmsHandler.ExportResult)
+	protected.GET("/veristore/exportreset", tmsHandler.ExportReset)
 	protected.GET("/veristore/import", tmsHandler.Import)
 	protected.POST("/veristore/import", tmsHandler.Import)
 	protected.GET("/veristore/import-format", tmsHandler.ImportFormat)
@@ -339,18 +352,7 @@ func main() {
 	api.POST("/activation-code", apiHandler.ActivationCode)
 
 	// -----------------------------------------------------------------------
-	// 16. Build Redis config and Asynq client for queue system
-	// -----------------------------------------------------------------------
-	redisCfg := queue.RedisConfig{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	}
-	asynqClient := queue.NewClient(redisCfg)
-	defer asynqClient.Close()
-
-	// -----------------------------------------------------------------------
-	// 17. Instantiate queue task handlers
+	// 16. Instantiate queue task handlers
 	// -----------------------------------------------------------------------
 	importTermHandler := queue.NewImportTerminalHandler(tmsService, tmsClient, adminRepo, db)
 	exportTermHandler := queue.NewExportTerminalHandler(tmsService, tmsClient, adminRepo, db, cfg.Export.OutputDir)

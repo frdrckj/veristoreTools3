@@ -216,6 +216,31 @@ func (r *Repository) DeleteExport(id int) error {
 	return r.db.Delete(&Export{}, "exp_id = ?", id).Error
 }
 
+// FindInProgressExport finds an export that is still being processed (no data, current != total).
+func (r *Repository) FindInProgressExport() (*Export, error) {
+	var e Export
+	err := r.db.Where("exp_data IS NULL AND exp_current != exp_total").Order("exp_id DESC").First(&e).Error
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// FindLatestExport retrieves the most recent export record.
+func (r *Repository) FindLatestExport() (*Export, error) {
+	var e Export
+	err := r.db.Order("exp_id DESC").First(&e).Error
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// DeleteIncompleteExports removes exports with no data (stuck/incomplete).
+func (r *Repository) DeleteIncompleteExports() error {
+	return r.db.Where("exp_data IS NULL").Delete(&Export{}).Error
+}
+
 // ==================== ExportResult ====================
 
 // FindExportResultByID retrieves an export result record by ID.

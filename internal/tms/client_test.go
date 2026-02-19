@@ -44,7 +44,7 @@ func TestMapResponseCode(t *testing.T) {
 
 func TestRenewToken_DetectsRenewal(t *testing.T) {
 	// Create client without DB (nil) to test detection only.
-	client := NewClient("https://example.com", nil, true)
+	client := NewClient("https://example.com", "https://example.com", nil, true, "", "")
 
 	response := map[string]interface{}{
 		"code": float64(200),
@@ -58,7 +58,7 @@ func TestRenewToken_DetectsRenewal(t *testing.T) {
 }
 
 func TestRenewToken_NoRenewalOnNormalResponse(t *testing.T) {
-	client := NewClient("https://example.com", nil, true)
+	client := NewClient("https://example.com", "https://example.com", nil, true, "", "")
 
 	response := map[string]interface{}{
 		"code": float64(200),
@@ -72,7 +72,7 @@ func TestRenewToken_NoRenewalOnNormalResponse(t *testing.T) {
 }
 
 func TestRenewToken_NoRenewalOnErrorCode(t *testing.T) {
-	client := NewClient("https://example.com", nil, true)
+	client := NewClient("https://example.com", "https://example.com", nil, true, "", "")
 
 	response := map[string]interface{}{
 		"code": float64(400),
@@ -86,7 +86,7 @@ func TestRenewToken_NoRenewalOnErrorCode(t *testing.T) {
 }
 
 func TestRenewToken_NilResponse(t *testing.T) {
-	client := NewClient("https://example.com", nil, true)
+	client := NewClient("https://example.com", "https://example.com", nil, true, "", "")
 
 	newToken, ok := client.renewToken("session", nil)
 	assert.False(t, ok, "should not detect renewal on nil response")
@@ -94,7 +94,7 @@ func TestRenewToken_NilResponse(t *testing.T) {
 }
 
 func TestRenewToken_EmptyTokenData(t *testing.T) {
-	client := NewClient("https://example.com", nil, true)
+	client := NewClient("https://example.com", "https://example.com", nil, true, "", "")
 
 	response := map[string]interface{}{
 		"code": float64(200),
@@ -108,7 +108,7 @@ func TestRenewToken_EmptyTokenData(t *testing.T) {
 }
 
 func TestRenewToken_StringCodeMatches(t *testing.T) {
-	client := NewClient("https://example.com", nil, true)
+	client := NewClient("https://example.com", "https://example.com", nil, true, "", "")
 
 	// Some APIs return code as string "200" instead of number.
 	response := map[string]interface{}{
@@ -127,21 +127,24 @@ func TestRenewToken_StringCodeMatches(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewClient_Initialization(t *testing.T) {
-	client := NewClient("https://tms.example.com/", nil, false)
+	client := NewClient("https://tms.example.com/", "https://api.example.com/", nil, false, "ak", "as")
 
 	assert.NotNil(t, client)
 	assert.Equal(t, "https://tms.example.com", client.baseURL, "trailing slash should be trimmed")
+	assert.Equal(t, "https://api.example.com", client.apiBaseURL, "trailing slash should be trimmed")
 	assert.NotNil(t, client.httpClient)
 	assert.Nil(t, client.db)
+	assert.Equal(t, "ak", client.accessKey)
+	assert.Equal(t, "as", client.accessSecret)
 }
 
 func TestNewClient_HTTPTimeout(t *testing.T) {
-	client := NewClient("https://tms.example.com", nil, false)
+	client := NewClient("https://tms.example.com", "https://tms.example.com", nil, false, "", "")
 	assert.Equal(t, 30*1000*1000*1000, int(client.httpClient.Timeout), "timeout should be 30 seconds")
 }
 
 func TestNewClient_TLSSkipVerify(t *testing.T) {
-	client := NewClient("https://tms.example.com", nil, true)
+	client := NewClient("https://tms.example.com", "https://tms.example.com", nil, true, "", "")
 
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "transport should be *http.Transport")
@@ -150,7 +153,7 @@ func TestNewClient_TLSSkipVerify(t *testing.T) {
 }
 
 func TestNewClient_TLSVerifyEnabled(t *testing.T) {
-	client := NewClient("https://tms.example.com", nil, false)
+	client := NewClient("https://tms.example.com", "https://tms.example.com", nil, false, "", "")
 
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "transport should be *http.Transport")
@@ -189,7 +192,7 @@ func TestDoPost_SendsCorrectHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	result, err := client.doPost("test-session-token", "/test/path", map[string]interface{}{
 		"key": "test-value",
 	})
@@ -211,7 +214,7 @@ func TestDoPost_NoAuthWhenSessionEmpty(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	_, err := client.doPost("", "/test", nil)
 	require.NoError(t, err)
 }
@@ -241,7 +244,7 @@ func TestDoPost_TokenRenewalRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	result, err := client.doPost("old-token", "/test", map[string]interface{}{})
 
 	require.NoError(t, err)
@@ -272,7 +275,7 @@ func TestDoGet_SendsCorrectHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 
 	params := make(map[string][]string)
 	params["testKey"] = []string{"testValue"}
@@ -296,7 +299,7 @@ func TestDoGet_NilParams(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	_, err := client.doGet("session", "/test", nil)
 	require.NoError(t, err)
 }
@@ -380,7 +383,7 @@ func TestGetResellerList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.GetResellerList("testuser")
 
 	require.NoError(t, err)
@@ -408,7 +411,7 @@ func TestGetVerifyCode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.GetVerifyCode()
 
 	require.NoError(t, err)
@@ -441,7 +444,7 @@ func TestLogin_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.Login("admin", "pass123", "uuid-1", "captcha", 5)
 
 	require.NoError(t, err)
@@ -460,7 +463,7 @@ func TestLogin_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.Login("admin", "wrong", "uuid", "code", 1)
 
 	require.NoError(t, err)
@@ -470,16 +473,21 @@ func TestLogin_Failure(t *testing.T) {
 
 func TestGetTerminalList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/tps/terminal/list", r.URL.Path)
+
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
 
 		assert.Equal(t, float64(1), reqBody["page"])
 		assert.Equal(t, float64(10), reqBody["size"])
+		assert.Equal(t, "test-key", reqBody["accessKey"])
+		assert.NotEmpty(t, reqBody["timestamp"])
+		assert.NotEmpty(t, reqBody["signature"])
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"desc": "success",
 			"data": map[string]interface{}{
 				"pages": 5,
@@ -495,8 +503,8 @@ func TestGetTerminalList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.GetTerminalList("session-token", 1)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.GetTerminalList("", 1)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -523,7 +531,7 @@ func TestCheckToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.CheckToken("valid-session")
 
 	require.NoError(t, err)
@@ -532,23 +540,23 @@ func TestCheckToken(t *testing.T) {
 
 func TestDeleteMerchant(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/market/manage/merchant/delete", r.URL.Path)
+		assert.Equal(t, "/v1/tps/merchant/delete", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
-		assert.Equal(t, "42", reqBody["ids"])
+		assert.Equal(t, "42", reqBody["merchantId"])
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"desc": "deleted",
 		})
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.DeleteMerchant("session", 42)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.DeleteMerchant("", 42)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -556,12 +564,12 @@ func TestDeleteMerchant(t *testing.T) {
 
 func TestGetCountryList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/market/region/country/selector", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v1/tps/common/country/selector", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"data": []interface{}{
 				map[string]interface{}{"id": "1", "label": "United States"},
 				map[string]interface{}{"id": "2", "label": "Canada"},
@@ -570,8 +578,8 @@ func TestGetCountryList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.GetCountryList("session")
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.GetCountryList("")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -587,12 +595,12 @@ func TestGetCountryList(t *testing.T) {
 
 func TestGetVendorList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/market/common/vendor/selector", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v1/tps/common/vendor/selector", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"data": []interface{}{
 				map[string]interface{}{"id": "V1", "label": "Verifone"},
 			},
@@ -600,8 +608,8 @@ func TestGetVendorList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.GetVendorList("session")
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.GetVendorList("")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -617,6 +625,7 @@ func TestGetVendorList(t *testing.T) {
 func TestGetModelList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v1/tps/common/model/selector", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
@@ -625,7 +634,7 @@ func TestGetModelList(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"data": []interface{}{
 				map[string]interface{}{"id": "M1", "label": "X990"},
 			},
@@ -633,8 +642,8 @@ func TestGetModelList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.GetModelList("session", "V1")
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.GetModelList("", "V1")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -649,23 +658,23 @@ func TestGetModelList(t *testing.T) {
 
 func TestDeleteGroup(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/market/manage/group/delete", r.URL.Path)
+		assert.Equal(t, "/v1/tps/group/delete", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
-		assert.Equal(t, "7", reqBody["ids"])
+		assert.Equal(t, "7", reqBody["groupId"])
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"desc": "deleted",
 		})
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.DeleteGroup("session", 7)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.DeleteGroup("", 7)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -673,12 +682,12 @@ func TestDeleteGroup(t *testing.T) {
 
 func TestGetTimeZoneList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/market/common/timeZone/selector", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v1/tps/common/timeZone/selector", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"data": []interface{}{
 				map[string]interface{}{"id": "tz1", "label": "UTC+8"},
 			},
@@ -686,8 +695,8 @@ func TestGetTimeZoneList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.GetTimeZoneList("session")
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.GetTimeZoneList("")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -714,7 +723,7 @@ func TestGetMerchantList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.GetMerchantList("session")
 
 	require.NoError(t, err)
@@ -743,7 +752,7 @@ func TestGetGroupList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.GetGroupList("session")
 
 	require.NoError(t, err)
@@ -765,7 +774,7 @@ func TestDoPost_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	_, err := client.doPost("session", "/test", nil)
 
 	assert.Error(t, err)
@@ -778,7 +787,7 @@ func TestDoGet_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	_, err := client.doGet("session", "/test", nil)
 
 	assert.Error(t, err)
@@ -787,7 +796,7 @@ func TestDoGet_InvalidJSON(t *testing.T) {
 
 func TestAddMerchant(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/market/manage/merchant/add", r.URL.Path)
+		assert.Equal(t, "/v1/tps/merchant/add", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
@@ -795,18 +804,17 @@ func TestAddMerchant(t *testing.T) {
 
 		assert.Equal(t, "Test Merchant", reqBody["merchantName"])
 		assert.Equal(t, "test@example.com", reqBody["email"])
-		assert.Equal(t, "", reqBody["id"]) // New merchant: id should be empty.
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"desc": "created",
 		})
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.AddMerchant("session", MerchantData{
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.AddMerchant("", MerchantData{
 		MerchantName: "Test Merchant",
 		Email:        "test@example.com",
 		Address:      "123 Main St",
@@ -819,24 +827,25 @@ func TestAddMerchant(t *testing.T) {
 
 func TestEditMerchant(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/market/manage/merchant/update", r.URL.Path)
+		assert.Equal(t, "/v1/tps/merchant/update", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
 
 		assert.Equal(t, "42", reqBody["id"]) // Existing merchant.
+		assert.Equal(t, "Updated Merchant", reqBody["merchantName"])
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": 200,
+			"code": "200",
 			"desc": "updated",
 		})
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
-	resp, err := client.EditMerchant("session", MerchantData{
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
+	resp, err := client.EditMerchant("", MerchantData{
 		ID:           "42",
 		MerchantName: "Updated Merchant",
 	})
@@ -864,7 +873,7 @@ func TestReplaceTerminal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, nil, false)
+	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
 	resp, err := client.ReplaceTerminal("session", "OLD-SN", "NEW-SN")
 
 	require.NoError(t, err)

@@ -27,8 +27,11 @@ redis:
 tms:
   base_url: "https://app.veristore.net"
   # base_url: "http://10.90.30.158:8280"  # prod onprem
+  api_base_url: "https://tps.veristore.net"
   secret_key: "35136HH7B63C27AA74CDCC2BBRT9"
   secret_iv: "J5g275fgf5H"
+  access_key: "63048727"
+  access_secret: "64ab2e0d0f74447c900da052b3976426"
   skip_tls_verify: true
   sync_batch_size: 500
   reseller_list:

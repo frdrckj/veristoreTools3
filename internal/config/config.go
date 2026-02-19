@@ -54,8 +54,11 @@ type RedisConfig struct {
 
 type TMSConfig struct {
 	BaseURL       string  `yaml:"base_url"`
+	APIBaseURL    string  `yaml:"api_base_url"`
 	SecretKey     string  `yaml:"secret_key"`
 	SecretIV      string  `yaml:"secret_iv"`
+	AccessKey     string  `yaml:"access_key"`
+	AccessSecret  string  `yaml:"access_secret"`
 	SkipTLSVerify bool    `yaml:"skip_tls_verify"`
 	SyncBatchSize int     `yaml:"sync_batch_size"`
 	ResellerList  []int64 `yaml:"reseller_list"`

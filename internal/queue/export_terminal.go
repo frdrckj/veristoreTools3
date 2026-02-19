@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -16,12 +19,26 @@ import (
 	"github.com/verifone/veristoretools3/internal/tms"
 )
 
+// Number of concurrent workers for fetching terminal data from TMS.
+// Each worker makes 2 API calls per terminal (detail + parameters).
+// At ~2s per terminal pair and 50 workers: 25,000 terminals ≈ 17 minutes.
+const exportWorkerCount = 10
+
 // ExportTerminalPayload is the JSON payload for the export:terminal task.
 type ExportTerminalPayload struct {
 	SerialNos []string `json:"serial_nos"`
 	Session   string   `json:"session"`
 	User      string   `json:"user"`
 	ExportID  int      `json:"export_id"`
+}
+
+// exportRow holds fetched data for a single terminal, keyed by its index.
+type exportRow struct {
+	Index    int
+	SerialNo string
+	Data     map[string]interface{} // terminal detail
+	Params   []interface{}          // paraList from GetTerminalParameter
+	Error    bool
 }
 
 // ExportTerminalHandler queries terminals from TMS API and writes them to an
@@ -46,9 +63,8 @@ func NewExportTerminalHandler(tmsService *tms.Service, tmsClient *tms.Client, ad
 }
 
 // ProcessTask implements asynq.Handler. It fetches terminal details and
-// parameters from the TMS API for each serial number in the payload, then
-// writes the results to an Excel file. Progress is tracked via the export
-// table.
+// parameters from the TMS API using concurrent workers, then writes the
+// results to an Excel file.
 func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Task) error {
 	var payload ExportTerminalPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
@@ -56,7 +72,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 
 	logger := log.With().Str("task", TaskExportTerminal).Int("export_id", payload.ExportID).Logger()
-	logger.Info().Int("count", len(payload.SerialNos)).Msg("starting terminal export job")
+	logger.Info().Int("count", len(payload.SerialNos)).Int("workers", exportWorkerCount).Msg("starting terminal export job")
 
 	// Log job start to queue_log.
 	createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -85,140 +101,218 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		}
 	}
 
-	// Create Excel file.
+	// ------------------------------------------------------------------
+	// Phase 1: Fetch all terminal data concurrently using a worker pool.
+	// ------------------------------------------------------------------
+	type job struct {
+		Index    int
+		SerialNo string
+	}
+
+	jobs := make(chan job, len(payload.SerialNos))
+	results := make([]exportRow, len(payload.SerialNos))
+	var processedCount int64
+	var wg sync.WaitGroup
+
+	// Start workers.
+	for w := 0; w < exportWorkerCount; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				row := exportRow{
+					Index:    j.Index,
+					SerialNo: j.SerialNo,
+				}
+
+				// Fetch terminal detail.
+				detailResp, err := h.tmsClient.GetTerminalDetail(session, j.SerialNo)
+				if err != nil || detailResp.ResultCode != 0 {
+					logger.Warn().Str("serial", j.SerialNo).Msg("failed to get terminal detail")
+					row.Error = true
+					results[j.Index] = row
+					count := atomic.AddInt64(&processedCount, 1)
+					h.updateProgress(export, int(count), len(payload.SerialNos))
+					continue
+				}
+
+				data := detailResp.Data
+				if data == nil {
+					data = map[string]interface{}{}
+				}
+				row.Data = data
+
+				// Find app ID and fetch parameters.
+				appID := ""
+				if apps, ok := data["terminalShowApps"].([]interface{}); ok {
+					for _, a := range apps {
+						if appMap, ok := a.(map[string]interface{}); ok {
+							if id := appMap["id"]; id != nil {
+								appID = fmt.Sprintf("%v", id)
+								break
+							}
+						}
+					}
+				}
+
+				if appID != "" {
+					tabNames := tms.GetAllTabNames(h.db)
+					var allParams []interface{}
+					for _, tabName := range tabNames {
+						paramResp, err := h.tmsClient.GetTerminalParameter(session, j.SerialNo, appID, tabName)
+						if err != nil || paramResp.ResultCode != 0 || paramResp.Data == nil {
+							continue
+						}
+						if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
+							allParams = append(allParams, pl...)
+						}
+					}
+					if len(allParams) > 0 {
+						row.Params = allParams
+					}
+				}
+
+				results[j.Index] = row
+				count := atomic.AddInt64(&processedCount, 1)
+				// Update progress every 5 terminals to reduce DB writes.
+				if count%5 == 0 || int(count) == len(payload.SerialNos) {
+					h.updateProgress(export, int(count), len(payload.SerialNos))
+				}
+			}
+		}()
+	}
+
+	// Send all jobs.
+	for idx, sn := range payload.SerialNos {
+		jobs <- job{Index: idx, SerialNo: sn}
+	}
+	close(jobs)
+
+	// Wait for all workers to finish.
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		logger.Warn().Int64("processed", processedCount).Msg("context cancelled, stopping export")
+		return ctx.Err()
+	}
+
+	// ------------------------------------------------------------------
+	// Phase 2: Write all results to Excel (single-threaded, fast).
+	// ------------------------------------------------------------------
 	f := excelize.NewFile()
 	defer f.Close()
 	sheetName := "Sheet1"
 
-	// Write header row.
 	headers := []string{"NO", "CSI", "SN", "Device ID", "Model", "Vendor", "Merchant", "Status"}
-	for i, h := range headers {
+	for i, hdr := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		f.SetCellValue(sheetName, cell, h)
+		f.SetCellValue(sheetName, cell, hdr)
 	}
-
-	// Style header row as bold.
 	boldStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{Bold: true},
 	})
 	f.SetRowStyle(sheetName, 1, 1, boldStyle)
 
-	var processedCount int
+	// Track if parameter headers have been written.
+	paramHeadersWritten := false
 
-	for idx, serialNo := range payload.SerialNos {
-		select {
-		case <-ctx.Done():
-			logger.Warn().Int("processed", processedCount).Msg("context cancelled, stopping export")
-			return ctx.Err()
-		default:
-		}
+	for idx, row := range results {
+		rowNum := idx + 2
 
-		rowNum := idx + 2 // 1-indexed, +1 for header
-
-		// Get terminal detail from TMS.
-		detailResp, err := h.tmsClient.GetTerminalDetail(session, serialNo)
-		if err != nil || detailResp.ResultCode != 0 {
-			logger.Warn().Str("serial", serialNo).Msg("failed to get terminal detail, writing partial row")
+		if row.Error || row.Data == nil {
 			cell, _ := excelize.CoordinatesToCellName(1, rowNum)
 			f.SetCellValue(sheetName, cell, idx+1)
 			cell, _ = excelize.CoordinatesToCellName(2, rowNum)
-			f.SetCellValue(sheetName, cell, serialNo)
+			f.SetCellValue(sheetName, cell, row.SerialNo)
 			cell, _ = excelize.CoordinatesToCellName(3, rowNum)
 			f.SetCellValue(sheetName, cell, "Error fetching data")
-			processedCount++
 			continue
 		}
 
-		data := detailResp.Data
-		if data == nil {
-			data = map[string]interface{}{}
-		}
-
-		// Write terminal data to row.
 		rowData := []interface{}{
 			idx + 1,
-			serialNo,
-			tms.ToString(data["sn"]),
-			tms.ToString(data["deviceId"]),
-			tms.ToString(data["model"]),
-			tms.ToString(data["vendor"]),
-			tms.ToString(data["merchantName"]),
-			tms.ToString(data["status"]),
+			row.SerialNo,
+			tms.ToString(row.Data["sn"]),
+			tms.ToString(row.Data["deviceId"]),
+			tms.ToString(row.Data["model"]),
+			tms.ToString(row.Data["vendor"]),
+			tms.ToString(row.Data["merchantName"]),
+			tms.ToString(row.Data["status"]),
 		}
-
 		for colIdx, val := range rowData {
 			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowNum)
 			f.SetCellValue(sheetName, cell, val)
 		}
 
-		// Optionally add parameter columns for each terminal.
-		appID := ""
-		if apps, ok := data["terminalShowApps"].([]interface{}); ok {
-			for _, a := range apps {
-				if appMap, ok := a.(map[string]interface{}); ok {
-					if id := appMap["id"]; id != nil {
-						appID = fmt.Sprintf("%v", id)
-						break
-					}
+		// Write parameter columns.
+		if row.Params != nil {
+			colOffset := len(headers) + 1
+			for pIdx, raw := range row.Params {
+				p, ok := raw.(map[string]interface{})
+				if !ok {
+					continue
 				}
-			}
-		}
-
-		if appID != "" {
-			paramResp, err := h.tmsClient.GetTerminalParameter(session, serialNo, appID)
-			if err == nil && paramResp.ResultCode == 0 && paramResp.Data != nil {
-				if paraList, ok := paramResp.Data["paraList"].([]interface{}); ok {
-					colOffset := len(headers) + 1
-					for pIdx, raw := range paraList {
-						p, ok := raw.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						// On first data row, write parameter headers.
-						if idx == 0 {
-							headerCell, _ := excelize.CoordinatesToCellName(colOffset+pIdx, 1)
-							f.SetCellValue(sheetName, headerCell, tms.ToString(p["dataName"]))
-						}
-						cell, _ := excelize.CoordinatesToCellName(colOffset+pIdx, rowNum)
-						f.SetCellValue(sheetName, cell, tms.ToString(p["value"]))
-					}
+				if !paramHeadersWritten {
+					headerCell, _ := excelize.CoordinatesToCellName(colOffset+pIdx, 1)
+					f.SetCellValue(sheetName, headerCell, tms.ToString(p["dataName"]))
 				}
+				cell, _ := excelize.CoordinatesToCellName(colOffset+pIdx, rowNum)
+				f.SetCellValue(sheetName, cell, tms.ToString(p["value"]))
 			}
-		}
-
-		processedCount++
-
-		// Update export progress.
-		if export != nil {
-			current := strconv.Itoa(processedCount)
-			total := strconv.Itoa(len(payload.SerialNos))
-			export.ExpCurrent = &current
-			export.ExpTotal = &total
-			_ = h.adminRepo.UpdateExport(export)
+			if !paramHeadersWritten {
+				paramHeadersWritten = true
+			}
 		}
 	}
 
-	// Save the Excel file.
+	// Save file.
 	filename := fmt.Sprintf("export_%d_%s.xlsx", payload.ExportID, time.Now().Format("20060102_150405"))
 	filePath := h.exportDir + "/" + filename
 	if err := f.SaveAs(filePath); err != nil {
 		return fmt.Errorf("export_terminal: save Excel file: %w", err)
 	}
 
+	// Read file and store in database BLOB.
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to read export file for DB storage")
+	}
+
 	// Update export record with the completed file.
 	if export != nil {
 		export.ExpFilename = filename
-		current := strconv.Itoa(processedCount)
+		current := strconv.Itoa(int(processedCount))
 		total := strconv.Itoa(len(payload.SerialNos))
 		export.ExpCurrent = &current
 		export.ExpTotal = &total
+		if fileData != nil {
+			export.ExpData = fileData
+		}
 		_ = h.adminRepo.UpdateExport(export)
 	}
 
 	logger.Info().
-		Int("processed", processedCount).
+		Int64("processed", processedCount).
 		Str("file", filePath).
 		Msg("terminal export job completed")
 
 	return nil
+}
+
+// updateProgress updates the export record's current/total counts.
+func (h *ExportTerminalHandler) updateProgress(export *admin.Export, current, total int) {
+	if export == nil {
+		return
+	}
+	c := strconv.Itoa(current)
+	t := strconv.Itoa(total)
+	export.ExpCurrent = &c
+	export.ExpTotal = &t
+	_ = h.adminRepo.UpdateExport(export)
 }

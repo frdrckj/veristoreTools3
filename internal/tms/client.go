@@ -2,12 +2,16 @@ package tms
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -64,9 +68,12 @@ type MerchantData struct {
 // Client communicates with the TMS (Terminal Management System) API.
 // It replaces PHP's TmsHelper class from veristoreTools2.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	db         *gorm.DB
+	baseURL      string // Old session-based API (e.g. https://app.veristore.net)
+	apiBaseURL   string // New signed API (e.g. https://tps.veristore.net)
+	accessKey    string
+	accessSecret string
+	httpClient   *http.Client
+	db           *gorm.DB
 }
 
 // NewClient creates a new TMS API client.
@@ -75,13 +82,17 @@ type Client struct {
 // db is a GORM database handle used for token-renewal persistence.
 // skipTLSVerify controls whether TLS certificate verification is skipped
 // (matches v2 CURLOPT_SSL_VERIFYPEER: false when true).
-func NewClient(baseURL string, db *gorm.DB, skipTLSVerify bool) *Client {
+// accessKey and accessSecret are credentials for the new HMAC-SHA256 signed API.
+func NewClient(baseURL, apiBaseURL string, db *gorm.DB, skipTLSVerify bool, accessKey, accessSecret string) *Client {
 	transport := &http.Transport{}
 	if skipTLSVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // configurable per deployment
 	}
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
+		accessKey:    accessKey,
+		accessSecret: accessSecret,
 		httpClient: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -279,8 +290,94 @@ func (c *Client) doGet(session, path string, params url.Values) (map[string]inte
 	return result, nil
 }
 
+// generateSignature creates an HMAC-SHA256 signature for the new TPS API.
+// It filters out empty values and the "signature" key, sorts remaining keys
+// by ASCII ascending, builds a key=value& string, and computes the HMAC.
+func (c *Client) generateSignature(params map[string]interface{}) string {
+	// Collect non-empty, non-signature keys.
+	keys := make([]string, 0, len(params))
+	for k, v := range params {
+		if k == "signature" {
+			continue
+		}
+		s := fmt.Sprintf("%v", v)
+		if s == "" || s == "<nil>" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build the data string: key1=value1&key2=value2&...
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+fmt.Sprintf("%v", params[k]))
+	}
+	data := strings.Join(parts, "&")
+
+	// Compute HMAC-SHA256.
+	mac := hmac.New(sha256.New, []byte(c.accessSecret))
+	mac.Write([]byte(data))
+	return strings.ToUpper(hex.EncodeToString(mac.Sum(nil)))
+}
+
+// doSignedPost sends a POST request to the new TPS API using HMAC-SHA256
+// signature authentication. It auto-injects accessKey and timestamp, generates
+// the signature, and sends the request with a JSON body (no Authorization header).
+// The new API returns code as string "200" instead of int 200.
+func (c *Client) doSignedPost(path string, params map[string]interface{}) (map[string]interface{}, error) {
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+
+	// Inject auth fields.
+	params["accessKey"] = c.accessKey
+	params["timestamp"] = fmt.Sprintf("%d", time.Now().UnixMilli())
+
+	// Generate and inject signature.
+	params["signature"] = c.generateSignature(params)
+
+	fullURL := c.apiBaseURL + path
+
+	jsonBody, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("tms: marshal signed post body: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, fullURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("tms: new signed post request: %w", err)
+	}
+
+	req.Header.Set("Accept", headerAccept)
+	req.Header.Set("Content-Type", headerContentType)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tms: signed post %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("tms: read signed response body: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		// Include status code and body snippet for debugging.
+		snippet := string(respBody)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return nil, fmt.Errorf("tms: signed post %s returned HTTP %d, body: %s", path, resp.StatusCode, snippet)
+	}
+
+	return result, nil
+}
+
 // getIdFromSN resolves a device ID (SN) to an internal terminal ID via the
-// terminal/page API.
+// terminal/page API (old session-based API).
 func (c *Client) getIdFromSN(session, deviceId string) (int, error) {
 	body := map[string]interface{}{
 		"page":   1,
@@ -313,6 +410,46 @@ func (c *Client) getIdFromSN(session, deviceId string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("tms: could not resolve SN %q to terminal ID", deviceId)
+}
+
+// getTerminalIdFromSN resolves a serial number or device ID (CSI) to the
+// internal terminal ID using the new signed terminal list API.
+func (c *Client) getTerminalIdFromSN(serialNum string) (string, error) {
+	result, err := c.doSignedPost("/v1/tps/terminal/list", map[string]interface{}{
+		"page":   1,
+		"size":   10,
+		"search": serialNum,
+	})
+	if err != nil {
+		return "", fmt.Errorf("tms: getTerminalIdFromSN: %w", err)
+	}
+
+	code, _ := toInt(result["code"])
+	if code == 200 {
+		data, _ := result["data"].(map[string]interface{})
+		if data != nil {
+			list, _ := data["list"].([]interface{})
+			for _, item := range list {
+				m, _ := item.(map[string]interface{})
+				if m == nil {
+					continue
+				}
+				// Match on SN or deviceId (CSI).
+				if toString(m["sn"]) == serialNum || toString(m["deviceId"]) == serialNum {
+					return toString(m["id"]), nil
+				}
+			}
+			// If no exact match but only one result, use it.
+			if len(list) == 1 {
+				m, _ := list[0].(map[string]interface{})
+				if m != nil {
+					return toString(m["id"]), nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("tms: could not resolve SN %q to terminal ID", serialNum)
 }
 
 // getOperationMark retrieves the current operation mark from the TMS API.
@@ -526,13 +663,12 @@ func (c *Client) GetDashboard(session string) (*TMSResponse, error) {
 
 // GetTerminalList retrieves a paginated list of terminals.
 func (c *Client) GetTerminalList(session string, pageNum int) (*TMSResponse, error) {
-	body := map[string]interface{}{
-		"page":   pageNum,
-		"search": "",
-		"size":   10,
+	params := map[string]interface{}{
+		"page": pageNum,
+		"size": 10,
 	}
 
-	result, err := c.doPost(session, "/market/manage/terminal/page", body)
+	result, err := c.doSignedPost("/v1/tps/terminal/list", params)
 	if err != nil {
 		return nil, err
 	}
@@ -549,7 +685,6 @@ func (c *Client) GetTerminalList(session string, pageNum int) (*TMSResponse, err
 		data, _ := result["data"].(map[string]interface{})
 		if data != nil {
 			list, _ := data["list"].([]interface{})
-			// Add alertStatus as status for each terminal.
 			for i, item := range list {
 				if m, ok := item.(map[string]interface{}); ok {
 					m["status"] = m["alertStatus"]
@@ -571,32 +706,14 @@ func (c *Client) GetTerminalList(session string, pageNum int) (*TMSResponse, err
 //	0 = SN, 1 = merchantName, 2 = groupName, 3 = TID param,
 //	4 = deviceId, 5 = MID param
 func (c *Client) GetTerminalListSearch(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
-	body := map[string]interface{}{
+	// New API uses a simple "search" string parameter.
+	params := map[string]interface{}{
 		"page":   pageNum,
-		"search": "",
+		"search": search,
 		"size":   10,
 	}
 
-	switch queryType {
-	case 1:
-		body["merchantName"] = map[string]interface{}{"type": "=", "value": search}
-	case 2:
-		body["groupName"] = map[string]interface{}{"type": "=", "value": search}
-	case 3:
-		body["param"] = map[string]interface{}{
-			"name": "TP-MERCHANT-TERMINAL_ID-1", "type": "=", "value": search,
-		}
-	case 4:
-		body["deviceId"] = map[string]interface{}{"type": "=", "value": search}
-	case 5:
-		body["param"] = map[string]interface{}{
-			"name": "TP-MERCHANT-MERCHANT_ID-1", "type": "=", "value": search,
-		}
-	default: // 0 = SN
-		body["sn"] = map[string]interface{}{"type": "=", "value": search}
-	}
-
-	result, err := c.doPost(session, "/market/manage/terminal/page", body)
+	result, err := c.doSignedPost("/v1/tps/terminal/list", params)
 	if err != nil {
 		return nil, err
 	}
@@ -632,14 +749,14 @@ func (c *Client) GetTerminalListSearch(session string, pageNum int, search strin
 // GetTerminalDetail retrieves detailed information about a terminal and its
 // installed apps.
 func (c *Client) GetTerminalDetail(session, serialNum string) (*TMSResponse, error) {
-	serialNumId, err := c.getIdFromSN(session, serialNum)
+	// Resolve SN to internal terminal ID for the new API.
+	terminalId, err := c.getTerminalIdFromSN(serialNum)
 	if err != nil {
 		return nil, err
 	}
 
-	// First call: terminal detail
-	detailResult, err := c.doPost(session, "/market/manage/terminal/detail", map[string]interface{}{
-		"terminalId": serialNumId,
+	detailResult, err := c.doSignedPost("/v1/tps/terminal/detail", map[string]interface{}{
+		"terminalId": terminalId,
 	})
 	if err != nil {
 		return nil, err
@@ -688,12 +805,9 @@ func (c *Client) GetTerminalDetail(session, serialNum string) (*TMSResponse, err
 		}
 	}
 
-	operationMark := toString(data["operationMark"])
-
-	// Second call: terminal app list
-	appResult, err := c.doPost(session, "/market/manage/terminalApp/list", map[string]interface{}{
-		"operationMark": operationMark,
-		"terminalId":    serialNumId,
+	// Second call: terminal app list.
+	appResult, err := c.doSignedPost("/v2/tps/terminalApp/list", map[string]interface{}{
+		"terminalId": terminalId,
 	})
 	if err != nil {
 		return nil, err
@@ -737,13 +851,14 @@ func (c *Client) GetTerminalDetail(session, serialNum string) (*TMSResponse, err
 	}, nil
 }
 
-// GetTerminalParameter retrieves terminal app parameters for a specific app.
-func (c *Client) GetTerminalParameter(session, serialNum, appId string) (*TMSResponse, error) {
-	serialNumId, err := c.getIdFromSN(session, serialNum)
+// GetTerminalParameter retrieves terminal app parameters for a specific tab
+// using the old session-based API (/market/manage/terminalAppParameter/view).
+// tabName is the second segment of tparam_field (e.g. "MERCHANT" from "TP-MERCHANT-FIELD").
+func (c *Client) GetTerminalParameter(session, serialNum, appId, tabName string) (*TMSResponse, error) {
+	terminalId, err := c.getIdFromSN(session, serialNum)
 	if err != nil {
 		return nil, err
 	}
-
 	operationMark, err := c.getOperationMark(session)
 	if err != nil {
 		return nil, err
@@ -752,7 +867,8 @@ func (c *Client) GetTerminalParameter(session, serialNum, appId string) (*TMSRes
 	result, err := c.doPost(session, "/market/manage/terminalAppParameter/view", map[string]interface{}{
 		"appId":         appId,
 		"operationMark": operationMark,
-		"terminalId":    serialNumId,
+		"tabName":       tabName,
+		"terminalId":    terminalId,
 	})
 	if err != nil {
 		return nil, err
@@ -768,26 +884,26 @@ func (c *Client) GetTerminalParameter(session, serialNum, appId string) (*TMSRes
 
 	data, _ := result["data"].(map[string]interface{})
 	paraList := []interface{}{}
-
 	if data != nil {
 		cardValues, _ := data["cardValueList"].([]interface{})
 		cardTabs, _ := data["cardTabList"].([]interface{})
-
 		for _, cv := range cardValues {
-			cvMap, _ := cv.(map[string]interface{})
-			if cvMap == nil {
+			row, _ := cv.(map[string]interface{})
+			if row == nil {
 				continue
 			}
+			number := toString(row["NUMBER"])
 			for _, ct := range cardTabs {
-				ctMap, _ := ct.(map[string]interface{})
-				if ctMap == nil {
+				field, _ := ct.(map[string]interface{})
+				if field == nil {
 					continue
 				}
-				key := toString(ctMap["key"])
+				key := toString(field["key"])
 				paraList = append(paraList, map[string]interface{}{
-					"dataName":    key + "-" + toString(cvMap["NUMBER"]),
-					"value":       cvMap[key],
-					"description": toString(ctMap["description"]),
+					"dataName":    key + "-" + number,
+					"viewName":    tabName,
+					"value":       toString(row[key]),
+					"description": toString(field["description"]),
 				})
 			}
 		}
@@ -814,10 +930,7 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 		snVal = " "
 	}
 
-	body := map[string]interface{}{
-		"bundleId":   "",
-		"id":         "",
-		"status":     0,
+	params := map[string]interface{}{
 		"vendor":     vendor,
 		"deviceId":   did,
 		"model":      model,
@@ -827,7 +940,7 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 		"iotFlag":    moveConf,
 	}
 
-	result, err := c.doPost(session, "/market/manage/terminal/add", body)
+	result, err := c.doSignedPost("/v1/tps/terminal/add", params)
 	if err != nil {
 		return nil, err
 	}
@@ -843,42 +956,23 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 }
 
 // UpdateDeviceId updates a terminal's device ID, model, merchant, and groups.
-// It first fetches the terminal detail, merges changes, then posts the update.
 func (c *Client) UpdateDeviceId(session, serialNum, model string, merchantId int, groupList []int, deviceId string) (*TMSResponse, error) {
-	terminalId, err := c.getIdFromSN(session, serialNum)
+	// Resolve SN to internal terminal ID.
+	terminalId, err := c.getTerminalIdFromSN(serialNum)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get current terminal detail.
-	detailResult, err := c.doPost(session, "/market/manage/terminal/detail", map[string]interface{}{
-		"terminalId": terminalId,
-	})
-	if err != nil {
-		return nil, err
+	params := map[string]interface{}{
+		"id":         terminalId,
+		"deviceId":   deviceId,
+		"model":      model,
+		"merchantId": merchantId,
+		"groupIds":   groupList,
+		"status":     0,
 	}
 
-	detailCode, _ := toInt(detailResult["code"])
-	if detailCode != 200 {
-		return &TMSResponse{
-			ResultCode: mapResponseCode(detailCode),
-			Desc:       toString(detailResult["desc"]),
-		}, nil
-	}
-
-	data, _ := detailResult["data"].(map[string]interface{})
-	if data == nil {
-		return &TMSResponse{ResultCode: 99, Desc: "no detail data"}, nil
-	}
-
-	// Merge updates (matching PHP logic: sn=deviceId, deviceId=serialNum).
-	data["sn"] = deviceId
-	data["model"] = model
-	data["merchantId"] = merchantId
-	data["groupIds"] = groupList
-	data["deviceId"] = serialNum
-
-	updateResult, err := c.doPost(session, "/market/manage/terminal/update", data)
+	updateResult, err := c.doSignedPost("/v1/tps/terminal/update", params)
 	if err != nil {
 		return nil, err
 	}
@@ -926,17 +1020,16 @@ func (c *Client) CopyTerminal(session, sourceSn, destSn string) (*TMSResponse, e
 }
 
 // DeleteTerminal removes a terminal by its device ID (SN).
-func (c *Client) DeleteTerminal(session, deviceId string) (*TMSResponse, error) {
-	terminalId, err := c.getIdFromSN(session, deviceId)
+func (c *Client) DeleteTerminal(session, serialNum string) (*TMSResponse, error) {
+	// Resolve SN to internal terminal ID.
+	terminalId, err := c.getTerminalIdFromSN(serialNum)
 	if err != nil {
 		return nil, err
 	}
 
-	body := map[string]interface{}{
-		"ids": terminalId,
-	}
-
-	result, err := c.doPost(session, "/market/manage/terminal/delete", body)
+	result, err := c.doSignedPost("/v1/tps/terminal/delete", map[string]interface{}{
+		"id": terminalId,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -978,68 +1071,42 @@ func (c *Client) ReplaceTerminal(session, oldSn, newSn string) (*TMSResponse, er
 
 // GetAppList retrieves all available apps and their versions.
 func (c *Client) GetAppList(session string) (*TMSResponse, error) {
-	// First: get the list of apps.
-	pageResult, err := c.doPost(session, "/market/manage/app/page", map[string]interface{}{
-		"page":   1,
-		"search": "",
-		"size":   100,
+	// New API: single call returns apps with version info.
+	result, err := c.doSignedPost("/v1/tps/app/list", map[string]interface{}{
+		"page": 1,
+		"size": 100,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	pageCode, _ := toInt(pageResult["code"])
-	if pageCode != 200 {
+	code, _ := toInt(result["code"])
+	if code != 200 {
 		return &TMSResponse{
-			ResultCode: mapResponseCode(pageCode),
-			Desc:       toString(pageResult["desc"]),
+			ResultCode: mapResponseCode(code),
+			Desc:       toString(result["desc"]),
 		}, nil
 	}
 
-	pageData, _ := pageResult["data"].(map[string]interface{})
-	if pageData == nil {
-		return &TMSResponse{ResultCode: 99, Desc: "no app page data"}, nil
+	data, _ := result["data"].(map[string]interface{})
+	if data == nil {
+		return &TMSResponse{ResultCode: 99, Desc: "no app list data"}, nil
 	}
 
-	totalApp, _ := pageData["list"].([]interface{})
+	appItems, _ := data["list"].([]interface{})
 	allApps := []interface{}{}
 
-	// For each app, get its version list.
-	for _, appItem := range totalApp {
+	for _, appItem := range appItems {
 		app, _ := appItem.(map[string]interface{})
 		if app == nil {
 			continue
 		}
-
-		versionResult, err := c.doPost(session, "/market/common/appVersion/selector", map[string]interface{}{
+		allApps = append(allApps, map[string]interface{}{
+			"id":          toIntDefault(app["id"], 0),
+			"name":        toString(app["name"]),
+			"version":     toString(app["version"]),
 			"packageName": toString(app["packageName"]),
-			"appName":     toString(app["name"]),
 		})
-		if err != nil {
-			return nil, err
-		}
-
-		vCode, _ := toInt(versionResult["code"])
-		if vCode == 200 {
-			if vData, ok := versionResult["data"].([]interface{}); ok {
-				for _, vItem := range vData {
-					vm, _ := vItem.(map[string]interface{})
-					if vm != nil {
-						allApps = append(allApps, map[string]interface{}{
-							"id":          toIntDefault(vm["id"], 0),
-							"name":        toString(app["name"]),
-							"version":     toString(vm["label"]),
-							"packageName": toString(app["packageName"]),
-						})
-					}
-				}
-			}
-		} else {
-			return &TMSResponse{
-				ResultCode: mapResponseCode(vCode),
-				Desc:       toString(versionResult["desc"]),
-			}, nil
-		}
 	}
 
 	return &TMSResponse{
@@ -1050,19 +1117,14 @@ func (c *Client) GetAppList(session string) (*TMSResponse, error) {
 
 // GetAppListSearch retrieves the list of apps installed on a specific terminal.
 func (c *Client) GetAppListSearch(session, serialNum string) (*TMSResponse, error) {
-	operationMark, err := c.getOperationMark(session)
+	// Resolve SN to internal terminal ID.
+	terminalId, err := c.getTerminalIdFromSN(serialNum)
 	if err != nil {
 		return nil, err
 	}
 
-	terminalId, err := c.getIdFromSN(session, serialNum)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := c.doPost(session, "/market/manage/terminalApp/list", map[string]interface{}{
-		"operationMark": operationMark,
-		"terminalId":    terminalId,
+	result, err := c.doSignedPost("/v2/tps/terminalApp/list", map[string]interface{}{
+		"terminalId": terminalId,
 	})
 	if err != nil {
 		return nil, err
@@ -1152,110 +1214,40 @@ func (c *Client) AddParameter(session, deviceId, appId string) (*TMSResponse, er
 	}, nil
 }
 
-// UpdateParameter updates terminal app parameters. It processes each parameter
-// group by calling view, then preSubmit/v1, and finally submit.
-func (c *Client) UpdateParameter(session, deviceId string, paraList []map[string]interface{}, appId string) (*TMSResponse, error) {
-	// Group parameters by viewName.
-	parameters := map[string]map[int]map[string]interface{}{}
-	for _, param := range paraList {
-		dataName := toString(param["dataName"])
-		viewName := toString(param["viewName"])
-		value := param["value"]
-
-		parts := strings.Split(dataName, "-")
-		if len(parts) < 2 {
-			continue
-		}
-		numberStr := parts[len(parts)-1]
-		number, _ := strconv.Atoi(numberStr)
-		number-- // Convert to 0-based.
-		field := strings.Join(parts[:len(parts)-1], "-")
-
-		if parameters[viewName] == nil {
-			parameters[viewName] = map[int]map[string]interface{}{}
-		}
-		if parameters[viewName][number] == nil {
-			parameters[viewName][number] = map[string]interface{}{
-				"NUMBER": strconv.Itoa(number + 1),
-			}
-		}
-		parameters[viewName][number][field] = value
-	}
-
-	serialNumId, err := c.getIdFromSN(session, deviceId)
+// UpdateParameter updates terminal app parameters.
+// New API: single call instead of the old view → preSubmit → submit loop.
+func (c *Client) UpdateParameter(session, serialNum string, paraList []map[string]interface{}, appId string) (*TMSResponse, error) {
+	// Resolve SN to internal terminal ID.
+	terminalId, err := c.getTerminalIdFromSN(serialNum)
 	if err != nil {
 		return nil, err
 	}
 
-	operationMark, err := c.getOperationMark(session)
-	if err != nil {
-		return nil, err
-	}
-
-	// For each parameter group: call view, then preSubmit.
-	for tabName, valueMap := range parameters {
-		// View call.
-		viewResult, err := c.doPost(session, "/market/manage/terminalAppParameter/view", map[string]interface{}{
-			"appId":         appId,
-			"operationMark": operationMark,
-			"tabName":       tabName,
-			"terminalId":    serialNumId,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		viewCode, _ := toInt(viewResult["code"])
-		if viewCode != 200 {
-			return &TMSResponse{
-				ResultCode: mapResponseCode(viewCode),
-				Desc:       toString(viewResult["desc"]),
-			}, nil
-		}
-
-		// Convert valueMap to a list.
-		valueList := []map[string]interface{}{}
-		for _, v := range valueMap {
-			valueList = append(valueList, v)
-		}
-
-		// preSubmit call.
-		preSubmitResult, err := c.doPost(session, "/market/manage/terminalAppParameter/preSubmit/v1", map[string]interface{}{
-			"appId":         appId,
-			"operationMark": operationMark,
-			"params":        []interface{}{},
-			"tabName":       tabName,
-			"terminalId":    serialNumId,
-			"valueList":     valueList,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		psCode, _ := toInt(preSubmitResult["code"])
-		if psCode != 200 {
-			return &TMSResponse{
-				ResultCode: mapResponseCode(psCode),
-				Desc:       toString(preSubmitResult["desc"]),
-			}, nil
+	// Convert paraList [{dataName, value}, ...] to updParamMap {key: value, ...}.
+	updParamMap := map[string]string{}
+	for _, p := range paraList {
+		key := toString(p["dataName"])
+		val := toString(p["value"])
+		if key != "" {
+			updParamMap[key] = val
 		}
 	}
 
-	// Final submit.
-	submitResult, err := c.doPost(session, "/market/manage/terminalAppParameter/submit", map[string]interface{}{
-		"operationMark": operationMark,
-		"terminalId":    serialNumId,
+	result, err := c.doSignedPost("/v2/tps/terminalAppParameter/update", map[string]interface{}{
+		"terminalId":  terminalId,
+		"appId":       appId,
+		"updParamMap": updParamMap,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	submitCode, _ := toInt(submitResult["code"])
-	rc := mapResponseCode(submitCode)
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
 
 	return &TMSResponse{
 		ResultCode: rc,
-		Desc:       toString(submitResult["desc"]),
+		Desc:       toString(result["desc"]),
 	}, nil
 }
 
@@ -1298,13 +1290,10 @@ func (c *Client) GetMerchantList(session string) (*TMSResponse, error) {
 
 // GetMerchantManageList retrieves a paginated list of merchants.
 func (c *Client) GetMerchantManageList(session string, pageNum int) (*TMSResponse, error) {
-	body := map[string]interface{}{
-		"page":   pageNum,
-		"search": "",
-		"size":   10,
-	}
-
-	result, err := c.doPost(session, "/market/manage/merchant/page", body)
+	result, err := c.doSignedPost("/v1/tps/merchant/list", map[string]interface{}{
+		"page": pageNum,
+		"size": 10,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1339,13 +1328,11 @@ func (c *Client) GetMerchantManageList(session string, pageNum int) (*TMSRespons
 
 // GetMerchantManageListSearch searches merchants by name (paginated).
 func (c *Client) GetMerchantManageListSearch(session string, pageNum int, search string) (*TMSResponse, error) {
-	body := map[string]interface{}{
+	result, err := c.doSignedPost("/v1/tps/merchant/list", map[string]interface{}{
 		"page":   pageNum,
 		"search": search,
 		"size":   10,
-	}
-
-	result, err := c.doPost(session, "/market/manage/merchant/page", body)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1380,7 +1367,7 @@ func (c *Client) GetMerchantManageListSearch(session string, pageNum int, search
 
 // GetMerchantManageDetail retrieves detailed information about a merchant.
 func (c *Client) GetMerchantManageDetail(session string, merchantId int) (*TMSResponse, error) {
-	result, err := c.doPost(session, "/market/manage/merchant/detail", map[string]interface{}{
+	result, err := c.doSignedPost("/v1/tps/merchant/detail", map[string]interface{}{
 		"merchantId": strconv.Itoa(merchantId),
 	})
 	if err != nil {
@@ -1408,9 +1395,7 @@ func (c *Client) GetMerchantManageDetail(session string, merchantId int) (*TMSRe
 
 // AddMerchant creates a new merchant in the TMS.
 func (c *Client) AddMerchant(session string, merchant MerchantData) (*TMSResponse, error) {
-	body := map[string]interface{}{
-		"id":           "",
-		"tags":         "",
+	params := map[string]interface{}{
 		"merchantName": merchant.MerchantName,
 		"address":      merchant.Address,
 		"postCode":     merchant.PostCode,
@@ -1425,7 +1410,7 @@ func (c *Client) AddMerchant(session string, merchant MerchantData) (*TMSRespons
 		"districtId":   merchant.DistrictId,
 	}
 
-	result, err := c.doPost(session, "/market/manage/merchant/add", body)
+	result, err := c.doSignedPost("/v1/tps/merchant/add", params)
 	if err != nil {
 		return nil, err
 	}
@@ -1442,9 +1427,8 @@ func (c *Client) AddMerchant(session string, merchant MerchantData) (*TMSRespons
 
 // EditMerchant updates an existing merchant in the TMS.
 func (c *Client) EditMerchant(session string, merchant MerchantData) (*TMSResponse, error) {
-	body := map[string]interface{}{
+	params := map[string]interface{}{
 		"id":           merchant.ID,
-		"tags":         "",
 		"merchantName": merchant.MerchantName,
 		"address":      merchant.Address,
 		"postCode":     merchant.PostCode,
@@ -1459,7 +1443,7 @@ func (c *Client) EditMerchant(session string, merchant MerchantData) (*TMSRespon
 		"districtId":   merchant.DistrictId,
 	}
 
-	result, err := c.doPost(session, "/market/manage/merchant/update", body)
+	result, err := c.doSignedPost("/v1/tps/merchant/update", params)
 	if err != nil {
 		return nil, err
 	}
@@ -1476,11 +1460,9 @@ func (c *Client) EditMerchant(session string, merchant MerchantData) (*TMSRespon
 
 // DeleteMerchant removes a merchant by its ID.
 func (c *Client) DeleteMerchant(session string, merchantId int) (*TMSResponse, error) {
-	body := map[string]interface{}{
-		"ids": strconv.Itoa(merchantId),
-	}
-
-	result, err := c.doPost(session, "/market/manage/merchant/delete", body)
+	result, err := c.doSignedPost("/v1/tps/merchant/delete", map[string]interface{}{
+		"merchantId": strconv.Itoa(merchantId),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1533,13 +1515,10 @@ func (c *Client) GetGroupList(session string) (*TMSResponse, error) {
 
 // GetGroupManageList retrieves a paginated list of groups.
 func (c *Client) GetGroupManageList(session string, pageNum int) (*TMSResponse, error) {
-	body := map[string]interface{}{
-		"page":   pageNum,
-		"search": "",
-		"size":   10,
-	}
-
-	result, err := c.doPost(session, "/market/manage/group/page", body)
+	result, err := c.doSignedPost("/v1/tps/group/list", map[string]interface{}{
+		"page": pageNum,
+		"size": 10,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1575,13 +1554,11 @@ func (c *Client) GetGroupManageList(session string, pageNum int) (*TMSResponse, 
 
 // GetGroupManageListSearch searches groups by name (paginated).
 func (c *Client) GetGroupManageListSearch(session string, pageNum int, search string) (*TMSResponse, error) {
-	body := map[string]interface{}{
+	result, err := c.doSignedPost("/v1/tps/group/list", map[string]interface{}{
 		"page":   pageNum,
 		"search": search,
 		"size":   10,
-	}
-
-	result, err := c.doPost(session, "/market/manage/group/page", body)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1732,40 +1709,11 @@ func (c *Client) GetGroupTerminalSearch(session, search string) (*TMSResponse, e
 	}, nil
 }
 
-// AddGroup creates a new terminal group. If terminalList is non-empty, it first
-// pre-adds the terminals, then creates the group.
+// AddGroup creates a new terminal group.
+// New API: direct creation with groupName (no operationMark or preAdd needed).
 func (c *Client) AddGroup(session, groupName string, terminalList []int) (*TMSResponse, error) {
-	operationMark, err := c.getOperationMark(session)
-	if err != nil {
-		return nil, err
-	}
-
-	// Pre-add terminals if the list is non-empty.
-	if len(terminalList) > 0 {
-		preAddResult, err := c.doPost(session, "/market/manage/groupTerminal/preAdd", map[string]interface{}{
-			"operationMark": operationMark,
-			"operationType": 0,
-			"terminalIds":   terminalList,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		preAddCode, _ := toInt(preAddResult["code"])
-		if preAddCode != 200 {
-			return &TMSResponse{
-				ResultCode: mapResponseCode(preAddCode),
-				Desc:       toString(preAddResult["desc"]),
-			}, nil
-		}
-	}
-
-	// Create the group.
-	addResult, err := c.doPost(session, "/market/manage/group/add/normal", map[string]interface{}{
-		"groupName":     groupName,
-		"id":            "",
-		"operationMark": operationMark,
-		"subGroupIds":   []interface{}{},
+	addResult, err := c.doSignedPost("/v1/tps/group/add/normal", map[string]interface{}{
+		"groupName": groupName,
 	})
 	if err != nil {
 		return nil, err
@@ -1780,74 +1728,12 @@ func (c *Client) AddGroup(session, groupName string, terminalList []int) (*TMSRe
 	}, nil
 }
 
-// EditGroup updates a group's name and terminal membership. It handles adding
-// new terminals and removing old ones via preAdd/preDel calls.
+// EditGroup updates a group's name.
+// New API: simplified to just id + groupName (no operationMark or preAdd/preDel).
 func (c *Client) EditGroup(session string, groupId int, groupName string, newTerminals, oldTerminals []int) (*TMSResponse, error) {
-	addList := intDiff(newTerminals, oldTerminals)
-	deleteList := intDiff(oldTerminals, newTerminals)
-	groupIdStr := strconv.Itoa(groupId)
-
-	var operationMark string
-
-	if len(addList) > 0 || len(deleteList) > 0 {
-		// Get group detail for operationMark.
-		detailResult, err := c.doPost(session, "/market/manage/group/detail/normal", map[string]interface{}{
-			"groupId": groupIdStr,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		detailCode, _ := toInt(detailResult["code"])
-		if detailCode != 200 {
-			return &TMSResponse{
-				ResultCode: mapResponseCode(detailCode),
-				Desc:       toString(detailResult["desc"]),
-			}, nil
-		}
-
-		detailData, _ := detailResult["data"].(map[string]interface{})
-		operationMark = toString(detailData["operationMark"])
-
-		// Pre-add new terminals.
-		if len(addList) > 0 {
-			_, err := c.doPost(session, "/market/manage/groupTerminal/preAdd", map[string]interface{}{
-				"groupId":       groupIdStr,
-				"operationMark": operationMark,
-				"operationType": 1,
-				"terminalIds":   addList,
-			})
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		// Pre-delete removed terminals.
-		if len(deleteList) > 0 {
-			_, err := c.doPost(session, "/market/manage/groupTerminal/preDel", map[string]interface{}{
-				"groupId":       groupIdStr,
-				"operationMark": operationMark,
-				"operationType": 1,
-				"terminalIds":   deleteList,
-			})
-			if err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		var err error
-		operationMark, err = c.getOperationMark(session)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Update the group.
-	updateResult, err := c.doPost(session, "/market/manage/group/update/normal", map[string]interface{}{
-		"groupName":     groupName,
-		"id":            groupIdStr,
-		"operationMark": operationMark,
-		"subGroupIds":   []interface{}{},
+	updateResult, err := c.doSignedPost("/v1/tps/group/update/normal", map[string]interface{}{
+		"id":        strconv.Itoa(groupId),
+		"groupName": groupName,
 	})
 	if err != nil {
 		return nil, err
@@ -1865,11 +1751,9 @@ func (c *Client) EditGroup(session string, groupId int, groupName string, newTer
 
 // DeleteGroup removes a group by its ID.
 func (c *Client) DeleteGroup(session string, groupId int) (*TMSResponse, error) {
-	body := map[string]interface{}{
-		"ids": strconv.Itoa(groupId),
-	}
-
-	result, err := c.doPost(session, "/market/manage/group/delete", body)
+	result, err := c.doSignedPost("/v1/tps/group/delete", map[string]interface{}{
+		"groupId": strconv.Itoa(groupId),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1889,7 +1773,7 @@ func (c *Client) DeleteGroup(session string, groupId int) (*TMSResponse, error) 
 
 // GetCountryList retrieves the list of countries.
 func (c *Client) GetCountryList(session string) (*TMSResponse, error) {
-	result, err := c.doGet(session, "/market/region/country/selector", nil)
+	result, err := c.doSignedPost("/v1/tps/common/country/selector", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1922,10 +1806,9 @@ func (c *Client) GetCountryList(session string) (*TMSResponse, error) {
 
 // GetStateList retrieves the list of states for a given country.
 func (c *Client) GetStateList(session string, countryId int) (*TMSResponse, error) {
-	params := url.Values{}
-	params.Set("countryId", strconv.Itoa(countryId))
-
-	result, err := c.doGet(session, "/market/region/state/selector", params)
+	result, err := c.doSignedPost("/v1/tps/common/state/selector", map[string]interface{}{
+		"id": strconv.Itoa(countryId),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1958,10 +1841,9 @@ func (c *Client) GetStateList(session string, countryId int) (*TMSResponse, erro
 
 // GetCityList retrieves the list of cities for a given state.
 func (c *Client) GetCityList(session string, stateId int) (*TMSResponse, error) {
-	params := url.Values{}
-	params.Set("stateId", strconv.Itoa(stateId))
-
-	result, err := c.doGet(session, "/market/region/city/selector", params)
+	result, err := c.doSignedPost("/v1/tps/common/city/selector", map[string]interface{}{
+		"id": strconv.Itoa(stateId),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1994,10 +1876,9 @@ func (c *Client) GetCityList(session string, stateId int) (*TMSResponse, error) 
 
 // GetDistrictList retrieves the list of districts for a given city.
 func (c *Client) GetDistrictList(session string, cityId int) (*TMSResponse, error) {
-	params := url.Values{}
-	params.Set("cityId", strconv.Itoa(cityId))
-
-	result, err := c.doGet(session, "/market/region/district/selector", params)
+	result, err := c.doSignedPost("/v1/tps/common/district/selector", map[string]interface{}{
+		"id": strconv.Itoa(cityId),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2030,7 +1911,7 @@ func (c *Client) GetDistrictList(session string, cityId int) (*TMSResponse, erro
 
 // GetTimeZoneList retrieves the list of available time zones.
 func (c *Client) GetTimeZoneList(session string) (*TMSResponse, error) {
-	result, err := c.doGet(session, "/market/common/timeZone/selector", nil)
+	result, err := c.doSignedPost("/v1/tps/common/timeZone/selector", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2066,7 +1947,7 @@ func (c *Client) GetTimeZoneList(session string) (*TMSResponse, error) {
 
 // GetVendorList retrieves the list of terminal vendors.
 func (c *Client) GetVendorList(session string) (*TMSResponse, error) {
-	result, err := c.doGet(session, "/market/common/vendor/selector", nil)
+	result, err := c.doSignedPost("/v1/tps/common/vendor/selector", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2098,11 +1979,9 @@ func (c *Client) GetVendorList(session string) (*TMSResponse, error) {
 
 // GetModelList retrieves the list of terminal models for a given vendor.
 func (c *Client) GetModelList(session string, vendorId string) (*TMSResponse, error) {
-	body := map[string]interface{}{
+	result, err := c.doSignedPost("/v1/tps/common/model/selector", map[string]interface{}{
 		"vendor": vendorId,
-	}
-
-	result, err := c.doPost(session, "/market/common/model/selector", body)
+	})
 	if err != nil {
 		return nil, err
 	}
