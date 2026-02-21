@@ -65,6 +65,29 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	logger := log.With().Str("task", TaskImportTerminal).Str("file", payload.FilePath).Logger()
 	logger.Info().Msg("starting terminal import job")
 
+	// Ensure the import record is always marked as complete when the job ends,
+	// even if it fails. This prevents the UI from being stuck on "loading".
+	defer func() {
+		if payload.ImportID > 0 {
+			imp, err := h.adminRepo.FindLatestImport()
+			if err == nil && imp != nil && imp.ImpID == payload.ImportID {
+				cur := "0"
+				tot := "0"
+				if imp.ImpCurrent != nil {
+					cur = *imp.ImpCurrent
+				}
+				if imp.ImpTotal != nil {
+					tot = *imp.ImpTotal
+				}
+				if cur != tot {
+					// Force mark as complete so UI doesn't stay stuck.
+					logger.Warn().Str("cur", cur).Str("tot", tot).Msg("import job ended with incomplete progress, forcing completion")
+					h.adminRepo.UpdateImportProgress(payload.ImportID, tot, tot)
+				}
+			}
+		}
+	}()
+
 	// Log job start to queue_log.
 	createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	_ = h.adminRepo.CreateQueueLog(&admin.QueueLog{

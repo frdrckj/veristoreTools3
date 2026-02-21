@@ -1577,10 +1577,8 @@ func (h *Handler) Import(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
 	}
 
-	data.InProgress = true
-	data.RequestDate = filename
-	data.Progress = "0 / " + total
-	return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	// Redirect to GET so the browser doesn't re-submit the form on refresh.
+	return c.Redirect(http.StatusFound, "/veristore/import")
 }
 
 // ImportReset handles GET /veristore/importreset - Remove stuck/incomplete imports.

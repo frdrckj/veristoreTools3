@@ -19,7 +19,7 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 			<div class="col">
 				if data.InProgress {
 					<div class="alert alert-info" style="font-size: 1.1rem;">
-						Import is on process, please wait until finish!
+						<i class="fas fa-spinner fa-spin"></i> Import is on process, please wait until finish!
 						<br/>
 						File: { data.RequestDate }
 						<br/>
@@ -34,6 +34,9 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 					<a href="/veristore/importreset" class="btn btn-warning ml-2" onclick="return confirm('Reset the import process?')">
 						<i class="fas fa-undo"></i> Reset
 					</a>
+					<script>
+						setTimeout(function() { window.location.reload(); }, 3000);
+					</script>
 				} else if data.LastComplete {
 					<div class="alert alert-success" style="font-size: 1.1rem;">
 						Last import completed: { data.LastFilename } ({ data.Progress })
