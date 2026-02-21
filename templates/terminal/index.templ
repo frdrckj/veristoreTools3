@@ -99,64 +99,50 @@ templ TerminalTablePartial(terminals []TerminalData, pagination components.Pagin
 					<th>App Version</th>
 					<th style="width: 50px;"></th>
 				</tr>
-				<!-- Filter row matching V2's GridView filters -->
-				<tr>
-					<form
-						hx-get="/terminal/index"
-						hx-target="#terminal-table-container"
-						hx-push-url="true"
-						hx-trigger="submit"
-					>
-						<td></td>
-						<td>
-							<input
-								type="text"
-								name="term_serial_num"
-								class="form-control form-control-sm"
-								value={ filters.CSI }
-								placeholder=""
-							/>
-						</td>
-						<td>
-							<input
-								type="text"
-								name="term_device_id"
-								class="form-control form-control-sm"
-								value={ filters.SerialNumber }
-								placeholder=""
-							/>
-						</td>
-						<td>
-							<input
-								type="text"
-								name="term_product_num"
-								class="form-control form-control-sm"
-								value={ filters.ProductNumber }
-								placeholder=""
-							/>
-						</td>
-						<td>
-							<select name="term_model" class="form-control form-control-sm" onchange="this.form.requestSubmit()">
-								<option value=""></option>
-								for _, m := range models {
-									<option value={ m } selected?={ m == filters.Model }>{ m }</option>
-								}
-							</select>
-						</td>
-						<td>
-							<select name="term_app_version" class="form-control form-control-sm" onchange="this.form.requestSubmit()">
-								<option value=""></option>
-								for _, v := range appVersions {
-									<option value={ v } selected?={ v == filters.AppVersion }>{ v }</option>
-								}
-							</select>
-						</td>
-						<td>
-							<button type="submit" class="btn btn-sm btn-default" style="display:none;">
-								<i class="fas fa-search"></i>
-							</button>
-						</td>
-					</form>
+				<!-- Filter row — no <form> inside <tr> (invalid HTML). Uses JS to collect values. -->
+				<tr id="filter-row">
+					<td></td>
+					<td>
+						<input
+							type="text"
+							id="f-csi"
+							class="form-control form-control-sm csi-filter"
+							value={ filters.CSI }
+						/>
+					</td>
+					<td>
+						<input
+							type="text"
+							id="f-sn"
+							class="form-control form-control-sm csi-filter"
+							value={ filters.SerialNumber }
+						/>
+					</td>
+					<td>
+						<input
+							type="text"
+							id="f-pn"
+							class="form-control form-control-sm csi-filter"
+							value={ filters.ProductNumber }
+						/>
+					</td>
+					<td>
+						<select id="f-model" class="form-control form-control-sm csi-filter">
+							<option value=""></option>
+							for _, m := range models {
+								<option value={ m } selected?={ m == filters.Model }>{ m }</option>
+							}
+						</select>
+					</td>
+					<td>
+						<select id="f-app" class="form-control form-control-sm csi-filter">
+							<option value=""></option>
+							for _, v := range appVersions {
+								<option value={ v } selected?={ v == filters.AppVersion }>{ v }</option>
+							}
+						</select>
+					</td>
+					<td></td>
 				</tr>
 			</thead>
 			<tbody>
@@ -190,15 +176,39 @@ templ TerminalTablePartial(terminals []TerminalData, pagination components.Pagin
 	<div class="card-footer clearfix">
 		@components.Pagination(pagination)
 	</div>
-	<!-- Auto-submit filter on Enter key press in text inputs -->
 	<script>
 		(function() {
-			var inputs = document.querySelectorAll('#terminal-table-container thead input[type="text"]');
-			inputs.forEach(function(input) {
-				input.addEventListener('keypress', function(e) {
+			function applyFilters() {
+				var params = [];
+				var csi = document.getElementById('f-csi');
+				var sn  = document.getElementById('f-sn');
+				var pn  = document.getElementById('f-pn');
+				var mod = document.getElementById('f-model');
+				var app = document.getElementById('f-app');
+				if (csi && csi.value) params.push('term_serial_num=' + encodeURIComponent(csi.value));
+				if (sn  && sn.value)  params.push('term_device_id=' + encodeURIComponent(sn.value));
+				if (pn  && pn.value)  params.push('term_product_num=' + encodeURIComponent(pn.value));
+				if (mod && mod.value) params.push('term_model=' + encodeURIComponent(mod.value));
+				if (app && app.value) params.push('term_app_version=' + encodeURIComponent(app.value));
+				var url = '/terminal/index' + (params.length ? '?' + params.join('&') : '');
+				if (typeof htmx !== 'undefined') {
+					htmx.ajax('GET', url, {target: '#terminal-table-container', pushUrl: true});
+				} else {
+					window.location.href = url;
+				}
+			}
+
+			// Dropdowns: filter on change
+			document.querySelectorAll('#filter-row select.csi-filter').forEach(function(el) {
+				el.addEventListener('change', applyFilters);
+			});
+
+			// Text inputs: filter on Enter key
+			document.querySelectorAll('#filter-row input.csi-filter').forEach(function(el) {
+				el.addEventListener('keydown', function(e) {
 					if (e.key === 'Enter') {
 						e.preventDefault();
-						this.form.requestSubmit();
+						applyFilters();
 					}
 				});
 			});

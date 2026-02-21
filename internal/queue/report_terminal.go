@@ -53,12 +53,14 @@ type reportJob struct {
 
 // reportRow holds data for a single matched terminal in the report.
 type reportRow struct {
-	CSI      string
-	SN       string
-	PN       string
-	Model    string
-	Merchant string
-	Status   string
+	CSI        string
+	SN         string
+	PN         string
+	Model      string
+	Merchant   string
+	Status     string
+	AppVersion string // actual installed version of the target package
+	AppID      string // appId for this terminal's version (for parameter fetch)
 }
 
 // ReportTerminalHandler generates a verification report of all terminals
@@ -282,22 +284,24 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					continue
 				}
 
-				// Check for target app version match.
+				// Check if terminal has the target package installed (any version).
+				// Record the actual version and appId for each terminal.
 				matched := false
+				matchedVersion := ""
+				matchedAppID := ""
 				for _, app := range apps {
 					aPkg := fmt.Sprintf("%v", app["packageName"])
-					aVer := fmt.Sprintf("%v", app["version"])
 					if payload.PackageName != "" && aPkg != payload.PackageName {
 						continue
 					}
-					if aVer == payload.AppVersion {
-						matched = true
-						break
-					}
+					matched = true
+					matchedVersion = fmt.Sprintf("%v", app["version"])
+					matchedAppID = fmt.Sprintf("%v", app["id"])
+					break
 				}
 
 				if matched {
-					// Only fetch full detail for matched terminals (to get PN).
+					// Fetch full detail for matched terminals (to get PN).
 					pn := ""
 					detailResp, err := h.tmsClient.GetTerminalDetailById(j.TerminalID)
 					if err == nil && detailResp != nil && detailResp.Data != nil {
@@ -308,15 +312,17 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 					mu.Lock()
 					rows = append(rows, reportRow{
-						CSI:      j.DeviceID,
-						SN:       j.SN,
-						PN:       pn,
-						Model:    j.Model,
-						Merchant: j.Merchant,
-						Status:   j.Status,
+						CSI:        j.DeviceID,
+						SN:         j.SN,
+						PN:         pn,
+						Model:      j.Model,
+						Merchant:   j.Merchant,
+						Status:     j.Status,
+						AppVersion: matchedVersion,
+						AppID:      matchedAppID,
 					})
 					mu.Unlock()
-					logger.Debug().Str("csi", j.DeviceID).Msg("terminal matched")
+					logger.Debug().Str("csi", j.DeviceID).Str("version", matchedVersion).Msg("terminal matched")
 				}
 
 				count := atomic.AddInt64(&processedCount, 1)
@@ -371,7 +377,7 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	f.SetRowStyle(sheetName, 1, 1, headerStyle)
 
 	// Column headers.
-	headers := []string{"CSI", "SN", "PN", "Model", "Merchant", "Status"}
+	headers := []string{"CSI", "SN", "PN", "Model", "Merchant", "Status", "AppVersion", "AppID"}
 	for i, hdr := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
 		f.SetCellValue(sheetName, cell, hdr)
@@ -387,6 +393,8 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		f.SetCellValue(sheetName, fmt.Sprintf("D%d", rowNum), row.Model)
 		f.SetCellValue(sheetName, fmt.Sprintf("E%d", rowNum), row.Merchant)
 		f.SetCellValue(sheetName, fmt.Sprintf("F%d", rowNum), row.Status)
+		f.SetCellValue(sheetName, fmt.Sprintf("G%d", rowNum), row.AppVersion)
+		f.SetCellValue(sheetName, fmt.Sprintf("H%d", rowNum), row.AppID)
 	}
 
 	// Write to buffer and store in tms_report.
