@@ -449,9 +449,14 @@ func (h *ReportTerminalHandler) extractTerminalsFromPage(resp *tms.TMSResponse, 
 
 // reportProgress updates the sync_term_process field every 5 terminals
 // to reduce database writes while still showing progress.
+// Stores a percentage (0-100) so the view template can display a progress bar.
 func (h *ReportTerminalHandler) reportProgress(userID, current, total int) {
 	if current%5 == 0 || current == total {
-		process := fmt.Sprintf("%d/%d", current, total)
+		pct := 0
+		if total > 0 {
+			pct = (current * 100) / total
+		}
+		process := strconv.Itoa(pct)
 		h.adminRepo.UpdateSyncProcess(userID, process, "1")
 	}
 }

@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"time"
+
 	"github.com/verifone/veristoretools3/internal/shared"
 	"gorm.io/gorm"
 )
@@ -432,7 +434,17 @@ func (r *Repository) CreateSyncTerminal(st *SyncTerminal) error {
 // HasPendingSync returns true if there are any SyncTerminal records with
 // status 0, 1, or 2 (not yet completed). Used to disable buttons on the
 // terminal list page while a report/sync is in progress (like v2).
+//
+// Stale records (status "0" older than 30 minutes) are automatically cleaned
+// up to "4" (Gagal) to prevent permanently blocking buttons if a job was
+// never enqueued or failed to start.
 func (r *Repository) HasPendingSync() bool {
+	// Auto-cleanup: mark old stuck queued records as failed.
+	staleThreshold := time.Now().Add(-30 * time.Minute)
+	r.db.Model(&SyncTerminal{}).
+		Where("sync_term_status = ? AND sync_term_created_time < ?", "0", staleThreshold).
+		Update("sync_term_status", "4")
+
 	var count int64
 	r.db.Model(&SyncTerminal{}).Where("sync_term_status IN ?", []string{"0", "1", "2"}).Count(&count)
 	return count > 0

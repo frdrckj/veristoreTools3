@@ -145,7 +145,7 @@ func main() {
 	tmsLoginHandler := tms.NewLoginHandler(tmsRepo, tmsService, sessionStore, sessionName, appName, appVersion)
 	verifyHandler := csi.NewHandler(csiService, sessionStore, sessionName, appName, appVersion)
 	reportHandler := csi.NewReportHandler(csiRepo, sessionStore, sessionName, appName, appVersion)
-	syncHandler := syncpkg.NewHandler(syncService, sessionStore, sessionName, appName, appVersion)
+	syncHandler := syncpkg.NewHandler(syncService, sessionStore, sessionName, appName, appVersion, tmsService, asynqClient, cfg.PackageName)
 	schedulerHandler := syncpkg.NewSchedulerHandler(tmsRepo, sessionStore, sessionName, appName, appVersion)
 	adminHandler := admin.NewHandler(adminRepo, sessionStore, sessionName, appName, appVersion)
 	actHandler := activation.NewHandler(actRepo, sessionStore, sessionName, appName, appVersion)
@@ -223,6 +223,7 @@ func main() {
 
 	// Veristore (TMS) - Terminal
 	protected.GET("/veristore/terminal", tmsHandler.Terminal)
+	protected.GET("/veristore/terminal-status", tmsHandler.TerminalStatus)
 	protected.GET("/veristore/add", tmsHandler.Add)
 	protected.POST("/veristore/add", tmsHandler.Add)
 	protected.GET("/veristore/edit", tmsHandler.Edit)

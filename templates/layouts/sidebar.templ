@@ -84,89 +84,66 @@ templ Sidebar(data PageData) {
 	</aside>
 }
 
-// csiMenu renders the CSI-specific sidebar menu items.
+// csiMenu renders the CSI-specific sidebar menu items (matching v2 layout).
 templ csiMenu() {
 	<li class="nav-item">
-		<a href="/verification/index" class="nav-link">
-			<i class="nav-icon fas fa-check-circle"></i>
-			<p>Verifikasi CSI</p>
+		<a href="/user/index" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>Pengguna</p>
 		</a>
 	</li>
 	<li class="nav-item">
+		<a href="/activitylog/index" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>Aktifitas</p>
+		</a>
+	</li>
+	<li class="nav-item has-treeview">
+		<a href="#" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>
+				Sinkronisasi CSI
+				<i class="right fas fa-angle-left"></i>
+			</p>
+		</a>
+		<ul class="nav nav-treeview">
+			<li class="nav-item">
+				<a href="/scheduler/index" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Penjadwalan</p>
+				</a>
+			</li>
+			<li class="nav-item">
+				<a href="/sync-terminal/index" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Manual</p>
+				</a>
+			</li>
+		</ul>
+	</li>
+	<li class="nav-item">
 		<a href="/terminal/index" class="nav-link">
-			<i class="nav-icon fas fa-tablet-alt"></i>
-			<p>Data Terminal</p>
+			<i class="far fa-circle nav-icon"></i>
+			<p>Data CSI</p>
 		</a>
 	</li>
 	<li class="nav-item">
 		<a href="/technician/index" class="nav-link">
-			<i class="nav-icon fas fa-user-cog"></i>
-			<p>Data Teknisi</p>
+			<i class="far fa-circle nav-icon"></i>
+			<p>Teknisi</p>
 		</a>
 	</li>
 	<li class="nav-item">
-		<a href="/sync-terminal/index" class="nav-link">
-			<i class="nav-icon fas fa-sync-alt"></i>
-			<p>Sinkronisasi</p>
+		<a href="/verification/index" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>Verifikasi</p>
 		</a>
 	</li>
-	<li class="nav-item has-treeview">
-		<a href="#" class="nav-link">
-			<i class="nav-icon fas fa-cogs"></i>
-			<p>
-				Pengaturan
-				<i class="right fas fa-angle-left"></i>
-			</p>
+	<li class="nav-item">
+		<a href="/verificationreport/index" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>Laporan Verifikasi</p>
 		</a>
-		<ul class="nav nav-treeview">
-			<li class="nav-item">
-				<a href="/user/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Pengguna</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/templateparameter/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Template Parameter</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/scheduler/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Scheduler</p>
-				</a>
-			</li>
-		</ul>
-	</li>
-	<li class="nav-item has-treeview">
-		<a href="#" class="nav-link">
-			<i class="nav-icon fas fa-tools"></i>
-			<p>
-				Tools
-				<i class="right fas fa-angle-left"></i>
-			</p>
-		</a>
-		<ul class="nav nav-treeview">
-			<li class="nav-item">
-				<a href="/activitylog/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Activity Log</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/faq/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>FAQ</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/backup/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Backup</p>
-				</a>
-			</li>
-		</ul>
 	</li>
 }
 

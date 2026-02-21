@@ -258,6 +258,14 @@ func (h *Handler) Terminal(c echo.Context) error {
 	return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, terminals, totalPage, pageNum, searchParams, pagination, buttonsDisabled))
 }
 
+// TerminalStatus returns a lightweight JSON response indicating whether
+// sync/import operations are in progress. Used by the terminal page
+// to auto-refresh when operations complete.
+func (h *Handler) TerminalStatus(c echo.Context) error {
+	disabled := h.adminRepo.HasPendingSync() || h.adminRepo.HasPendingImport()
+	return c.JSON(http.StatusOK, map[string]bool{"disabled": disabled})
+}
+
 // Add handles GET/POST /veristore/add - Add terminal form and submission.
 func (h *Handler) Add(c echo.Context) error {
 	page := h.pageData(c, "CSI (Add)")

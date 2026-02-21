@@ -164,7 +164,15 @@ templ IndexPage(page layouts.PageData, syncs []SyncData, pagination components.P
 					</div>
 				</div>
 			</div>
-			<div id="sync-table-container">
+			<div
+				id="sync-table-container"
+				if syncProcess {
+					hx-get="/sync-terminal/index"
+					hx-trigger="every 5s"
+					hx-target="#sync-table-container"
+					hx-swap="innerHTML"
+				}
+			>
 				@SyncTablePartial(syncs, pagination, search)
 			</div>
 		</div>

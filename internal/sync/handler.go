@@ -1,15 +1,18 @@
 package sync
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/sessions"
+	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
+	"github.com/verifone/veristoretools3/internal/tms"
 	"github.com/verifone/veristoretools3/templates/components"
 	"github.com/verifone/veristoretools3/templates/layouts"
 	syncTmpl "github.com/verifone/veristoretools3/templates/sync"
@@ -22,16 +25,22 @@ type Handler struct {
 	sessionName string
 	appName     string
 	appVersion  string
+	tmsService  *tms.Service
+	queueClient *asynq.Client
+	packageName string
 }
 
 // NewHandler creates a new sync terminal handler.
-func NewHandler(service *Service, store sessions.Store, sessionName, appName, appVersion string) *Handler {
+func NewHandler(service *Service, store sessions.Store, sessionName, appName, appVersion string, tmsService *tms.Service, queueClient *asynq.Client, packageName string) *Handler {
 	return &Handler{
 		service:     service,
 		store:       store,
 		sessionName: sessionName,
 		appName:     appName,
 		appVersion:  appVersion,
+		tmsService:  tmsService,
+		queueClient: queueClient,
+		packageName: packageName,
 	}
 }
 
@@ -154,27 +163,82 @@ func (h *Handler) View(c echo.Context) error {
 	return shared.Render(c, http.StatusOK, syncTmpl.ViewPage(page, toSyncData(*s)))
 }
 
-// Create triggers a new sync by creating a DB record. In the future this will
-// also enqueue an Asynq task.
+// syncReportPayload mirrors the queue.ReportTerminalPayload to avoid import cycles.
+type syncReportPayload struct {
+	UserID      int    `json:"user_id"`
+	UserName    string `json:"user_name"`
+	AppVersion  string `json:"app_version"`
+	Session     string `json:"session"`
+	DateTime    string `json:"date_time"`
+	PackageName string `json:"package_name"`
+}
+
+// Create triggers a new sync by creating a DB record and enqueuing the
+// report:terminal background job to scan terminals and generate a report.
+// Uses the latest app version for the configured package name.
 func (h *Handler) Create(c echo.Context) error {
 	userID := mw.GetCurrentUserID(c)
-	userName := mw.GetCurrentUserName(c)
+	userName := mw.GetCurrentUserFullname(c)
 
+	// Find the latest version for the configured package from TMS.
+	session := h.tmsService.GetSession()
+	appVersion := ""
+	appResp, err := h.tmsService.GetAppList()
+	if err == nil && appResp != nil && appResp.Data != nil {
+		if allApps, ok := appResp.Data["allApps"].([]interface{}); ok {
+			for _, a := range allApps {
+				am, ok := a.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				pkgName := fmt.Sprintf("%v", am["packageName"])
+				if h.packageName != "" && pkgName != h.packageName {
+					continue
+				}
+				// Take the first matching app's version (latest in list).
+				appVersion = fmt.Sprintf("%v", am["version"])
+				break
+			}
+		}
+	}
+
+	if appVersion == "" {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Failed to find app version from TMS. Please use the Update page instead.")
+		return c.Redirect(http.StatusFound, "/sync-terminal/index")
+	}
+
+	// Create SyncTerminal record so buttons are disabled immediately.
+	now := time.Now()
 	s := &SyncTerminal{
 		SyncTermCreatorID:   userID,
 		SyncTermCreatorName: userName,
-		SyncTermCreatedTime: time.Now(),
+		SyncTermCreatedTime: now,
 		SyncTermStatus:      "0", // Queued
 		CreatedBy:           userName,
-		CreatedDt:           time.Now(),
+		CreatedDt:           now,
 	}
-
 	if err := h.service.CreateSync(s); err != nil {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to create sync: %v", err))
-	} else {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Sync terminal record created successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to create sync record: %v", err))
+		return c.Redirect(http.StatusFound, "/sync-terminal/index")
 	}
 
+	// Enqueue the report:terminal background job.
+	payload := syncReportPayload{
+		UserID:      userID,
+		UserName:    userName,
+		AppVersion:  appVersion,
+		Session:     session,
+		DateTime:    now.Format("2006-01-02 15:04:05"),
+		PackageName: h.packageName,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	task := asynq.NewTask("report:terminal", payloadBytes)
+	if _, err := h.queueClient.Enqueue(task); err != nil {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to enqueue report job: %v", err))
+		return c.Redirect(http.StatusFound, "/sync-terminal/index")
+	}
+
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Sinkronisasi dimulai. Report akan tersedia dalam beberapa saat.")
 	return c.Redirect(http.StatusFound, "/sync-terminal/index")
 }
 

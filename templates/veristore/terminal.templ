@@ -146,10 +146,27 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 			</div>
 		</div>
 		if buttonsDisabled {
-			<div class="alert alert-warning">
+			<div class="alert alert-warning" id="sync-status-alert">
 				<i class="fas fa-spinner fa-spin mr-2"></i>
 				Update / Import is currently in progress. Some actions are temporarily disabled.
 			</div>
+			<script>
+				// Auto-refresh: poll status every 5 seconds, reload page when sync/import completes.
+				(function pollSyncStatus() {
+					setTimeout(function() {
+						fetch('/veristore/terminal-status')
+							.then(function(r) { return r.json(); })
+							.then(function(d) {
+								if (!d.disabled) {
+									window.location.reload();
+								} else {
+									pollSyncStatus();
+								}
+							})
+							.catch(function() { pollSyncStatus(); });
+					}, 5000);
+				})();
+			</script>
 		}
 		<!-- Table card -->
 		<div class="card">
