@@ -1,0 +1,52 @@
+# Docker deployment config — hostnames point to docker-compose service names
+app:
+  name: "VeriStore Tools 3"
+  version: "3.0.0"
+  port: 8080
+  debug: false
+  session_timeout: 900
+  session_secret: "CHANGE-THIS-IN-PRODUCTION"
+  session_name: "_veristore_tools_3_app"
+  password_salt: "@!Boteng2021%??"
+
+database:
+  host: mysql
+  port: 3306
+  name: veristoretools3
+  user: root
+  password: "veristoretools3"
+  charset: utf8mb4
+  max_open_conns: 25
+  max_idle_conns: 10
+
+redis:
+  addr: redis:6379
+  password: ""
+  db: 0
+
+tms:
+  base_url: "https://app.veristore.net"
+  api_base_url: "https://tps.veristore.net"
+  secret_key: "35136HH7B63C27AA74CDCC2BBRT9"
+  secret_iv: "J5g275fgf5H"
+  access_key: "63048727"
+  access_secret: "64ab2e0d0f74447c900da052b3976426"
+  skip_tls_verify: true
+  sync_batch_size: 500
+  reseller_list:
+    - 1528548734193680385
+
+api:
+  basic_auth_user: "Vfiengineering"
+  basic_auth_pass: "Welcome@123!"
+
+import:
+  max_file_size: 5242880
+  batch_size: 100
+
+export:
+  batch_size: 100
+  output_dir: "static/export"
+
+country_id: 5
+package_name: "com.vfi.android.payment.cimb"
