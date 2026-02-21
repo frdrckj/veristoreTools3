@@ -78,8 +78,10 @@ func (r *Repository) Update(t *Terminal) error {
 	return r.db.Save(t).Error
 }
 
-// Delete removes a terminal by ID.
+// Delete removes a terminal and its associated parameters by ID.
 func (r *Repository) Delete(id int) error {
+	// Delete child parameters first to avoid foreign key constraint error.
+	r.db.Where("param_term_id = ?", id).Delete(&TerminalParameter{})
 	return r.db.Delete(&Terminal{}, "term_id = ?", id).Error
 }
 
