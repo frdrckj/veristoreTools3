@@ -1,67 +1,215 @@
 package scheduler
 
 import (
-	"strconv"
 	"github.com/verifone/veristoretools3/templates/layouts"
+	"strconv"
 )
 
-// IndexPage renders the scheduler configuration page.
-templ IndexPage(page layouts.PageData, scheduled string, loginID int) {
+// SchedulerData holds the parsed scheduler settings for the form.
+type SchedulerData struct {
+	LoginID  int
+	Enabled  string // "0" or "1"
+	Setting  string // "HOURLY", "DAILY", "WEEKLY"
+	DateFrom string // "2006-01-02"
+	DateTo   string // "2006-01-02"
+	TimeFrom string // "00"-"23"
+	TimeTo   string // "00"-"23"
+}
+
+// IndexPage renders the scheduler configuration page (Penjadwalan Sinkronisasi CSI).
+templ IndexPage(page layouts.PageData, data SchedulerData) {
 	@layouts.Base(page) {
-		<div class="row">
-			<div class="col-md-8 offset-md-2">
-				<div class="card card-primary">
-					<div class="card-header">
-						<h3 class="card-title">Scheduler Configuration</h3>
-					</div>
-					<form method="POST" action="/scheduler/update">
-						<input type="hidden" name="login_id" value={ strconv.Itoa(loginID) }/>
-						<div class="card-body">
-							if loginID == 0 {
-								<div class="alert alert-warning">
-									<i class="fas fa-exclamation-triangle"></i>
-									No active TMS login found. Please create a TMS login first.
-								</div>
-							}
-							<div class="callout callout-info">
-								<h5>About Scheduler</h5>
-								<p>
-									The scheduler settings control when automatic sync and background tasks
-									are executed. The configuration is stored as a JSON text and defines
-									the schedule intervals, enabled tasks, and execution times.
-								</p>
-							</div>
-							<div class="form-group">
-								<label for="scheduled">Schedule Configuration (JSON)</label>
-								<textarea
-									class="form-control"
-									id="scheduled"
-									name="scheduled"
-									rows="10"
-									placeholder="Enter scheduler JSON configuration"
-									if loginID == 0 {
-										disabled
-									}
-								>{ scheduled }</textarea>
-								<small class="form-text text-muted">
-									Enter the scheduler configuration in JSON format.
-								</small>
-							</div>
+		<div class="card card-primary">
+			<div class="card-header">
+				<h3 class="card-title">Penjadwalan Sinkronisasi CSI</h3>
+			</div>
+			<form id="formScheduler" method="POST" action="/scheduler/update">
+				<input type="hidden" name="login_id" value={ strconv.Itoa(data.LoginID) }/>
+				<div class="card-body">
+					if data.LoginID == 0 {
+						<div class="alert alert-warning">
+							<i class="fas fa-exclamation-triangle"></i>
+							Koneksi TMS bermasalah! Silakan buat TMS Login terlebih dahulu.
 						</div>
-						<div class="card-footer">
-							<button
-								type="submit"
-								class="btn btn-primary"
-								if loginID == 0 {
+					}
+					<div class="form-group row">
+						<label class="col-sm-2 col-form-label">Status</label>
+						<div class="col-sm-5">
+							<select
+								id="sched-enabled"
+								name="enabled"
+								class="form-control"
+								if data.LoginID == 0 {
 									disabled
 								}
 							>
-								<i class="fas fa-save"></i> Update Schedule
-							</button>
+								if data.Enabled == "1" {
+									<option value="0">NON AKTIF</option>
+									<option value="1" selected>AKTIF</option>
+								} else {
+									<option value="0" selected>NON AKTIF</option>
+									<option value="1">AKTIF</option>
+								}
+							</select>
 						</div>
-					</form>
+					</div>
+					<div class="form-group row">
+						<label class="col-sm-2 col-form-label">Periode</label>
+						<div class="col-sm-5">
+							<select
+								id="sched-setting"
+								name="setting"
+								class="form-control"
+								if data.Enabled != "1" || data.LoginID == 0 {
+									disabled
+								}
+							>
+								<option value="">-- Pilih Periode --</option>
+								if data.Setting == "HOURLY" {
+									<option value="HOURLY" selected>TIAP JAM</option>
+								} else {
+									<option value="HOURLY">TIAP JAM</option>
+								}
+								if data.Setting == "DAILY" {
+									<option value="DAILY" selected>HARIAN</option>
+								} else {
+									<option value="DAILY">HARIAN</option>
+								}
+								if data.Setting == "WEEKLY" {
+									<option value="WEEKLY" selected>MINGGUAN</option>
+								} else {
+									<option value="WEEKLY">MINGGUAN</option>
+								}
+							</select>
+						</div>
+					</div>
+					<div class="form-group row">
+						<label class="col-sm-2 col-form-label">Tanggal &amp; Waktu</label>
+						<div class="col-sm-5">
+							<div class="d-flex align-items-center mb-2">
+								<input
+									type="date"
+									id="sched-date-from"
+									name="date_from"
+									class="form-control"
+									value={ data.DateFrom }
+									placeholder="-- Tanggal Mulai --"
+									if data.Enabled != "1" || data.Setting == "" || data.LoginID == 0 {
+										disabled
+									}
+								/>
+								<span class="mx-2 text-nowrap">s.d</span>
+								<input
+									type="date"
+									id="sched-date-to"
+									name="date_to"
+									class="form-control"
+									value={ data.DateTo }
+									placeholder="-- Tanggal Selesai --"
+									if data.Enabled != "1" || data.Setting == "" || data.LoginID == 0 {
+										disabled
+									}
+								/>
+							</div>
+							<div class="d-flex align-items-center">
+								<select
+									id="sched-time-from"
+									name="time_from"
+									class="form-control"
+									if data.Enabled != "1" || data.Setting != "HOURLY" || data.LoginID == 0 {
+										disabled
+									}
+								>
+									<option value="">-- Waktu Mulai --</option>
+									@hourOptions(data.TimeFrom)
+								</select>
+								<span class="mx-2"></span>
+								<select
+									id="sched-time-to"
+									name="time_to"
+									class="form-control"
+									if data.Enabled != "1" || data.Setting != "HOURLY" || data.LoginID == 0 {
+										disabled
+									}
+								>
+									<option value="">-- Waktu Selesai --</option>
+									@hourOptions(data.TimeTo)
+								</select>
+							</div>
+						</div>
+					</div>
 				</div>
-			</div>
+				<div class="card-footer">
+					<button
+						type="submit"
+						class="btn btn-success"
+						if data.LoginID == 0 {
+							disabled
+						}
+						onclick="return confirm('Apakah anda yakin data sudah benar?')"
+					>
+						Simpan
+					</button>
+				</div>
+			</form>
 		</div>
+		@schedJS()
 	}
+}
+
+// hourOptions renders <option> elements for hours 00-23.
+templ hourOptions(selected string) {
+	for _, h := range []string{"00","01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23"} {
+		if h == selected {
+			<option value={ h } selected>{ h }:00</option>
+		} else {
+			<option value={ h }>{ h }:00</option>
+		}
+	}
+}
+
+// schedJS renders the JavaScript for enabling/disabling fields based on Status and Periode.
+templ schedJS() {
+	<script>
+	(function() {
+		var elEnabled  = document.getElementById('sched-enabled');
+		var elSetting  = document.getElementById('sched-setting');
+		var elDateFrom = document.getElementById('sched-date-from');
+		var elDateTo   = document.getElementById('sched-date-to');
+		var elTimeFrom = document.getElementById('sched-time-from');
+		var elTimeTo   = document.getElementById('sched-time-to');
+
+		function update() {
+			var active = elEnabled.value === '1';
+			var setting = elSetting.value;
+
+			// Periode: enabled only when AKTIF
+			elSetting.disabled = !active;
+			if (!active) {
+				elSetting.value = '';
+			}
+
+			// Date fields: enabled when AKTIF + Periode selected
+			var dateEnabled = active && setting !== '';
+			elDateFrom.disabled = !dateEnabled;
+			elDateTo.disabled = !dateEnabled;
+			if (!dateEnabled) {
+				elDateFrom.value = '';
+				elDateTo.value = '';
+			}
+
+			// Time fields: enabled only for HOURLY
+			var timeEnabled = active && setting === 'HOURLY';
+			elTimeFrom.disabled = !timeEnabled;
+			elTimeTo.disabled = !timeEnabled;
+			if (!timeEnabled) {
+				elTimeFrom.value = '';
+				elTimeTo.value = '';
+			}
+		}
+
+		elEnabled.addEventListener('change', update);
+		elSetting.addEventListener('change', update);
+	})();
+	</script>
 }

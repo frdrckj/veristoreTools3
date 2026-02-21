@@ -56,9 +56,9 @@ func (s SyncData) StatusLabel() string {
 	case "0":
 		return "Menunggu"
 	case "1":
-		return "Download"
+		return "Proses Report"
 	case "2":
-		return "Proses"
+		return "Sinkronisasi"
 	case "3":
 		return "Selesai"
 	case "4":
@@ -227,14 +227,14 @@ templ SyncTablePartial(syncs []SyncData, pagination components.PaginationData, s
 								<option value="0">Menunggu</option>
 							}
 							if search.Status == "1" {
-								<option value="1" selected>Download</option>
+								<option value="1" selected>Proses Report</option>
 							} else {
-								<option value="1">Download</option>
+								<option value="1">Proses Report</option>
 							}
 							if search.Status == "2" {
-								<option value="2" selected>Proses</option>
+								<option value="2" selected>Sinkronisasi</option>
 							} else {
-								<option value="2">Proses</option>
+								<option value="2">Sinkronisasi</option>
 							}
 							if search.Status == "3" {
 								<option value="3" selected>Selesai</option>

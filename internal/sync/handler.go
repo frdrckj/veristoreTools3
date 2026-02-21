@@ -171,6 +171,7 @@ type syncReportPayload struct {
 	Session     string `json:"session"`
 	DateTime    string `json:"date_time"`
 	PackageName string `json:"package_name"`
+	TriggerSync bool   `json:"trigger_sync"` // When true, chains report → sync:parameter
 }
 
 // Create triggers a new sync by creating a DB record and enqueuing the
@@ -222,7 +223,8 @@ func (h *Handler) Create(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/sync-terminal/index")
 	}
 
-	// Enqueue the report:terminal background job.
+	// Enqueue the report:terminal background job with TriggerSync=true
+	// so it chains to sync:parameter after generating the Excel report.
 	payload := syncReportPayload{
 		UserID:      userID,
 		UserName:    userName,
@@ -230,6 +232,7 @@ func (h *Handler) Create(c echo.Context) error {
 		Session:     session,
 		DateTime:    now.Format("2006-01-02 15:04:05"),
 		PackageName: h.packageName,
+		TriggerSync: true,
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	task := asynq.NewTask("report:terminal", payloadBytes)

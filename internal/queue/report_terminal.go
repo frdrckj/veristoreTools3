@@ -37,6 +37,7 @@ type ReportTerminalPayload struct {
 	Session     string `json:"session"`
 	DateTime    string `json:"date_time"`
 	PackageName string `json:"package_name"`
+	TriggerSync bool   `json:"trigger_sync"` // When true, chains to sync:parameter after report
 }
 
 // reportJob represents a unit of work for a report worker.
@@ -63,20 +64,23 @@ type reportRow struct {
 // ReportTerminalHandler generates a verification report of all terminals
 // that have a specific app version installed (like v2 ReportTerminal.php).
 // Optimized with parallel page fetching and a 50-worker concurrent pool.
+// When TriggerSync is set, it chains to the sync:parameter job after report generation.
 type ReportTerminalHandler struct {
-	tmsService *tms.Service
-	tmsClient  *tms.Client
-	adminRepo  *admin.Repository
-	db         *gorm.DB
+	tmsService  *tms.Service
+	tmsClient   *tms.Client
+	adminRepo   *admin.Repository
+	db          *gorm.DB
+	queueClient *asynq.Client
 }
 
 // NewReportTerminalHandler creates a new handler for the report:terminal task.
-func NewReportTerminalHandler(tmsService *tms.Service, tmsClient *tms.Client, adminRepo *admin.Repository, db *gorm.DB) *ReportTerminalHandler {
+func NewReportTerminalHandler(tmsService *tms.Service, tmsClient *tms.Client, adminRepo *admin.Repository, db *gorm.DB, queueClient *asynq.Client) *ReportTerminalHandler {
 	return &ReportTerminalHandler{
-		tmsService: tmsService,
-		tmsClient:  tmsClient,
-		adminRepo:  adminRepo,
-		db:         db,
+		tmsService:  tmsService,
+		tmsClient:   tmsClient,
+		adminRepo:   adminRepo,
+		db:          db,
+		queueClient: queueClient,
 	}
 }
 
@@ -127,11 +131,17 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				if payload.PackageName != "" && pkgName != payload.PackageName {
 					continue
 				}
-				if version == payload.AppVersion {
-					appID = fmt.Sprintf("%v", am["id"])
-					appName = fmt.Sprintf("%v", am["name"])
-					break
+				// If AppVersion is specified, match exactly.
+				// If empty, take the first matching app (latest version).
+				if payload.AppVersion != "" && version != payload.AppVersion {
+					continue
 				}
+				appID = fmt.Sprintf("%v", am["id"])
+				appName = fmt.Sprintf("%v", am["name"])
+				if payload.AppVersion == "" {
+					payload.AppVersion = version
+				}
+				break
 			}
 		}
 	}
@@ -397,10 +407,35 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		return fmt.Errorf("report_terminal: save report: %w", err)
 	}
 
-	// Mark SyncTerminal as complete (status 3) so buttons re-enable.
-	h.adminRepo.CompletePendingSyncs(payload.UserID)
-
 	logger.Info().Str("file", reportName).Int("rows", len(rows)).Msg("report generated successfully")
+
+	// If TriggerSync is set (Sekarang button), chain to sync:parameter
+	// to read the Excel and update local terminal/terminal_parameter tables.
+	if payload.TriggerSync && h.queueClient != nil {
+		syncPayload := SyncParameterPayload{
+			ReportName: reportName,
+			Session:    session,
+			UserID:     payload.UserID,
+			UserName:   payload.UserName,
+			AppID:      appID,
+			AppName:    appName,
+			AppVersion: payload.AppVersion,
+		}
+		syncPayloadBytes, _ := json.Marshal(syncPayload)
+		syncTask := asynq.NewTask(TaskSyncParameter, syncPayloadBytes)
+		if _, err := h.queueClient.Enqueue(syncTask); err != nil {
+			logger.Error().Err(err).Msg("failed to enqueue sync:parameter job")
+			h.adminRepo.FailPendingSyncs(payload.UserID)
+			return fmt.Errorf("report_terminal: enqueue sync: %w", err)
+		}
+		// Set status to "2" (Sinkronisasi) — the sync:parameter job will set "3" when done.
+		h.adminRepo.UpdateSyncProcess(payload.UserID, "0", "2")
+		logger.Info().Msg("chained sync:parameter job enqueued")
+		return nil
+	}
+
+	// No sync requested (Update button) — mark as complete directly.
+	h.adminRepo.CompletePendingSyncs(payload.UserID)
 	return nil
 }
 

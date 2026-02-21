@@ -366,8 +366,8 @@ func main() {
 	importMerchHandler := queue.NewImportMerchantHandler(tmsService, tmsClient, adminRepo, db)
 	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.TMS.SyncBatchSize)
 	tmsPingHandler := queue.NewTMSPingHandler(tmsService, tmsRepo)
-	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient)
-	reportTermHandler := queue.NewReportTerminalHandler(tmsService, tmsClient, adminRepo, db)
+	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient, cfg.PackageName)
+	reportTermHandler := queue.NewReportTerminalHandler(tmsService, tmsClient, adminRepo, db, asynqClient)
 
 	// -----------------------------------------------------------------------
 	// 18. Start Asynq worker in a goroutine

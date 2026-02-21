@@ -180,9 +180,35 @@ func (s *Service) GetDashboardStats() (map[string]interface{}, error) {
 	return stats, nil
 }
 
-// GetAppVersions returns distinct app versions from the terminal table for
-// the verification search form dropdown.
+// GetAppVersions returns all available app versions from TMS for the
+// verification search form dropdown. Falls back to the local terminal
+// table if TMS is unavailable.
 func (s *Service) GetAppVersions() ([]string, error) {
+	// Try TMS API first — returns all versions, not just locally synced ones.
+	resp, err := s.tmsSvc.GetAppList()
+	if err == nil && resp != nil && resp.Data != nil {
+		if allApps, ok := resp.Data["allApps"].([]interface{}); ok {
+			var versions []string
+			seen := map[string]bool{}
+			for _, a := range allApps {
+				am, ok := a.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				version := fmt.Sprintf("%v", am["version"])
+				if version == "" || version == "<nil>" || seen[version] {
+					continue
+				}
+				seen[version] = true
+				versions = append(versions, version)
+			}
+			if len(versions) > 0 {
+				return versions, nil
+			}
+		}
+	}
+
+	// Fallback: read from local terminal table.
 	var versions []string
 	if err := s.db.Model(&terminal.Terminal{}).
 		Distinct("term_app_version").
