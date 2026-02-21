@@ -95,3 +95,27 @@ func (r *Repository) SaveReport(report *TmsReport) error {
 func (r *Repository) DeleteReport(name string) error {
 	return r.db.Where("tms_rpt_name = ?", name).Delete(&TmsReport{}).Error
 }
+
+// GetUserTmsSession returns the tms_session for a given username from the user table.
+func (r *Repository) GetUserTmsSession(username string) string {
+	var row struct {
+		TmsSession *string `gorm:"column:tms_session"`
+	}
+	if err := r.db.Table("user").Where("user_name = ?", username).First(&row).Error; err != nil {
+		return ""
+	}
+	if row.TmsSession == nil {
+		return ""
+	}
+	return *row.TmsSession
+}
+
+// SetUserTmsSession updates the tms_session for a given username in the user table.
+func (r *Repository) SetUserTmsSession(username, session string) error {
+	return r.db.Table("user").Where("user_name = ?", username).Update("tms_session", session).Error
+}
+
+// ClearUserTmsSession sets tms_session to NULL for a given username in the user table.
+func (r *Repository) ClearUserTmsSession(username string) error {
+	return r.db.Table("user").Where("user_name = ?", username).Update("tms_session", nil).Error
+}

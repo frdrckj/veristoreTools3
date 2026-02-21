@@ -173,91 +173,44 @@ templ csiMenu() {
 // tmsMenu renders the TMS-specific sidebar menu items.
 templ tmsMenu() {
 	<li class="nav-item">
+		<a href="/user/index" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>Pengguna</p>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a href="/activitylog/index" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>Aktifitas</p>
+		</a>
+	</li>
+	<li class="nav-item has-treeview">
+		<a href="#" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>
+				Merchant
+				<i class="right fas fa-angle-left"></i>
+			</p>
+		</a>
+		<ul class="nav nav-treeview">
+			<li class="nav-item">
+				<a href="/veristore/merchant" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Merchant Management</p>
+				</a>
+			</li>
+			<li class="nav-item">
+				<a href="/veristore/group" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Group Management</p>
+				</a>
+			</li>
+		</ul>
+	</li>
+	<li class="nav-item">
 		<a href="/veristore/terminal" class="nav-link">
-			<i class="nav-icon fas fa-tablet-alt"></i>
-			<p>Terminal</p>
+			<i class="far fa-circle nav-icon"></i>
+			<p>CSI</p>
 		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/veristore/merchant" class="nav-link">
-			<i class="nav-icon fas fa-store"></i>
-			<p>Merchant</p>
-		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/veristore/group" class="nav-link">
-			<i class="nav-icon fas fa-layer-group"></i>
-			<p>Group</p>
-		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/appactivation/index" class="nav-link">
-			<i class="nav-icon fas fa-key"></i>
-			<p>Activation</p>
-		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/appcredential/index" class="nav-link">
-			<i class="nav-icon fas fa-id-card"></i>
-			<p>Credential</p>
-		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/tmslogin/index" class="nav-link">
-			<i class="nav-icon fas fa-sign-in-alt"></i>
-			<p>TMS Login</p>
-		</a>
-	</li>
-	<li class="nav-item has-treeview">
-		<a href="#" class="nav-link">
-			<i class="nav-icon fas fa-cogs"></i>
-			<p>
-				Settings
-				<i class="right fas fa-angle-left"></i>
-			</p>
-		</a>
-		<ul class="nav nav-treeview">
-			<li class="nav-item">
-				<a href="/user/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Users</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/scheduler/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Scheduler</p>
-				</a>
-			</li>
-		</ul>
-	</li>
-	<li class="nav-item has-treeview">
-		<a href="#" class="nav-link">
-			<i class="nav-icon fas fa-tools"></i>
-			<p>
-				Tools
-				<i class="right fas fa-angle-left"></i>
-			</p>
-		</a>
-		<ul class="nav nav-treeview">
-			<li class="nav-item">
-				<a href="/activitylog/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Activity Log</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/faq/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>FAQ</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/backup/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Backup</p>
-				</a>
-			</li>
-		</ul>
 	</li>
 }

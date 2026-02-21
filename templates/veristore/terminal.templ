@@ -25,6 +25,21 @@ func mapGet(m map[string]interface{}, key string) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// mapGetId safely retrieves an ID from a map, trying "id" first then "value".
+// This handles both old API (which returns "id") and new API (which returns "value").
+func mapGetId(m map[string]interface{}) string {
+	if m == nil {
+		return ""
+	}
+	if v, ok := m["id"]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	if v, ok := m["value"]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
 // mapGetInt safely retrieves an int value from a map.
 func mapGetInt(m map[string]interface{}, key string) int {
 	if m == nil {
@@ -77,11 +92,11 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 						hx-push-url="true"
 					>
 						<select name="searchType" class="form-control" style="width: 130px;">
-							<option value="0" selected?={ searchParams.SearchType == 0 }>SN</option>
+							<option value="4" selected?={ searchParams.SearchType == 4 || searchParams.SearchType == 0 && searchParams.SerialNo == "" }>CSI</option>
+							<option value="0" selected?={ searchParams.SearchType == 0 && searchParams.SerialNo != "" }>SN</option>
 							<option value="1" selected?={ searchParams.SearchType == 1 }>Merchant</option>
 							<option value="2" selected?={ searchParams.SearchType == 2 }>Group</option>
 							<option value="3" selected?={ searchParams.SearchType == 3 }>TID</option>
-							<option value="4" selected?={ searchParams.SearchType == 4 }>Device ID</option>
 							<option value="5" selected?={ searchParams.SearchType == 5 }>MID</option>
 						</select>
 						<input
@@ -286,7 +301,7 @@ func searchTypeLabel(searchType int) string {
 	case 3:
 		return "TID"
 	case 4:
-		return "Device ID"
+		return "CSI"
 	case 5:
 		return "MID"
 	default:

@@ -3,20 +3,17 @@ package veristore
 import "github.com/verifone/veristoretools3/templates/layouts"
 
 // CopyPage renders the copy terminal form.
-templ CopyPage(page layouts.PageData, errors []string) {
+// sourceSn is the source terminal SN passed from the terminal list via query param.
+templ CopyPage(page layouts.PageData, errors []string, sourceSn string) {
 	@layouts.Base(page) {
 		<div class="row">
 			<div class="col-md-6 offset-md-3">
 				<div class="card card-primary">
 					<div class="card-header">
-						<h3 class="card-title">Copy Terminal</h3>
-						<div class="card-tools">
-							<a href="/veristore" class="btn btn-sm btn-default">
-								<i class="fas fa-arrow-left"></i> Back to List
-							</a>
-						</div>
+						<h3 class="card-title">CSI (Copy)</h3>
 					</div>
 					<form method="POST" action="/veristore/copy">
+						<input type="hidden" name="sourceSn" value={ sourceSn }/>
 						<div class="card-body">
 							if len(errors) > 0 {
 								<div class="alert alert-danger alert-dismissible fade show" role="alert">
@@ -31,33 +28,24 @@ templ CopyPage(page layouts.PageData, errors []string) {
 								</div>
 							}
 							<div class="form-group">
-								<label for="sourceSn">Source Serial Number <span class="text-danger">*</span></label>
-								<input
-									type="text"
-									class="form-control"
-									id="sourceSn"
-									name="sourceSn"
-									placeholder="Enter source terminal SN"
-									required
-								/>
-							</div>
-							<div class="form-group">
-								<label for="destSn">Destination Serial Number <span class="text-danger">*</span></label>
+								<label for="destSn">New CSI <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="destSn"
 									name="destSn"
-									placeholder="Enter destination terminal SN"
+									placeholder="New CSI"
 									required
 								/>
 							</div>
 						</div>
 						<div class="card-footer">
-							<button type="submit" class="btn btn-primary">
-								<i class="fas fa-copy"></i> Copy Terminal
+							<a href="/veristore/terminal" class="btn btn-danger">
+								<i class="fas fa-arrow-left"></i> Back
+							</a>
+							<button type="submit" class="btn btn-success ml-2">
+								<i class="fas fa-save"></i> Submit
 							</button>
-							<a href="/veristore" class="btn btn-default">Cancel</a>
 						</div>
 					</form>
 				</div>

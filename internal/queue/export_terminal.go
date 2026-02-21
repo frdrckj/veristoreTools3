@@ -163,18 +163,11 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 				if appID != "" {
 					tabNames := tms.GetAllTabNames(h.db)
-					var allParams []interface{}
-					for _, tabName := range tabNames {
-						paramResp, err := h.tmsClient.GetTerminalParameter(session, j.SerialNo, appID, tabName)
-						if err != nil || paramResp.ResultCode != 0 || paramResp.Data == nil {
-							continue
-						}
+					paramResp, err := h.tmsClient.GetTerminalParameterMultiTab(session, j.SerialNo, appID, tabNames)
+					if err == nil && paramResp.ResultCode == 0 && paramResp.Data != nil {
 						if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
-							allParams = append(allParams, pl...)
+							row.Params = pl
 						}
-					}
-					if len(allParams) > 0 {
-						row.Params = allParams
 					}
 				}
 

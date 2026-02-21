@@ -293,6 +293,29 @@ func (c *Client) doGet(session, path string, params url.Values) (map[string]inte
 // generateSignature creates an HMAC-SHA256 signature for the new TPS API.
 // It filters out empty values and the "signature" key, sorts remaining keys
 // by ASCII ascending, builds a key=value& string, and computes the HMAC.
+// paramToSignatureValue converts a parameter value to its string representation
+// for signature computation. Primitive values use fmt.Sprintf, complex types
+// (maps, slices) are JSON-serialized.
+func paramToSignatureValue(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch v.(type) {
+	case map[string]interface{}, map[string]string, []interface{}, []string:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	default:
+		s := fmt.Sprintf("%v", v)
+		if s == "<nil>" {
+			return ""
+		}
+		return s
+	}
+}
+
 func (c *Client) generateSignature(params map[string]interface{}) string {
 	// Collect non-empty, non-signature keys.
 	keys := make([]string, 0, len(params))
@@ -300,8 +323,8 @@ func (c *Client) generateSignature(params map[string]interface{}) string {
 		if k == "signature" {
 			continue
 		}
-		s := fmt.Sprintf("%v", v)
-		if s == "" || s == "<nil>" {
+		s := paramToSignatureValue(v)
+		if s == "" {
 			continue
 		}
 		keys = append(keys, k)
@@ -311,7 +334,7 @@ func (c *Client) generateSignature(params map[string]interface{}) string {
 	// Build the data string: key1=value1&key2=value2&...
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, k+"="+fmt.Sprintf("%v", params[k]))
+		parts = append(parts, k+"="+paramToSignatureValue(params[k]))
 	}
 	data := strings.Join(parts, "&")
 
@@ -912,6 +935,67 @@ func (c *Client) GetTerminalParameter(session, serialNum, appId, tabName string)
 	return &TMSResponse{
 		ResultCode: 0,
 		Data:       map[string]interface{}{"paraList": paraList},
+	}, nil
+}
+
+// GetTerminalParameterMultiTab retrieves parameters for multiple tabs in one batch,
+// calling getIdFromSN and getOperationMark only once (instead of per-tab).
+func (c *Client) GetTerminalParameterMultiTab(session, serialNum, appId string, tabNames []string) (*TMSResponse, error) {
+	terminalId, err := c.getIdFromSN(session, serialNum)
+	if err != nil {
+		return nil, err
+	}
+	operationMark, err := c.getOperationMark(session)
+	if err != nil {
+		return nil, err
+	}
+
+	allParams := []interface{}{}
+	for _, tabName := range tabNames {
+		result, err := c.doPost(session, "/market/manage/terminalAppParameter/view", map[string]interface{}{
+			"appId":         appId,
+			"operationMark": operationMark,
+			"tabName":       tabName,
+			"terminalId":    terminalId,
+		})
+		if err != nil {
+			continue
+		}
+		code, _ := toInt(result["code"])
+		if code != 200 {
+			continue
+		}
+		data, _ := result["data"].(map[string]interface{})
+		if data == nil {
+			continue
+		}
+		cardValues, _ := data["cardValueList"].([]interface{})
+		cardTabs, _ := data["cardTabList"].([]interface{})
+		for _, cv := range cardValues {
+			row, _ := cv.(map[string]interface{})
+			if row == nil {
+				continue
+			}
+			number := toString(row["NUMBER"])
+			for _, ct := range cardTabs {
+				field, _ := ct.(map[string]interface{})
+				if field == nil {
+					continue
+				}
+				key := toString(field["key"])
+				allParams = append(allParams, map[string]interface{}{
+					"dataName":    key + "-" + number,
+					"viewName":    tabName,
+					"value":       toString(row[key]),
+					"description": toString(field["description"]),
+				})
+			}
+		}
+	}
+
+	return &TMSResponse{
+		ResultCode: 0,
+		Data:       map[string]interface{}{"paraList": allParams},
 	}, nil
 }
 

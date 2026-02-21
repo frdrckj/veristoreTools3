@@ -1,13 +1,16 @@
 package tms
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/go-pdf/fpdf"
 	"github.com/gorilla/sessions"
 	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
@@ -18,6 +21,12 @@ import (
 	"github.com/verifone/veristoretools3/templates/layouts"
 	vsTmpl "github.com/verifone/veristoretools3/templates/veristore"
 )
+
+// paramCacheEntry holds pre-fetched parameter data with a timestamp.
+type paramCacheEntry struct {
+	params    map[string][2]string // dataName → [description, value]
+	fetchedAt time.Time
+}
 
 // Handler holds dependencies for veristore (TMS) HTTP handlers.
 type Handler struct {
@@ -34,12 +43,14 @@ type Handler struct {
 	appBgColor       string
 	copyrightTitle   string
 	copyrightURL     string
+	packageName      string // filter apps by package name (v2 appTmsPackageName)
 	adminRepo        *admin.Repository
 	queueClient      *asynq.Client
+	paramCache       sync.Map // key: "serialNum|appId" → *paramCacheEntry
 }
 
 // NewHandler creates a new veristore handler.
-func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client) *Handler {
+func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client, packageName string) *Handler {
 	return &Handler{
 		service:          service,
 		store:            store,
@@ -54,9 +65,67 @@ func NewHandler(service *Service, store sessions.Store, sessionName string, appN
 		appBgColor:       "",
 		copyrightTitle:   "Verifone",
 		copyrightURL:     "https://www.verifone.com",
+		packageName:      packageName,
 		adminRepo:        adminRepo,
 		queueClient:      queueClient,
 	}
+}
+
+// prefetchParams fetches all terminal parameters in the background and caches them.
+func (h *Handler) prefetchParams(serialNum, appId string) {
+	go func() {
+		tabNames := GetAllTabNames(h.service.db)
+		resp, err := h.service.GetTerminalParameter(serialNum, appId, tabNames)
+		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+			return
+		}
+		params := map[string][2]string{}
+		if pl, ok := resp.Data["paraList"].([]interface{}); ok {
+			for _, p := range pl {
+				m, _ := p.(map[string]interface{})
+				if m == nil {
+					continue
+				}
+				dn := fmt.Sprintf("%v", m["dataName"])
+				desc := fmt.Sprintf("%v", m["description"])
+				val := fmt.Sprintf("%v", m["value"])
+				params[dn] = [2]string{desc, val}
+			}
+		}
+		h.paramCache.Store(serialNum+"|"+appId, &paramCacheEntry{params: params, fetchedAt: time.Now()})
+	}()
+}
+
+// getCachedParams returns cached parameters if available and fresh (< 5 min), otherwise fetches.
+func (h *Handler) getCachedParams(serialNum, appId string) map[string][2]string {
+	key := serialNum + "|" + appId
+	if v, ok := h.paramCache.Load(key); ok {
+		entry := v.(*paramCacheEntry)
+		if time.Since(entry.fetchedAt) < 5*time.Minute {
+			return entry.params
+		}
+		h.paramCache.Delete(key)
+	}
+	// Cache miss — fetch synchronously.
+	tabNames := GetAllTabNames(h.service.db)
+	params := map[string][2]string{}
+	resp, err := h.service.GetTerminalParameter(serialNum, appId, tabNames)
+	if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+		if pl, ok := resp.Data["paraList"].([]interface{}); ok {
+			for _, p := range pl {
+				m, _ := p.(map[string]interface{})
+				if m == nil {
+					continue
+				}
+				dn := fmt.Sprintf("%v", m["dataName"])
+				desc := fmt.Sprintf("%v", m["description"])
+				val := fmt.Sprintf("%v", m["value"])
+				params[dn] = [2]string{desc, val}
+			}
+		}
+	}
+	h.paramCache.Store(key, &paramCacheEntry{params: params, fetchedAt: time.Now()})
+	return params
 }
 
 // exportPayload mirrors queue.ExportTerminalPayload to avoid import cycle.
@@ -117,6 +186,12 @@ func (h *Handler) pageData(c echo.Context, title string) layouts.PageData {
 
 // Terminal handles GET /veristore/ - List terminals with pagination and search.
 func (h *Handler) Terminal(c echo.Context) error {
+	// Require per-user TMS session; redirect to login if none (like v2).
+	currentUser := mw.GetCurrentUserName(c)
+	if h.service.GetUserSession(currentUser) == "" {
+		return c.Redirect(http.StatusFound, "/veristore/login")
+	}
+
 	page := h.pageData(c, "Terminal Management")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
@@ -178,14 +253,15 @@ func (h *Handler) Terminal(c echo.Context) error {
 
 // Add handles GET/POST /veristore/add - Add terminal form and submission.
 func (h *Handler) Add(c echo.Context) error {
-	page := h.pageData(c, "Add Terminal")
+	page := h.pageData(c, "CSI (Add)")
 
 	if c.Request().Method == http.MethodGet {
 		// Load dropdown data.
 		vendors := h.loadVendors()
 		merchants := h.loadMerchants()
 		groups := h.loadGroups()
-		return shared.Render(c, http.StatusOK, vsTmpl.AddPage(page, vendors, merchants, groups, nil))
+		apps := h.loadApps()
+		return shared.Render(c, http.StatusOK, vsTmpl.AddPage(page, vendors, merchants, groups, apps, nil))
 	}
 
 	// POST - process form.
@@ -209,6 +285,9 @@ func (h *Handler) Add(c echo.Context) error {
 		data.GroupIDs = groupIDs
 	}
 
+	appId := c.FormValue("app")
+
+	// Step 1: Add terminal.
 	resp, err := h.service.AddTerminal(data)
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to add terminal: %v", err))
@@ -218,6 +297,22 @@ func (h *Handler) Add(c echo.Context) error {
 	if resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Add terminal failed: %s", resp.Desc))
 		return c.Redirect(http.StatusFound, "/veristore/add")
+	}
+
+	// Step 2: Add app parameter to the terminal (like v2).
+	if appId != "" {
+		paramResp, paramErr := h.service.AddParameter(data.DeviceID, appId)
+		if paramErr != nil {
+			// Terminal was created but app assignment failed — delete terminal and report error.
+			h.service.DeleteTerminals([]string{data.DeviceID})
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to assign app: %v", paramErr))
+			return c.Redirect(http.StatusFound, "/veristore/add")
+		}
+		if paramResp.ResultCode != 0 {
+			h.service.DeleteTerminals([]string{data.DeviceID})
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("App assignment failed: %s", paramResp.Desc))
+			return c.Redirect(http.StatusFound, "/veristore/add")
+		}
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal added successfully")
@@ -251,68 +346,48 @@ func (h *Handler) Edit(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/terminal")
 		}
 
+		// Auto-select the latest app if appId not provided (like v2).
+		if appId == "" && detailResp.ResultCode == 0 && detailResp.Data != nil {
+			if apps, ok := detailResp.Data["terminalShowApps"].([]interface{}); ok && len(apps) > 0 {
+				// Pick the last app (latest version).
+				lastApp := apps[len(apps)-1]
+				if am, ok := lastApp.(map[string]interface{}); ok {
+					if id := am["id"]; id != nil {
+						appId = fmt.Sprintf("%v", id)
+						return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, appId))
+					}
+				}
+			}
+		}
+
 		var paramGroups []vsTmpl.ParamGroup
-		// If appId is provided, get parameters from the old session-based API.
+		// If appId is provided, build tree from template_parameter DB table.
+		// No TMS API calls here — dynamic titles are resolved lazily via AJAX.
 		if appId != "" {
-			// Query template_parameter table for distinct group titles and their tab names.
 			type tplGroup struct {
 				Title      string
 				IndexTitle string
 				Index      int
-				TabName    string
 			}
 			var tplGroups []tplGroup
 			h.service.db.Raw(`
 				SELECT tparam_title AS title,
 				       tparam_index_title AS index_title,
-				       tparam_index AS ` + "`index`" + `,
-				       MAX(tparam_field) AS tab_name
+				       tparam_index AS ` + "`index`" + `
 				FROM template_parameter
 				GROUP BY tparam_title, tparam_index_title, tparam_index
 				ORDER BY MIN(tparam_id)
 			`).Scan(&tplGroups)
 
-			// Collect unique tab names for API calls.
-			var tabNames []string
-			seen := map[string]bool{}
-			for _, tg := range tplGroups {
-				parts := strings.SplitN(tg.TabName, "-", 3)
-				if len(parts) >= 2 && !seen[parts[1]] {
-					tabNames = append(tabNames, parts[1])
-					seen[parts[1]] = true
-				}
-			}
-
-			// Fetch all parameters across all tabs.
-			paramResp, err := h.service.GetTerminalParameter(serialNum, appId, tabNames)
-			var paraLookup map[string]string
-			if err == nil && paramResp.ResultCode == 0 && paramResp.Data != nil {
-				if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
-					paraLookup = make(map[string]string, len(pl))
-					for _, p := range pl {
-						m, _ := p.(map[string]interface{})
-						if m == nil {
-							continue
-						}
-						paraLookup[fmt.Sprintf("%v", m["dataName"])] = fmt.Sprintf("%v", m["value"])
-					}
-				}
-			}
-
-			// Build two-level tree from template_parameter.
 			for _, tg := range tplGroups {
 				subTitles := strings.Split(tg.IndexTitle, "|")
 				var subItems []vsTmpl.ParamSubItem
 				for i := 0; i < tg.Index && i < len(subTitles); i++ {
 					subTitle := subTitles[i]
-					// Dynamic titles: prefixed with * means resolve from parameter value.
+					// Dynamic titles (*-prefixed): show index number for now,
+					// resolved lazily when the sub-item is clicked.
 					if len(subTitle) > 0 && subTitle[0] == '*' {
-						dataName := subTitle[1:]
-						if v, ok := paraLookup[dataName]; ok && v != "" {
-							subTitle = v
-						} else {
-							subTitle = subTitle[1:]
-						}
+						subTitle = fmt.Sprintf("%d", i+1)
 					}
 					subItems = append(subItems, vsTmpl.ParamSubItem{
 						Title: subTitle,
@@ -324,6 +399,11 @@ func (h *Handler) Edit(c echo.Context) error {
 					SubItems: subItems,
 				})
 			}
+		}
+
+		// Pre-fetch all parameters in the background so Check is instant.
+		if appId != "" {
+			h.prefetchParams(serialNum, appId)
 		}
 
 		// Find selected app name/version.
@@ -364,6 +444,12 @@ func (h *Handler) Edit(c echo.Context) error {
 		}
 	}
 
+	if len(paraList) == 0 {
+		// No parameters edited — just redirect with success.
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Parameters updated successfully")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
+	}
+
 	resp, err := h.service.EditTerminal(serialNum, paraList, appId)
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to update parameters: %v", err))
@@ -380,10 +466,13 @@ func (h *Handler) Edit(c echo.Context) error {
 }
 
 // EditParam handles GET /veristore/edit/param - AJAX endpoint returning parameter form HTML.
+// Renders a v2-compatible form with checkboxes for boolean fields, readonly support,
+// field exclusion via tparam_except, and proper buttons (Back, Check, Submit).
 func (h *Handler) EditParam(c echo.Context) error {
 	serialNum := c.QueryParam("serialNum")
 	appId := c.QueryParam("appId")
 	group := c.QueryParam("group")
+	sub := c.QueryParam("sub")
 	index := c.QueryParam("index")
 
 	if serialNum == "" || appId == "" || group == "" {
@@ -416,6 +505,67 @@ func (h *Handler) EditParam(c echo.Context) error {
 	var tplParams []admin.TemplateParameter
 	h.service.db.Where("tparam_title = ?", group).Order("tparam_id").Find(&tplParams)
 
+	// Determine user privilege index for tparam_operation (w|r|w):
+	// 0 = TMS ADMIN, 1 = TMS SUPERVISOR, 2 = TMS OPERATOR
+	userPriv := mw.GetCurrentUserPrivileges(c)
+	privIdx := 0
+	switch userPriv {
+	case "TMS SUPERVISOR":
+		privIdx = 1
+	case "TMS OPERATOR":
+		privIdx = 2
+	}
+
+	// Build a lookup of tparam_field → field definition from template_parameter.
+	// The API returns dataName in the same format: "TP-TABNAME-FIELD-NUMBER",
+	// so fieldKey (dataName minus the trailing "-NUMBER") matches tparam_field directly.
+	type fieldDef struct {
+		tp       admin.TemplateParameter
+		readOnly bool
+		excluded bool
+		minLen   string
+		maxLen   string
+	}
+	tplFieldMap := map[string]fieldDef{}
+	for _, tp := range tplParams {
+		// Check tparam_except: hide field if current index is in the except list.
+		excluded := false
+		if tp.TparamExcept != nil && *tp.TparamExcept != "" {
+			for _, ex := range strings.Split(*tp.TparamExcept, "|") {
+				if strings.TrimSpace(ex) == index {
+					excluded = true
+					break
+				}
+			}
+		}
+
+		// Check tparam_operation: determine readonly from user privilege index.
+		readOnly := false
+		ops := strings.Split(tp.TparamOperation, "|")
+		if privIdx < len(ops) && ops[privIdx] == "r" {
+			readOnly = true
+		}
+
+		// Parse tparam_length for min/max length.
+		minL, maxL := "", ""
+		lengths := strings.Split(tp.TparamLength, "|")
+		if len(lengths) >= 2 {
+			minL = lengths[0]
+			maxL = lengths[1]
+		} else if len(lengths) == 1 {
+			maxL = lengths[0]
+		}
+
+		// Key by full tparam_field (e.g., "TP-PRINT_CONFIG-PRINT_CUSTOMER_COPY").
+		tplFieldMap[tp.TparamField] = fieldDef{
+			tp:       tp,
+			readOnly: readOnly,
+			excluded: excluded,
+			minLen:   minL,
+			maxLen:   maxL,
+		}
+	}
+
 	// Filter parameters for the selected sub-item index.
 	var filteredParams []map[string]interface{}
 	if resp.ResultCode == 0 && resp.Data != nil {
@@ -426,21 +576,36 @@ func (h *Handler) EditParam(c echo.Context) error {
 					continue
 				}
 				dn := fmt.Sprintf("%v", m["dataName"])
-				// dataName format is "fieldKey-NUMBER", match by NUMBER suffix.
-				if strings.HasSuffix(dn, "-"+index) {
-					filteredParams = append(filteredParams, m)
+				// dataName format is "TP-TAB-FIELD-NUMBER", match by NUMBER suffix.
+				if !strings.HasSuffix(dn, "-"+index) {
+					continue
 				}
+				// fieldKey = dataName minus the trailing "-NUMBER".
+				fieldKey := strings.TrimSuffix(dn, "-"+index)
+				// Only show fields that exist in template_parameter (like v2).
+				fd, exists := tplFieldMap[fieldKey]
+				if !exists || fd.excluded {
+					continue
+				}
+				filteredParams = append(filteredParams, m)
 			}
 		}
 	}
 
+	// Header: GROUP - Sub-item name (like v2).
+	header := group
+	if sub != "" {
+		header = group + " - " + sub
+	}
+
 	// Build HTML form.
 	html := fmt.Sprintf(`<div class="card card-success">
-		<div class="card-header"><h4 class="card-title mb-0">%s</h4></div>
-		<div class="card-body">
-		<form method="POST" action="/veristore/edit">
-		<input type="hidden" name="serialNum" value="%s"/>
-		<input type="hidden" name="appId" value="%s"/>`, group, serialNum, appId)
+<div class="card-header"><h4 class="card-title mb-0">%s</h4></div>
+<div class="card-body">
+<form id="editParamForm" method="POST" action="/veristore/edit">
+<input type="hidden" name="serialNum" value="%s"/>
+<input type="hidden" name="appId" value="%s"/>
+<input type="hidden" name="paraListMod" id="paraListMod" value=""/>`, header, serialNum, appId)
 
 	for _, p := range filteredParams {
 		dn := fmt.Sprintf("%v", p["dataName"])
@@ -448,82 +613,103 @@ func (h *Handler) EditParam(c echo.Context) error {
 		val := fmt.Sprintf("%v", p["value"])
 		vn := fmt.Sprintf("%v", p["viewName"])
 
-		// Check tparam_type for this field.
-		fieldType := "text"
+		// Look up field definition by tparam_field (direct match).
+		fieldKey := strings.TrimSuffix(dn, "-"+index)
+		fd, hasDef := tplFieldMap[fieldKey]
+
+		fieldType := "s" // default string
+		readOnly := false
+		minLen := ""
 		maxLen := ""
-		for _, tp := range tplParams {
-			fieldParts := strings.SplitN(tp.TparamField, "-", 3)
-			if len(fieldParts) >= 3 && strings.HasSuffix(dn, "-"+index) {
-				fieldKey := strings.TrimSuffix(dn, "-"+index)
-				if fieldParts[2] == fieldKey {
-					if tp.TparamType == "C" {
-						fieldType = "checkbox"
-					}
-					// Parse tparam_length for maxlength.
-					lengths := strings.Split(tp.TparamLength, "|")
-					idx, _ := strconv.Atoi(index)
-					if idx > 0 && idx <= len(lengths) {
-						maxLen = lengths[idx-1]
-					}
-					break
-				}
-			}
+		if hasDef {
+			fieldType = fd.tp.TparamType
+			readOnly = fd.readOnly
+			minLen = fd.minLen
+			maxLen = fd.maxLen
 		}
 
-		if fieldType == "checkbox" {
+		if fieldType == "b" {
+			// Boolean: render as checkbox.
 			checked := ""
 			if val == "true" || val == "1" {
 				checked = "checked"
 			}
+			hiddenVal := "0"
+			if checked != "" {
+				hiddenVal = "1"
+			}
+			disabledAttr := ""
+			if readOnly {
+				disabledAttr = " disabled"
+			}
 			html += fmt.Sprintf(`<div class="form-group">
-				<div class="custom-control custom-checkbox">
-					<input type="hidden" name="param_%s" value="%s" id="hidden_%s"/>
-					<input type="checkbox" class="custom-control-input" id="cb_%s" %s onchange="document.getElementById('hidden_%s').value=this.checked?'true':'false'"/>
-					<label class="custom-control-label" for="cb_%s">%s</label>
-				</div>
-				<input type="hidden" name="viewName_%s" value="%s"/>
-			</div>`, dn, val, dn, dn, checked, dn, dn, desc, dn, vn)
+<div class="custom-control custom-checkbox">
+<input type="hidden" name="param_%s" value="%s" id="hidden_%s"/>
+<input type="checkbox" class="custom-control-input" id="cb_%s" %s%s onchange="document.getElementById('hidden_%s').value=this.checked?'1':'0'"/>
+<label class="custom-control-label" for="cb_%s">%s</label>
+</div>
+<input type="hidden" name="viewName_%s" value="%s"/>
+</div>`, dn, hiddenVal, dn, dn, checked, disabledAttr, dn, dn, desc, dn, vn)
 		} else {
+			// String or integer: render as text input.
+			readOnlyAttr := ""
+			if readOnly {
+				readOnlyAttr = ` readonly`
+			}
 			maxAttr := ""
 			if maxLen != "" && maxLen != "0" {
 				maxAttr = fmt.Sprintf(` maxlength="%s"`, maxLen)
 			}
+			minAttr := ""
+			if minLen != "" && minLen != "0" {
+				minAttr = fmt.Sprintf(` minlength="%s"`, minLen)
+			}
+			// Integer fields: add numeric-only validation like v2.
+			keypressAttr := ""
+			if fieldType == "i" {
+				keypressAttr = ` onkeypress="return (event.charCode >= 48 && event.charCode <= 57)"`
+			}
 			html += fmt.Sprintf(`<div class="form-group">
-				<label>%s</label>
-				<input type="text" class="form-control" name="param_%s" value="%s"%s/>
-				<input type="hidden" name="viewName_%s" value="%s"/>
-			</div>`, desc, dn, val, maxAttr, dn, vn)
+<label><strong>%s</strong></label>
+<input type="text" class="form-control" name="param_%s" value="%s"%s%s%s%s/>
+<span class="help-block"></span>
+<input type="hidden" name="viewName_%s" value="%s"/>
+</div>`, desc, dn, val, maxAttr, minAttr, readOnlyAttr, keypressAttr, dn, vn)
 		}
 	}
 
-	html += `<button type="submit" class="btn btn-success"><i class="fas fa-save"></i> Submit</button>
-		</form></div></div>`
+	// Close form (buttons are on the main page like v2).
+	html += `</form></div></div>`
 
 	return c.HTML(http.StatusOK, html)
 }
 
 // Copy handles GET/POST /veristore/copy - Copy terminal configuration.
 func (h *Handler) Copy(c echo.Context) error {
-	page := h.pageData(c, "Copy Terminal")
+	page := h.pageData(c, "CSI (Copy)")
+
+	// Source SN comes from query param (linked from terminal list).
+	sourceSn := c.QueryParam("sourceSn")
 
 	if c.Request().Method == http.MethodGet {
-		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, nil))
+		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, nil, sourceSn))
 	}
 
-	sourceSn := c.FormValue("sourceSn")
+	// On POST, source comes from hidden field.
+	sourceSn = c.FormValue("sourceSn")
 	destSn := c.FormValue("destSn")
 
 	if sourceSn == "" || destSn == "" {
-		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{"Source and destination serial numbers are required"}))
+		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{"Source SN and New CSI are required"}, sourceSn))
 	}
 
 	resp, err := h.service.CopyTerminal(sourceSn, destSn)
 	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Failed to copy terminal: %v", err)}))
+		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Failed to copy terminal: %v", err)}, sourceSn))
 	}
 
 	if resp.ResultCode != 0 {
-		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Copy failed: %s", resp.Desc)}))
+		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Copy failed: %s", resp.Desc)}, sourceSn))
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal copied successfully")
@@ -658,43 +844,297 @@ func (h *Handler) Replacement(c echo.Context) error {
 
 // Check handles POST /veristore/check - Preview terminal parameters (HTMX partial).
 func (h *Handler) Check(c echo.Context) error {
-	serialNum := c.FormValue("serialNum")
-	appId := c.FormValue("appId")
+	serialNum := c.QueryParam("serialNum")
+	appId := c.QueryParam("appId")
+	if serialNum == "" {
+		serialNum = c.FormValue("serialNum")
+	}
+	if appId == "" {
+		appId = c.FormValue("appId")
+	}
 
+	if serialNum == "" || appId == "" {
+		return c.HTML(http.StatusBadRequest, `<div class="alert alert-danger">serialNum and appId are required</div>`)
+	}
+
+	// Use cached parameters (pre-fetched when Edit page loaded).
+	paramLookup := h.getCachedParams(serialNum, appId)
+
+	// Get template_parameter groups.
+	type tplGroup struct {
+		Title      string
+		IndexTitle string
+		Index      int
+	}
+	var tplGroups []tplGroup
+	h.service.db.Raw(`
+		SELECT tparam_title AS title,
+		       tparam_index_title AS index_title,
+		       tparam_index AS ` + "`index`" + `
+		FROM template_parameter
+		GROUP BY tparam_title, tparam_index_title, tparam_index
+		ORDER BY MIN(tparam_id)
+	`).Scan(&tplGroups)
+
+	// Build two-column HTML report (first 7 groups → left, rest → right, like v2).
+	body := [2]string{"", ""}
+	for idx, tg := range tplGroups {
+		col := 0
+		if idx >= 7 {
+			col = 1
+		}
+
+		var tplParams []admin.TemplateParameter
+		h.service.db.Where("tparam_title = ?", tg.Title).Order("tparam_id").Find(&tplParams)
+
+		subTitles := strings.Split(tg.IndexTitle, "|")
+		groupHasContent := false
+		groupHTML := fmt.Sprintf(`<h4><strong>%s</strong></h4>`, tg.Title)
+
+		for i := 0; i < tg.Index && i < len(subTitles); i++ {
+			subTitle := subTitles[i]
+			if len(subTitle) > 0 && subTitle[0] == '*' {
+				dataName := subTitle[1:]
+				if p, ok := paramLookup[dataName]; ok && p[1] != "" {
+					subTitle = p[1]
+				} else {
+					subTitle = dataName
+				}
+			}
+
+			subHTML := fmt.Sprintf(`<h5>%s - %s</h5>`, tg.Title, subTitle)
+			subHasFields := false
+			for _, tp := range tplParams {
+				if tp.TparamExcept != nil && *tp.TparamExcept != "" {
+					excluded := false
+					for _, ex := range strings.Split(*tp.TparamExcept, "|") {
+						if strings.TrimSpace(ex) == fmt.Sprintf("%d", i+1) {
+							excluded = true
+							break
+						}
+					}
+					if excluded {
+						continue
+					}
+				}
+
+				dataName := fmt.Sprintf("%s-%d", tp.TparamField, i+1)
+				p, ok := paramLookup[dataName]
+				if !ok {
+					continue
+				}
+
+				displayVal := p[1]
+				if tp.TparamType == "b" {
+					if displayVal == "1" || displayVal == "true" {
+						displayVal = "Yes"
+					} else {
+						displayVal = "No"
+					}
+				}
+
+				subHTML += fmt.Sprintf(`<h5>&emsp;&emsp;%s: <strong>%s</strong></h5>`, p[0], displayVal)
+				subHasFields = true
+			}
+
+			if subHasFields {
+				groupHTML += subHTML
+				groupHasContent = true
+			}
+		}
+
+		if groupHasContent {
+			body[col] += groupHTML
+		}
+	}
+
+	// Return HTML fragment (loaded via AJAX into the edit page).
+	printURL := fmt.Sprintf("/veristore/check/pdf?serialNum=%s&appId=%s", serialNum, appId)
+	html := fmt.Sprintf(`<div class="box box-success">
+<div class="d-flex justify-content-between align-items-center mb-3">
+<h2 class="mb-0">CSI %s Parameters</h2>
+<div>
+<a href="%s" target="_blank" class="btn btn-success btn-sm"><i class="fas fa-print"></i></a>
+<button type="button" class="btn btn-danger btn-sm ml-1" onclick="document.getElementById('checkResult').innerHTML=''"><i class="fas fa-times"></i></button>
+</div>
+</div>
+<div class="row">
+<div class="col-lg-6">%s</div>
+<div class="col-lg-6">%s</div>
+</div>
+</div>`, serialNum, printURL, body[0], body[1])
+
+	return c.HTML(http.StatusOK, html)
+}
+
+// CheckPDF handles GET /veristore/check/pdf - generates a downloadable PDF of terminal parameters.
+func (h *Handler) CheckPDF(c echo.Context) error {
+	serialNum := c.QueryParam("serialNum")
+	appId := c.QueryParam("appId")
 	if serialNum == "" || appId == "" {
 		return c.String(http.StatusBadRequest, "serialNum and appId are required")
 	}
 
-	// Collect all tab names from template_parameter for full check.
-	var tabFields []string
-	h.service.db.Raw(`SELECT DISTINCT MAX(tparam_field) as f FROM template_parameter GROUP BY tparam_title ORDER BY MIN(tparam_id)`).Scan(&tabFields)
-	var checkTabs []string
-	seen := map[string]bool{}
-	for _, f := range tabFields {
-		parts := strings.SplitN(f, "-", 3)
-		if len(parts) >= 2 && !seen[parts[1]] {
-			checkTabs = append(checkTabs, parts[1])
-			seen[parts[1]] = true
+	// Use cached parameters (pre-fetched when Edit page loaded).
+	paramLookup := h.getCachedParams(serialNum, appId)
+
+	// Get template_parameter groups.
+	type tplGroup struct {
+		Title      string
+		IndexTitle string
+		Index      int
+	}
+	var tplGroups []tplGroup
+	h.service.db.Raw(`
+		SELECT tparam_title AS title,
+		       tparam_index_title AS index_title,
+		       tparam_index AS ` + "`index`" + `
+		FROM template_parameter
+		GROUP BY tparam_title, tparam_index_title, tparam_index
+		ORDER BY MIN(tparam_id)
+	`).Scan(&tplGroups)
+
+	// Build PDF (A4 portrait, matching v2 layout).
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.SetAutoPageBreak(true, 15)
+	pdf.SetHeaderFuncMode(func() {
+		pdf.SetY(5)
+		pdf.SetFont("Helvetica", "I", 9)
+		pdf.SetTextColor(100, 100, 100)
+		pdf.CellFormat(0, 10, "Veristore Tools", "", 0, "R", false, 0, "")
+		pdf.Ln(4)
+		pdf.SetDrawColor(150, 150, 150)
+		pdf.Line(10, pdf.GetY()+3, 200, pdf.GetY()+3)
+	}, true)
+	pdf.SetFooterFunc(func() {
+		pdf.SetY(-15)
+		pdf.SetFont("Helvetica", "I", 8)
+		pdf.SetTextColor(128, 128, 128)
+		pdf.CellFormat(0, 10, fmt.Sprintf("%d", pdf.PageNo()), "", 0, "R", false, 0, "")
+	})
+
+	pdf.AddPage()
+	pdf.SetY(20)
+
+	// Title.
+	pdf.SetFont("Helvetica", "", 20)
+	pdf.SetTextColor(0, 0, 0)
+	pdf.CellFormat(0, 12, fmt.Sprintf("CSI %s Parameters", serialNum), "", 1, "L", false, 0, "")
+	pdf.Ln(4)
+
+	// Iterate groups (single column, like v2 PDF).
+	for _, tg := range tplGroups {
+		var tplParams []admin.TemplateParameter
+		h.service.db.Where("tparam_title = ?", tg.Title).Order("tparam_id").Find(&tplParams)
+
+		subTitles := strings.Split(tg.IndexTitle, "|")
+		groupHasContent := false
+
+		// Collect sub-item content first to check if group has any data.
+		type pdfField struct {
+			desc string
+			val  string
 		}
-	}
+		type pdfSub struct {
+			title  string
+			fields []pdfField
+		}
+		var subs []pdfSub
 
-	resp, err := h.service.GetTerminalParameter(serialNum, appId, checkTabs)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, fmt.Sprintf("Error: %v", err))
-	}
-
-	var paraList []map[string]interface{}
-	if resp.ResultCode == 0 && resp.Data != nil {
-		if pl, ok := resp.Data["paraList"].([]interface{}); ok {
-			for _, p := range pl {
-				if m, ok := p.(map[string]interface{}); ok {
-					paraList = append(paraList, m)
+		for i := 0; i < tg.Index && i < len(subTitles); i++ {
+			subTitle := subTitles[i]
+			if len(subTitle) > 0 && subTitle[0] == '*' {
+				dataName := subTitle[1:]
+				if p, ok := paramLookup[dataName]; ok && p[1] != "" {
+					subTitle = p[1]
+				} else {
+					subTitle = dataName
 				}
 			}
+
+			var fields []pdfField
+			for _, tp := range tplParams {
+				if tp.TparamExcept != nil && *tp.TparamExcept != "" {
+					excluded := false
+					for _, ex := range strings.Split(*tp.TparamExcept, "|") {
+						if strings.TrimSpace(ex) == fmt.Sprintf("%d", i+1) {
+							excluded = true
+							break
+						}
+					}
+					if excluded {
+						continue
+					}
+				}
+
+				dataName := fmt.Sprintf("%s-%d", tp.TparamField, i+1)
+				p, ok := paramLookup[dataName]
+				if !ok {
+					continue
+				}
+
+				displayVal := p[1]
+				if tp.TparamType == "b" {
+					if displayVal == "1" || displayVal == "true" {
+						displayVal = "Yes"
+					} else {
+						displayVal = "No"
+					}
+				}
+				fields = append(fields, pdfField{desc: p[0], val: displayVal})
+			}
+
+			if len(fields) > 0 {
+				subs = append(subs, pdfSub{title: fmt.Sprintf("%s - %s", tg.Title, subTitle), fields: fields})
+				groupHasContent = true
+			}
+		}
+
+		if !groupHasContent {
+			continue
+		}
+
+		// Check if we need a new page for the group header + first few lines.
+		if pdf.GetY() > 260 {
+			pdf.AddPage()
+		}
+
+		// Group header (bold).
+		pdf.Ln(3)
+		pdf.SetFont("Helvetica", "B", 13)
+		pdf.SetTextColor(0, 0, 0)
+		pdf.CellFormat(0, 8, tg.Title, "", 1, "L", false, 0, "")
+		pdf.Ln(1)
+
+		for _, sub := range subs {
+			// Sub-item header.
+			pdf.SetFont("Helvetica", "", 10)
+			pdf.SetTextColor(50, 50, 50)
+			pdf.CellFormat(0, 6, sub.title, "", 1, "L", false, 0, "")
+
+			// Fields (indented).
+			for _, f := range sub.fields {
+				pdf.SetX(20)
+				pdf.SetFont("Helvetica", "", 9)
+				pdf.SetTextColor(0, 0, 0)
+				descW := pdf.GetStringWidth(f.desc+": ") + 2
+				pdf.CellFormat(descW, 5, f.desc+": ", "", 0, "L", false, 0, "")
+				pdf.SetFont("Helvetica", "B", 9)
+				pdf.CellFormat(0, 5, f.val, "", 1, "L", false, 0, "")
+			}
+			pdf.Ln(1)
 		}
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.CheckPartial(paraList))
+	// Output PDF to buffer and return as download.
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return c.String(http.StatusInternalServerError, "Failed to generate PDF")
+	}
+
+	c.Response().Header().Set("Content-Type", "application/pdf")
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.pdf"`, serialNum))
+	return c.Blob(http.StatusOK, "application/pdf", buf.Bytes())
 }
 
 // Report handles GET/POST /veristore/report - Terminal report page.
@@ -839,37 +1279,36 @@ func (h *Handler) Export(c echo.Context) error {
 // collectAllTerminalIDs fetches all terminal deviceIds across all pages.
 func (h *Handler) collectAllTerminalIDs(c echo.Context) []string {
 	searchSerialNo := c.FormValue("searchSerialNo")
-	searchType, _ := strconv.Atoi(c.FormValue("searchType"))
+
+	// Use a large page size to fetch all terminals in one API call.
+	params := map[string]interface{}{
+		"page": 1,
+		"size": 9999,
+	}
+	if searchSerialNo != "" {
+		params["search"] = searchSerialNo
+	}
+
+	result, err := h.service.client.doSignedPost("/v1/tps/terminal/list", params)
+	if err != nil {
+		return nil
+	}
+	code, _ := toInt(result["code"])
+	if mapResponseCode(code) != 0 {
+		return nil
+	}
+	data, _ := result["data"].(map[string]interface{})
+	if data == nil {
+		return nil
+	}
+	list, _ := data["list"].([]interface{})
 
 	var allIDs []string
-	for page := 1; ; page++ {
-		var resp *TMSResponse
-		var err error
-		if searchSerialNo != "" {
-			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType)
-		} else {
-			resp, err = h.service.GetTerminalList(page)
-		}
-		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
-			break
-		}
-		tl, ok := resp.Data["terminalList"].([]interface{})
-		if !ok || len(tl) == 0 {
-			break
-		}
-		for _, t := range tl {
-			if m, ok := t.(map[string]interface{}); ok {
-				if devId, ok := m["deviceId"].(string); ok && devId != "" {
-					allIDs = append(allIDs, devId)
-				}
+	for _, t := range list {
+		if m, ok := t.(map[string]interface{}); ok {
+			if devId, ok := m["deviceId"].(string); ok && devId != "" {
+				allIDs = append(allIDs, devId)
 			}
-		}
-		totalPage := 0
-		if tp, ok := resp.Data["totalPage"]; ok {
-			totalPage, _ = toInt(tp)
-		}
-		if page >= totalPage {
-			break
 		}
 	}
 	return allIDs
@@ -1442,7 +1881,7 @@ func (h *Handler) GetVerifyCode(c echo.Context) error {
 	})
 }
 
-// GetModel handles GET /veristore/model - Get models by vendor (HTMX).
+// GetModel handles GET /veristore/model - Get models by vendor.
 func (h *Handler) GetModel(c echo.Context) error {
 	vendorId := c.QueryParam("vendor")
 	if vendorId == "" {
@@ -1451,8 +1890,11 @@ func (h *Handler) GetModel(c echo.Context) error {
 
 	resp, err := h.service.GetModelList(vendorId)
 	if err != nil {
+		fmt.Printf("[GetModel] error for vendor=%s: %v\n", vendorId, err)
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 	}
+
+	fmt.Printf("[GetModel] vendor=%s resultCode=%d data=%v\n", vendorId, resp.ResultCode, resp.Data)
 
 	var models []interface{}
 	if resp.ResultCode == 0 && resp.Data != nil {
@@ -1547,27 +1989,31 @@ func (h *Handler) GetDistrict(c echo.Context) error {
 // ---------------------------------------------------------------------------
 
 // Login handles GET/POST /veristore/login - TMS login form with captcha.
+// Username and password are pre-filled from the database (readonly), matching v2 behavior.
 func (h *Handler) Login(c echo.Context) error {
 	page := h.pageData(c, "TMS Login")
 
+	// Get stored TMS credentials (username from tms_login, password from user table).
+	currentUser := mw.GetCurrentUserName(c)
+	tmsUser, tmsPassword := h.service.GetTmsCredentials(currentUser)
+	passwordMask := strings.Repeat("*", len(tmsPassword))
+
 	if c.Request().Method == http.MethodGet {
-		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, nil))
+		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, nil, tmsUser, passwordMask))
 	}
 
-	username := c.FormValue("username")
-	password := c.FormValue("password")
+	// Use stored credentials (not from form — fields are readonly).
 	token := c.FormValue("token")
 	code := c.FormValue("code")
 	resellerId, _ := strconv.Atoi(c.FormValue("resellerId"))
 
-	// TMS API expects plain text password (v2 sends it unencrypted).
-	resp, err := h.service.Login(username, password, token, code, resellerId)
+	resp, err := h.service.Login(tmsUser, tmsPassword, token, code, resellerId, currentUser)
 	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Login failed: %v", err)}))
+		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Login failed: %v", err)}, tmsUser, passwordMask))
 	}
 
 	if resp.ResultCode != 0 {
-		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Login failed: %s", resp.Desc)}))
+		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Login failed: %s", resp.Desc)}, tmsUser, passwordMask))
 	}
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login successful")
@@ -1582,12 +2028,14 @@ func (h *Handler) Login(c echo.Context) error {
 func (h *Handler) loadVendors() []map[string]interface{} {
 	resp, err := h.service.GetVendorList()
 	if err != nil || resp.ResultCode != 0 || resp.Data == nil {
+		fmt.Printf("[loadVendors] error=%v resultCode=%d\n", err, resp.ResultCode)
 		return nil
 	}
 	var vendors []map[string]interface{}
 	if vl, ok := resp.Data["vendors"].([]interface{}); ok {
 		for _, v := range vl {
 			if m, ok := v.(map[string]interface{}); ok {
+				fmt.Printf("[loadVendors] vendor keys: %v\n", m)
 				vendors = append(vendors, m)
 			}
 		}
@@ -1661,4 +2109,35 @@ func (h *Handler) loadTimeZones() []map[string]interface{} {
 		}
 	}
 	return timeZones
+}
+
+// loadApps loads apps from TMS filtered by the configured package name (like v2).
+// Returns a list with id and displayName ("name - version") for the dropdown.
+func (h *Handler) loadApps() []map[string]interface{} {
+	resp, err := h.service.GetAppList()
+	if err != nil || resp.ResultCode != 0 || resp.Data == nil {
+		return nil
+	}
+	var apps []map[string]interface{}
+	if al, ok := resp.Data["allApps"].([]interface{}); ok {
+		for _, a := range al {
+			if am, ok := a.(map[string]interface{}); ok {
+				pkgName := fmt.Sprintf("%v", am["packageName"])
+				if h.packageName != "" && pkgName != h.packageName {
+					continue
+				}
+				name := fmt.Sprintf("%v", am["name"])
+				version := fmt.Sprintf("%v", am["version"])
+				displayName := name
+				if version != "" {
+					displayName = name + " - " + version
+				}
+				apps = append(apps, map[string]interface{}{
+					"id":          fmt.Sprintf("%v", am["id"]),
+					"displayName": displayName,
+				})
+			}
+		}
+	}
+	return apps
 }

@@ -56,29 +56,10 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 				<p class="mb-0"><strong>SOFTWARE:</strong> { appName }</p>
 			}
 		}
-		if detail != nil {
-			if apps, ok := detail["terminalShowApps"].([]interface{}); ok && len(apps) > 0 {
-				<div class="mt-2 mb-3">
-					<div class="btn-group btn-group-sm">
-						for _, app := range apps {
-							if am, ok := app.(map[string]interface{}); ok {
-								<a
-									href={ templ.SafeURL(fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, mapGet(am, "id"))) }
-									class={ "btn", templ.KV("btn-primary", mapGet(am, "id") == appId), templ.KV("btn-outline-primary", mapGet(am, "id") != appId) }
-								>
-									{ mapGet(am, "name") } ({ mapGet(am, "version") })
-								</a>
-							}
-						}
-					</div>
-				</div>
-			}
-		}
 		if len(paramGroups) > 0 && appId != "" {
 			<input type="hidden" id="editSerialNum" value={ serialNum }/>
 			<input type="hidden" id="editAppId" value={ appId }/>
 			<div class="row">
-				<!-- Left sidebar: two-level parameter tree -->
 				<div class="col-lg-4">
 					<div class="card card-outline card-primary mb-3">
 						<div class="card-body p-0" id="paramTree">
@@ -107,16 +88,24 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 						</div>
 					</div>
 					<div>
-						<a href="/veristore/terminal" class="btn btn-danger">
+						<a href="/veristore/terminal" class="btn btn-danger mr-2">
 							<i class="fas fa-times-circle"></i> Back
 						</a>
+						<button type="button" class="btn btn-info mr-2" onclick="doCheck()">
+							<i class="fas fa-check-circle"></i> Check
+						</button>
+						if page.UserPrivileges != "TMS SUPERVISOR" {
+							<button type="button" class="btn btn-success" onclick="submitParams()">
+								<i class="fas fa-save"></i> Submit
+							</button>
+						}
 					</div>
 				</div>
-				<!-- Right content: parameter panel loaded dynamically -->
 				<div class="col-lg-8" id="paramPanel">
 					<div class="text-muted">Select a parameter group to edit.</div>
 				</div>
 			</div>
+			<div id="checkResult"></div>
 			<script>
 				function toggleGroup(el) {
 					var groupItems = el.nextElementSibling;
@@ -134,7 +123,6 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 					var items = document.querySelectorAll('#paramTree .group-items .list-group-item');
 					items.forEach(function(a) { a.classList.remove('node-selected'); });
 					el.classList.add('node-selected');
-					// Load parameter form via AJAX.
 					var serialNum = document.getElementById('editSerialNum').value;
 					var appId = document.getElementById('editAppId').value;
 					var group = el.getAttribute('data-group');
@@ -146,6 +134,34 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 						.then(function(r) { return r.text(); })
 						.then(function(html) { panel.innerHTML = html; })
 						.catch(function(err) { panel.innerHTML = '<div class="alert alert-danger">Failed to load parameters.</div>'; });
+				}
+				function submitParams() {
+					var form = document.getElementById('editParamForm');
+					if (!form) {
+						form = document.createElement('form');
+						form.method = 'POST';
+						form.action = '/veristore/edit';
+						var sn = document.createElement('input');
+						sn.type = 'hidden'; sn.name = 'serialNum';
+						sn.value = document.getElementById('editSerialNum').value;
+						form.appendChild(sn);
+						var ai = document.createElement('input');
+						ai.type = 'hidden'; ai.name = 'appId';
+						ai.value = document.getElementById('editAppId').value;
+						form.appendChild(ai);
+						document.body.appendChild(form);
+					}
+					form.submit();
+				}
+				function doCheck() {
+					var serialNum = document.getElementById('editSerialNum').value;
+					var appId = document.getElementById('editAppId').value;
+					var result = document.getElementById('checkResult');
+					result.innerHTML = '<div class="text-center p-3"><i class="fas fa-spinner fa-spin"></i> Loading parameters...</div>';
+					fetch('/veristore/check?serialNum=' + encodeURIComponent(serialNum) + '&appId=' + encodeURIComponent(appId))
+						.then(function(r) { return r.text(); })
+						.then(function(html) { result.innerHTML = html; })
+						.catch(function(err) { result.innerHTML = '<div class="alert alert-danger">Failed to load check data.</div>'; });
 				}
 			</script>
 		} else if appId == "" && detail != nil {

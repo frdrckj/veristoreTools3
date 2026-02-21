@@ -123,6 +123,8 @@ p, TMS ADMIN, /user/:action, *
 
 # Veristore (TMS) terminal/merchant/group
 p, TMS ADMIN, /veristore/:action, *
+p, TMS ADMIN, /veristore/edit/:action, *
+p, TMS ADMIN, /veristore/check/:action, *
 p, TMS ADMIN, /veristore/merchant/:action, *
 p, TMS ADMIN, /veristore/group/:action, *
 
@@ -152,6 +154,8 @@ p, TMS ADMIN, /scheduler/:action, *
 # ---------------------------------------------------------------------------
 # Veristore (TMS)
 p, TMS SUPERVISOR, /veristore/:action, *
+p, TMS SUPERVISOR, /veristore/edit/:action, *
+p, TMS SUPERVISOR, /veristore/check/:action, *
 p, TMS SUPERVISOR, /veristore/merchant/:action, *
 p, TMS SUPERVISOR, /veristore/group/:action, *
 
@@ -178,6 +182,8 @@ p, TMS SUPERVISOR, /appcredential/:action, *
 # ---------------------------------------------------------------------------
 # Veristore (TMS)
 p, TMS OPERATOR, /veristore/:action, *
+p, TMS OPERATOR, /veristore/edit/:action, *
+p, TMS OPERATOR, /veristore/check/:action, *
 p, TMS OPERATOR, /veristore/merchant/:action, *
 p, TMS OPERATOR, /veristore/group/:action, *
 

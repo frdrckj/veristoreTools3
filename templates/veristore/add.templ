@@ -2,21 +2,21 @@ package veristore
 
 import "github.com/verifone/veristoretools3/templates/layouts"
 
-// AddPage renders the add terminal form.
-templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants []map[string]interface{}, groups []map[string]interface{}, errors []string) {
+// AddPage renders the add terminal form (matching v2 CSI Add layout).
+templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants []map[string]interface{}, groups []map[string]interface{}, apps []map[string]interface{}, errors []string) {
 	@layouts.Base(page) {
 		<div class="row">
 			<div class="col-md-8 offset-md-2">
 				<div class="card card-primary">
 					<div class="card-header">
-						<h3 class="card-title">Add Terminal</h3>
+						<h3 class="card-title">CSI (Add)</h3>
 						<div class="card-tools">
-							<a href="/veristore" class="btn btn-sm btn-default">
+							<a href="/veristore/terminal" class="btn btn-sm btn-default">
 								<i class="fas fa-arrow-left"></i> Back to List
 							</a>
 						</div>
 					</div>
-					<form method="POST" action="/veristore/add">
+					<form id="formSubmit" method="POST" action="/veristore/add">
 						<div class="card-body">
 							if len(errors) > 0 {
 								<div class="alert alert-danger alert-dismissible fade show" role="alert">
@@ -30,69 +30,167 @@ templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants
 									</button>
 								</div>
 							}
-							<div class="form-group">
-								<label for="sn">Serial Number</label>
-								<input type="text" class="form-control" id="sn" name="sn" placeholder="Enter serial number"/>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="deviceId">CSI</label>
+								<div class="col-sm-9">
+									<input
+										type="text"
+										class="form-control"
+										id="deviceId"
+										name="deviceId"
+										placeholder="CSI"
+										maxlength="8"
+										style="text-transform: uppercase;"
+										required
+									/>
+								</div>
 							</div>
-							<div class="form-group">
-								<label for="deviceId">Device ID</label>
-								<input type="text" class="form-control" id="deviceId" name="deviceId" placeholder="Enter device ID"/>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="sn">SN</label>
+								<div class="col-sm-9">
+									<input
+										type="text"
+										class="form-control"
+										id="sn"
+										placeholder="SN"
+										disabled
+									/>
+									<input type="hidden" name="sn" value=" "/>
+								</div>
 							</div>
-							<div class="form-group">
-								<label for="vendor">Vendor <span class="text-danger">*</span></label>
-								<select class="form-control select2" id="vendor" name="vendor" required
-									hx-get="/veristore/model"
-									hx-target="#modelSelect"
-									hx-trigger="change"
-									hx-include="[name='vendor']"
-								>
-									<option value="">-- Select Vendor --</option>
-									for _, v := range vendors {
-										<option value={ mapGet(v, "id") }>{ mapGet(v, "name") }</option>
-									}
-								</select>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="vendor">Manufacturer</label>
+								<div class="col-sm-9">
+									<select class="form-control select2" id="vendor" name="vendor" required>
+										<option value="">Manufacturer</option>
+										for _, v := range vendors {
+											<option value={ mapGetId(v) }>{ mapGet(v, "name") }</option>
+										}
+									</select>
+								</div>
 							</div>
-							<div class="form-group">
-								<label for="model">Model <span class="text-danger">*</span></label>
-								<select class="form-control select2" id="model" name="model" required>
-									<option value="">-- Select Model --</option>
-								</select>
-								<div id="modelSelect"></div>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="model">Model</label>
+								<div class="col-sm-9">
+									<select class="form-control select2" id="model" name="model" required>
+										<option value="">Model</option>
+									</select>
+								</div>
 							</div>
-							<div class="form-group">
-								<label for="merchantId">Merchant</label>
-								<select class="form-control select2" id="merchantId" name="merchantId">
-									<option value="">-- Select Merchant --</option>
-									for _, m := range merchants {
-										<option value={ mapGet(m, "id") }>{ mapGet(m, "name") }</option>
-									}
-								</select>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="merchantId">Merchant</label>
+								<div class="col-sm-9">
+									<select class="form-control select2" id="merchantId" name="merchantId" required>
+										<option value="">Merchant</option>
+										for _, m := range merchants {
+											<option value={ mapGetId(m) }>{ mapGet(m, "name") }</option>
+										}
+									</select>
+								</div>
 							</div>
-							<div class="form-group">
-								<label for="groupIds">Groups</label>
-								<select class="form-control select2" id="groupIds" name="groupIds[]" multiple="multiple">
-									for _, g := range groups {
-										<option value={ mapGet(g, "id") }>{ mapGet(g, "name") }</option>
-									}
-								</select>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="groupIds">Group</label>
+								<div class="col-sm-9">
+									<select class="form-control select2" id="groupIds" name="groupIds[]" multiple="multiple">
+										for _, g := range groups {
+											<option value={ mapGetId(g) }>{ mapGet(g, "name") }</option>
+										}
+									</select>
+								</div>
 							</div>
-							<div class="form-group">
-								<label for="moveConf">IoT Flag</label>
-								<select class="form-control" id="moveConf" name="moveConf">
-									<option value="0">No</option>
-									<option value="1">Yes</option>
-								</select>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="app">App</label>
+								<div class="col-sm-9">
+									<select class="form-control select2" id="app" name="app" required>
+										<option value="">App</option>
+										for _, a := range apps {
+											<option value={ mapGet(a, "id") }>{ mapGet(a, "displayName") }</option>
+										}
+									</select>
+								</div>
+							</div>
+							<div class="form-group row">
+								<label class="col-sm-3 col-form-label font-weight-bold" for="moveConf">Message Service</label>
+								<div class="col-sm-9">
+									<select class="form-control select2" id="moveConf" name="moveConf" required>
+										<option value="">Message Service</option>
+										<option value="1">Yes</option>
+										<option value="0">No</option>
+									</select>
+								</div>
 							</div>
 						</div>
 						<div class="card-footer">
-							<button type="submit" class="btn btn-primary">
+							<button type="button" class="btn btn-primary" onclick="confirmSubmit()">
 								<i class="fas fa-save"></i> Add Terminal
 							</button>
-							<a href="/veristore" class="btn btn-default">Cancel</a>
+							<a href="/veristore/terminal" class="btn btn-default ml-2">Cancel</a>
 						</div>
 					</form>
 				</div>
 			</div>
 		</div>
+		<script>
+			// Use window.load to ensure jQuery and Select2 are loaded
+			// (they are included at the bottom of the base layout, after page content).
+			window.addEventListener('load', function() {
+				// Initialize Select2 on all dropdowns.
+				$('#vendor').select2({ placeholder: 'Manufacturer', allowClear: false, width: '100%' });
+				$('#model').select2({ placeholder: 'Model', allowClear: false, width: '100%' });
+				$('#merchantId').select2({ placeholder: 'Merchant', allowClear: false, width: '100%' });
+				$('#groupIds').select2({ placeholder: 'Group', allowClear: true, width: '100%' });
+				$('#app').select2({ placeholder: 'App', allowClear: false, width: '100%' });
+				$('#moveConf').select2({ placeholder: 'Message Service', allowClear: false, width: '100%' });
+
+				// Auto-uppercase CSI field on input.
+				document.getElementById('deviceId').addEventListener('input', function() {
+					this.value = this.value.toUpperCase();
+				});
+
+				// Reload models when vendor changes.
+				$('#vendor').on('change', function() {
+					loadModels($(this).val());
+				});
+			});
+
+			// Load models when vendor changes.
+			function loadModels(vendorId) {
+				var modelSelect = document.getElementById('model');
+				if (!modelSelect) return;
+
+				// Clear existing options.
+				modelSelect.innerHTML = '<option value="">Model</option>';
+
+				// If Select2 is initialized, notify it.
+				if (typeof $ !== 'undefined' && $.fn.select2) {
+					$('#model').trigger('change');
+				}
+
+				if (!vendorId) return;
+				fetch('/veristore/model?vendor=' + encodeURIComponent(vendorId))
+					.then(function(res) { return res.json(); })
+					.then(function(res) {
+						if (res.data && res.data.length) {
+							res.data.forEach(function(item) {
+								var opt = document.createElement('option');
+								opt.value = item.id || item.value || '';
+								opt.textContent = item.name || item.label || '';
+								modelSelect.appendChild(opt);
+							});
+						}
+						if (typeof $ !== 'undefined' && $.fn.select2) {
+							$('#model').trigger('change');
+						}
+					});
+			}
+
+			// Confirmation before submit.
+			function confirmSubmit() {
+				if (!document.getElementById('formSubmit').reportValidity()) return;
+				if (confirm('Are you sure?')) {
+					document.getElementById('formSubmit').submit();
+				}
+			}
+		</script>
 	}
 }

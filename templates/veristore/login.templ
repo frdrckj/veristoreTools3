@@ -3,7 +3,8 @@ package veristore
 import "github.com/verifone/veristoretools3/templates/layouts"
 
 // LoginPage renders the TMS login form with captcha.
-templ LoginPage(page layouts.PageData, errors []string) {
+// Username and password are pre-filled and readonly (from DB), matching v2 behavior.
+templ LoginPage(page layouts.PageData, errors []string, tmsUser string, passwordMask string) {
 	@layouts.Base(page) {
 		<div class="row">
 			<div class="col-md-6 offset-md-3">
@@ -31,20 +32,20 @@ templ LoginPage(page layouts.PageData, errors []string) {
 									type="text"
 									class="form-control"
 									id="username"
-									name="username"
-									placeholder="Enter TMS email"
-									required
+									value={ tmsUser }
+									readonly
+									style="background-color: #ffffcc;"
 								/>
 							</div>
 							<div class="form-group">
 								<label for="password">Password <span class="text-danger">*</span></label>
 								<input
-									type="password"
+									type="text"
 									class="form-control"
 									id="password"
-									name="password"
-									placeholder="Enter TMS password"
-									required
+									value={ passwordMask }
+									readonly
+									style="background-color: #ffffcc;"
 								/>
 							</div>
 							<div class="form-group">
@@ -52,7 +53,6 @@ templ LoginPage(page layouts.PageData, errors []string) {
 								<select class="form-control select2" id="resellerId" name="resellerId">
 									<option value="">-- Select Reseller --</option>
 								</select>
-								<small class="text-muted">Enter username and tab out to load resellers.</small>
 							</div>
 							<div class="form-group">
 								<label for="code">Captcha Code <span class="text-danger">*</span></label>
@@ -83,7 +83,7 @@ templ LoginPage(page layouts.PageData, errors []string) {
 							<button type="submit" class="btn btn-primary">
 								<i class="fas fa-sign-in-alt"></i> Login to TMS
 							</button>
-							<a href="/veristore/terminal" class="btn btn-default">Cancel</a>
+							<a href="/" class="btn btn-default">Cancel</a>
 						</div>
 					</form>
 				</div>
@@ -124,10 +124,10 @@ templ LoginPage(page layouts.PageData, errors []string) {
 
 			document.getElementById('refreshCaptcha')?.addEventListener('click', loadCaptcha);
 			document.getElementById('captchaImage')?.addEventListener('click', loadCaptcha);
-			document.getElementById('username')?.addEventListener('blur', loadResellers);
 
-			// Load captcha on page load.
+			// Auto-load captcha and resellers on page load.
 			loadCaptcha();
+			loadResellers();
 		</script>
 	}
 }

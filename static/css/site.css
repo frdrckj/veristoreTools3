@@ -172,15 +172,27 @@ body, .wrapper {
     background: #dc2626;
     border-color: #dc2626;
 }
-.btn-default {
-    background: #fff;
-    border-color: #cbd5e1;
-    color: #475569;
+.btn-default,
+a.btn-default,
+.card-primary:not(.card-outline) > .card-header a.btn-default,
+.card-warning:not(.card-outline) > .card-header a.btn-default,
+.card-info:not(.card-outline) > .card-header a.btn-default,
+.card-success:not(.card-outline) > .card-header a.btn-default,
+.card-danger:not(.card-outline) > .card-header a.btn-default {
+    background: #fff !important;
+    border-color: #cbd5e1 !important;
+    color: #475569 !important;
 }
-.btn-default:hover {
-    background: #f8fafc;
-    border-color: #94a3b8;
-    color: #334155;
+.btn-default:hover,
+a.btn-default:hover,
+.card-primary:not(.card-outline) > .card-header a.btn-default:hover,
+.card-warning:not(.card-outline) > .card-header a.btn-default:hover,
+.card-info:not(.card-outline) > .card-header a.btn-default:hover,
+.card-success:not(.card-outline) > .card-header a.btn-default:hover,
+.card-danger:not(.card-outline) > .card-header a.btn-default:hover {
+    background: #f8fafc !important;
+    border-color: #94a3b8 !important;
+    color: #334155 !important;
 }
 
 /* Action button group in tables */

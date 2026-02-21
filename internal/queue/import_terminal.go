@@ -174,22 +174,16 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			continue
 		}
 
-		// Step 4: Get terminal parameters (iterate over all tabs).
+		// Step 4: Get terminal parameters (batch multi-tab).
 		tabNames := tms.GetAllTabNames(h.db)
-		var allParams []interface{}
-		for _, tabName := range tabNames {
-			paramResp, err := h.tmsClient.GetTerminalParameter(session, serialNum, appID, tabName)
-			if err != nil || paramResp.ResultCode != 0 || paramResp.Data == nil {
-				continue
-			}
-			if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
-				allParams = append(allParams, pl...)
-			}
+		paramResp, err := h.tmsClient.GetTerminalParameterMultiTab(session, serialNum, appID, tabNames)
+		if err != nil || paramResp.Data == nil {
+			failCount++
+			_ = h.deleteTerminalOnError(session, serialNum)
+			logger.Warn().Int("row", rowNum).Msg("failed to get terminal parameters")
+			continue
 		}
-		paramResp := &tms.TMSResponse{
-			ResultCode: 0,
-			Data:       map[string]interface{}{"paraList": allParams},
-		}
+		allParams, _ := paramResp.Data["paraList"].([]interface{})
 		if len(allParams) == 0 {
 			failCount++
 			_ = h.deleteTerminalOnError(session, serialNum)

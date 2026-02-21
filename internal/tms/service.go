@@ -9,12 +9,15 @@ import (
 
 // GetAllTabNames returns the unique tab names from template_parameter table.
 func GetAllTabNames(db *gorm.DB) []string {
-	var fields []string
-	db.Raw(`SELECT DISTINCT MAX(tparam_field) as f FROM template_parameter GROUP BY tparam_title ORDER BY MIN(tparam_id)`).Scan(&fields)
+	type fieldRow struct {
+		F string
+	}
+	var rows []fieldRow
+	db.Raw(`SELECT MAX(tparam_field) as f FROM template_parameter GROUP BY tparam_title ORDER BY MIN(tparam_id)`).Scan(&rows)
 	var tabs []string
 	seen := map[string]bool{}
-	for _, f := range fields {
-		parts := strings.SplitN(f, "-", 3)
+	for _, r := range rows {
+		parts := strings.SplitN(r.F, "-", 3)
 		if len(parts) >= 2 && !seen[parts[1]] {
 			tabs = append(tabs, parts[1])
 			seen[parts[1]] = true
@@ -52,6 +55,30 @@ func NewService(client *Client, db *gorm.DB, resellerList []int64) *Service {
 	}
 }
 
+// GetTmsCredentials returns the active TMS login username and the current
+// user's decrypted TMS password (from the user table). This is used to
+// pre-fill the TMS login form with readonly fields, matching v2 behavior.
+func (s *Service) GetTmsCredentials(currentUsername string) (tmsUser, tmsPassword string) {
+	login, err := s.repo.GetActiveLogin()
+	if err == nil && login != nil && login.TmsLoginUser != nil {
+		tmsUser = *login.TmsLoginUser
+	}
+
+	var row struct {
+		TmsPassword *string `gorm:"column:tms_password"`
+	}
+	if err := s.db.Table("user").Where("user_name = ?", currentUsername).First(&row).Error; err == nil {
+		if row.TmsPassword != nil && *row.TmsPassword != "" {
+			decrypted, err := DecryptAES(*row.TmsPassword)
+			if err == nil {
+				tmsPassword = decrypted
+			}
+		}
+	}
+
+	return
+}
+
 // GetSession returns the active TMS session token from the tms_login table.
 func (s *Service) GetSession() string {
 	login, err := s.repo.GetActiveLogin()
@@ -59,6 +86,17 @@ func (s *Service) GetSession() string {
 		return ""
 	}
 	return *login.TmsLoginSession
+}
+
+// GetUserSession returns the per-user TMS session token from the user table.
+// This is used to check if a specific user has an active TMS session (like v2).
+func (s *Service) GetUserSession(username string) string {
+	return s.repo.GetUserTmsSession(username)
+}
+
+// ClearUserSession sets the user's tms_session to NULL, forcing re-login.
+func (s *Service) ClearUserSession(username string) error {
+	return s.repo.ClearUserTmsSession(username)
 }
 
 // GetTerminalList retrieves a paginated terminal list.
@@ -80,33 +118,13 @@ func (s *Service) GetTerminalDetail(serialNum string) (*TMSResponse, error) {
 }
 
 // GetTerminalParameter retrieves terminal app parameters for all tabs.
-// Uses old session-based API, iterating over tab names from template_parameter table.
+// Uses old session-based API with optimized multi-tab batch (getIdFromSN/getOperationMark called once).
 func (s *Service) GetTerminalParameter(serialNum, appId string, tabNames []string) (*TMSResponse, error) {
 	session := s.GetSession()
 	if session == "" {
 		return nil, fmt.Errorf("no active TMS session")
 	}
-
-	allParams := []interface{}{}
-	for _, tabName := range tabNames {
-		resp, err := s.client.GetTerminalParameter(session, serialNum, appId, tabName)
-		if err != nil {
-			continue
-		}
-		if resp.ResultCode != 0 {
-			continue
-		}
-		if resp.Data != nil {
-			if pl, ok := resp.Data["paraList"].([]interface{}); ok {
-				allParams = append(allParams, pl...)
-			}
-		}
-	}
-
-	return &TMSResponse{
-		ResultCode: 0,
-		Data:       map[string]interface{}{"paraList": allParams},
-	}, nil
+	return s.client.GetTerminalParameterMultiTab(session, serialNum, appId, tabNames)
 }
 
 // GetTerminalParameterTab retrieves parameters for a single tab.
@@ -123,6 +141,16 @@ func (s *Service) GetTerminalParameterTab(serialNum, appId, tabName string) (*TM
 // Uses new signed API (no session needed).
 func (s *Service) AddTerminal(data AddTerminalRequest) (*TMSResponse, error) {
 	return s.client.AddTerminal("", data.DeviceID, data.Vendor, data.Model, data.MerchantID, data.GroupIDs, data.SN, data.MoveConf)
+}
+
+// AddParameter assigns an app to a terminal (preAdd + submit, like v2).
+// Uses old session-based API.
+func (s *Service) AddParameter(deviceId, appId string) (*TMSResponse, error) {
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.AddParameter(session, deviceId, appId)
 }
 
 // EditTerminal updates terminal parameters.
@@ -357,17 +385,23 @@ func (s *Service) GetVerifyCode() (*TMSResponse, error) {
 }
 
 // Login authenticates against the TMS API and saves the session.
-func (s *Service) Login(username, password, token, code string, resellerId int) (*TMSResponse, error) {
+// The currentUsername is the app user performing the login, used to store
+// their per-user TMS session (matching v2 behavior).
+func (s *Service) Login(username, password, token, code string, resellerId int, currentUsername string) (*TMSResponse, error) {
 	resp, err := s.client.Login(username, password, token, code, resellerId)
 	if err != nil {
 		return nil, err
 	}
 	if resp.ResultCode == 0 && resp.Data != nil {
 		if cookies, ok := resp.Data["cookies"].(string); ok && cookies != "" {
-			// Update or create the TMS login session.
+			// Update the system-wide TMS login session.
 			login, dbErr := s.repo.GetActiveLogin()
 			if dbErr == nil && login != nil {
 				s.repo.UpdateSession(login.TmsLoginID, cookies)
+			}
+			// Also save the session to the user's own tms_session (per-user, like v2).
+			if currentUsername != "" {
+				s.repo.SetUserTmsSession(currentUsername, cookies)
 			}
 		}
 	}

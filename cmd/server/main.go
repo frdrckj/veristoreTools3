@@ -133,12 +133,15 @@ func main() {
 	appVersion := cfg.App.Version
 
 	authHandler := auth.NewHandler(authService, sessionStore, sessionName, appName, appVersion)
+	authHandler.SetTmsSessionClearer(func(username string) error {
+		return tmsService.ClearUserSession(username)
+	})
 	siteHandler := site.NewHandler(terminalRepo, syncRepo, csiRepo, adminRepo, sessionStore, sessionName, appName, appVersion)
 	userHandler := user.NewHandler(userRepo, userService, sessionStore, sessionName, appName, appVersion)
 	termHandler := terminal.NewHandler(terminalService, sessionStore, sessionName, appName, appVersion)
 	paramHandler := terminal.NewParamHandler(terminalRepo, sessionStore, sessionName, appName, appVersion)
 	tplParamHandler := admin.NewTemplateParamHandler(adminRepo, sessionStore, sessionName, appName, appVersion)
-	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient)
+	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient, cfg.PackageName)
 	tmsLoginHandler := tms.NewLoginHandler(tmsRepo, tmsService, sessionStore, sessionName, appName, appVersion)
 	verifyHandler := csi.NewHandler(csiService, sessionStore, sessionName, appName, appVersion)
 	reportHandler := csi.NewReportHandler(csiRepo, sessionStore, sessionName, appName, appVersion)
@@ -229,7 +232,9 @@ func main() {
 	protected.POST("/veristore/copy", tmsHandler.Copy)
 	protected.POST("/veristore/delete", tmsHandler.Delete)
 	protected.POST("/veristore/replacement", tmsHandler.Replacement)
+	protected.GET("/veristore/check", tmsHandler.Check)
 	protected.POST("/veristore/check", tmsHandler.Check)
+	protected.GET("/veristore/check/pdf", tmsHandler.CheckPDF)
 	protected.GET("/veristore/report", tmsHandler.Report)
 	protected.POST("/veristore/report", tmsHandler.Report)
 	protected.GET("/veristore/export", tmsHandler.Export)

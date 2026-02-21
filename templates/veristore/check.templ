@@ -1,29 +1,77 @@
 package veristore
 
-// CheckPartial renders the parameter preview partial for HTMX requests.
-templ CheckPartial(paraList []map[string]interface{}) {
-	if len(paraList) > 0 {
-		<table class="table table-bordered table-sm">
-			<thead>
-				<tr>
-					<th>Parameter Name</th>
-					<th>Value</th>
-					<th>Description</th>
-				</tr>
-			</thead>
-			<tbody>
-				for _, p := range paraList {
-					<tr>
-						<td><code>{ mapGet(p, "dataName") }</code></td>
-						<td>{ mapGet(p, "value") }</td>
-						<td><small class="text-muted">{ mapGet(p, "description") }</small></td>
-					</tr>
-				}
-			</tbody>
-		</table>
-	} else {
-		<div class="text-center text-muted py-3">
-			No parameters found.
+import "github.com/verifone/veristoretools3/templates/layouts"
+
+// CheckField holds a single parameter display entry.
+type CheckField struct {
+	Description string
+	Value       string
+}
+
+// CheckSubItem holds a sub-item with its fields.
+type CheckSubItem struct {
+	Title  string
+	Fields []CheckField
+}
+
+// CheckGroup holds a parameter group with sub-items.
+type CheckGroup struct {
+	Name     string
+	SubItems []CheckSubItem
+}
+
+// CheckPage renders the full parameter check/preview page (v2-style two-column layout).
+templ CheckPage(page layouts.PageData, serialNum string, leftCol []CheckGroup, rightCol []CheckGroup) {
+	@layouts.Base(page) {
+		<div class="mb-3">
+			<a href="javascript:history.back()" class="btn btn-danger mr-2">
+				<i class="fas fa-times-circle"></i> Back
+			</a>
+			<button type="button" class="btn btn-info mr-2" disabled>
+				<i class="fas fa-check-circle"></i> Check
+			</button>
+			<button type="button" class="btn btn-success" onclick="window.print()">
+				<i class="fas fa-print"></i> Print
+			</button>
+		</div>
+		<hr/>
+		<div class="box box-success">
+			<div class="box-header d-flex justify-content-between align-items-center mb-3">
+				<h2 class="mb-0">CSI { serialNum } Parameters</h2>
+				<div>
+					<button type="button" class="btn btn-success btn-sm" onclick="window.print()">
+						<i class="fas fa-print"></i>
+					</button>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-lg-6">
+					for _, group := range leftCol {
+						<h4><strong>{ group.Name }</strong></h4>
+						for _, sub := range group.SubItems {
+							<h5>{ sub.Title }</h5>
+							for _, field := range sub.Fields {
+								<p style="margin-left:2em;margin-bottom:2px;">
+									{ field.Description }: <strong>{ field.Value }</strong>
+								</p>
+							}
+						}
+					}
+				</div>
+				<div class="col-lg-6">
+					for _, group := range rightCol {
+						<h4><strong>{ group.Name }</strong></h4>
+						for _, sub := range group.SubItems {
+							<h5>{ sub.Title }</h5>
+							for _, field := range sub.Fields {
+								<p style="margin-left:2em;margin-bottom:2px;">
+									{ field.Description }: <strong>{ field.Value }</strong>
+								</p>
+							}
+						}
+					}
+				</div>
+			</div>
 		</div>
 	}
 }

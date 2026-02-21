@@ -158,26 +158,17 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 				logger.Debug().Str("serial", serialNum).Msg("no apps found on terminal, skipping parameters")
 			}
 
-			// Get terminal parameter data if we have an app (iterate over all tabs).
+			// Get terminal parameter data if we have an app (batch multi-tab).
 			var paramResp *tms.TMSResponse
 			if appID != "" {
 				tabNames := tms.GetAllTabNames(h.db)
-				var allParams []interface{}
-				for _, tabName := range tabNames {
-					tr, terr := h.tmsClient.GetTerminalParameter(session, serialNum, appID, tabName)
-					if terr != nil || tr.ResultCode != 0 || tr.Data == nil {
-						continue
-					}
-					if pl, ok := tr.Data["paraList"].([]interface{}); ok {
-						allParams = append(allParams, pl...)
+				resp, err := h.tmsClient.GetTerminalParameterMultiTab(session, serialNum, appID, tabNames)
+				if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+					if pl, ok := resp.Data["paraList"].([]interface{}); ok && len(pl) > 0 {
+						paramResp = resp
 					}
 				}
-				if len(allParams) > 0 {
-					paramResp = &tms.TMSResponse{
-						ResultCode: 0,
-						Data:       map[string]interface{}{"paraList": allParams},
-					}
-				} else {
+				if paramResp == nil {
 					logger.Warn().Str("serial", serialNum).Msg("failed to get terminal parameters during sync")
 				}
 			}
