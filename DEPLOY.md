@@ -1,136 +1,259 @@
-# VeriStore Tools 3 - Deployment Guide
+# VeriStore Tools 3 — Deployment Guide
+
+## Overview
+
+The app is built on your Mac and deployed as Docker images to the Linux server.
+The server does **not** need internet access, Go, or the source code.
+
+---
 
 ## Prerequisites
 
-- Docker & Docker Compose installed
-- Access to the production server
+| Machine | Requirements |
+|---------|-------------|
+| Mac (build) | Docker Desktop |
+| Server (production) | Docker Engine + Docker Compose |
 
-## Quick Start
+---
+
+## First-Time Deployment
+
+### Step 1: Build & Package (on Mac)
 
 ```bash
-# 1. Build and start all services
-docker compose up -d --build
-
-# 2. Run database migrations (first time only)
-docker compose exec app ./migrate
-
-# 3. Open in browser
-http://<server-ip>:8080
+cd veristoreTools3
+./deploy.sh
 ```
+
+This creates a `deploy-package/` folder:
+
+```
+deploy-package/
+├── veristoretools3-images.tar.gz   (~600 MB) All Docker images
+├── docker-compose.yml              Production compose file
+├── config.docker.yaml              App configuration
+└── setup.sh                        One-command server setup
+```
+
+### Step 2: Transfer to Server
+
+Copy the folder to the server via USB, SCP, or any method available:
+
+```bash
+scp -r deploy-package/ user@server:/opt/veristoretools3/
+```
+
+### Step 3: Configure (on Server)
+
+Edit `config.docker.yaml` with production values:
+
+```bash
+cd /opt/veristoretools3
+nano config.docker.yaml
+```
+
+Key settings to update:
+
+```yaml
+app:
+  session_secret: "USE-A-STRONG-RANDOM-STRING"
+
+database:
+  host: mysql
+  password: "CHANGE-ME"      # must match MYSQL_ROOT_PASSWORD in docker-compose.yml
+
+tms:
+  base_url: "https://app.veristore.net"
+  api_base_url: "https://tps.veristore.net"
+  access_key: "your-key"
+  access_secret: "your-secret"
+```
+
+If you change the MySQL password, also update it in `docker-compose.yml`:
+
+```yaml
+mysql:
+  environment:
+    MYSQL_ROOT_PASSWORD: CHANGE-ME
+```
+
+### Step 4: Start (on Server)
+
+```bash
+./setup.sh
+```
+
+The app will be available at `http://server-ip:8080`.
+
+### Step 5: Migrate Data from V2
+
+```bash
+# On V2 server: export the database
+mysqldump -u root -p veristoretools2 > v2_backup.sql
+
+# Transfer v2_backup.sql to V3 server, then:
+docker compose exec -T mysql mysql -u root -p veristoretools3 < v2_backup.sql
+
+# Run V3 migrations to add new columns/tables
+docker compose exec app ./migrate
+```
+
+---
+
+## Updating the App
+
+When you make code changes and need to deploy an update:
+
+### On your Mac:
+
+```bash
+cd veristoreTools3
+
+# Rebuild
+./deploy.sh
+```
+
+### Transfer only the app image (smaller & faster):
+
+MySQL and Redis images never change, so you can skip them:
+
+```bash
+# On Mac — save just the app image (~20 MB vs ~600 MB)
+docker save veristoretools3-app:latest | gzip > app-update.tar.gz
+```
+
+Transfer only `app-update.tar.gz` to the server.
+
+### On the Server:
+
+```bash
+cd /opt/veristoretools3
+
+# Load the updated image
+docker load < app-update.tar.gz
+
+# Restart only the app container (database & Redis data are preserved)
+docker compose restart app
+```
+
+### If there are new database migrations:
+
+```bash
+# After restarting, run migrate
+docker compose exec app ./migrate
+```
+
+---
+
+## Common Commands
+
+```bash
+cd /opt/veristoretools3
+
+# Check status of all services
+docker compose ps
+
+# View app logs (live, follow)
+docker compose logs -f app
+
+# View all service logs
+docker compose logs
+
+# Restart app only (keeps DB & Redis running)
+docker compose restart app
+
+# Stop everything (data is preserved)
+docker compose down
+
+# Start everything
+docker compose up -d
+
+# Stop everything AND delete all data (database, redis)
+docker compose down -v                    # WARNING: destroys all data
+```
+
+---
+
+## Database
+
+### Access MySQL Shell
+
+```bash
+docker compose exec mysql mysql -u root -p veristoretools3
+```
+
+### Backup
+
+```bash
+docker compose exec mysql mysqldump -u root -p veristoretools3 > backup_$(date +%Y%m%d).sql
+```
+
+### Restore
+
+```bash
+docker compose exec -T mysql mysql -u root -p veristoretools3 < backup_20260222.sql
+```
+
+---
 
 ## Services
 
 | Service | Internal Port | External Port | Description |
 |---------|--------------|---------------|-------------|
-| app     | 8080         | 8080          | Go application |
-| mysql   | 3306         | 3307          | MySQL 8.0 database |
-| redis   | 6379         | 6380          | Redis 7 (job queue) |
+| app | 8080 | 8080 | VeriStore Tools 3 |
+| mysql | 3306 | 3307 | MySQL 8.0 database |
+| redis | 6379 | 6380 | Redis 7 (job queue) |
 
-## Configuration
+---
 
-Edit `config.docker.yaml` before deploying. Key settings to change for production:
+## Troubleshooting
+
+### App won't start
+
+```bash
+docker compose logs app
+```
+
+Common causes:
+- `connection refused` to mysql/redis — services not ready yet, wait and retry
+- Config errors — check `config.docker.yaml` YAML syntax
+
+### Port 8080 already in use
+
+Change the port in `docker-compose.yml`:
 
 ```yaml
 app:
-  debug: false
-  session_secret: "CHANGE-THIS-TO-A-RANDOM-STRING"
-
-database:
-  password: "CHANGE-THIS-TO-A-STRONG-PASSWORD"
+  ports:
+    - "9090:8080"    # access via port 9090 instead
 ```
 
-Make sure `docker-compose.yml` MySQL password matches:
-
-```yaml
-MYSQL_ROOT_PASSWORD: "CHANGE-THIS-TO-A-STRONG-PASSWORD"
-```
-
-## Migrating Data from V2
-
-### Option A: From local V2 database
+### Disk space
 
 ```bash
-# Export from V2
-mysqldump -u root veristoretools2 > v2_backup.sql
-
-# Import into V3 Docker MySQL
-mysql -u root -p<password> -h 127.0.0.1 -P 3307 veristoretools3 < v2_backup.sql
+docker system df          # check Docker disk usage
+docker image prune        # clean up unused images
 ```
 
-### Option B: From remote V2 server
+---
 
-```bash
-# Export from V2 server
-ssh user@v2-server "mysqldump -u root veristoretools2" > v2_backup.sql
-
-# Import into V3
-mysql -u root -p<password> -h 127.0.0.1 -P 3307 veristoretools3 < v2_backup.sql
-```
-
-### Verify Migration
-
-```bash
-docker compose exec app ./migrate verify
-```
-
-Expected output:
+## Architecture
 
 ```
-TABLE                 V2 COUNT   V3 COUNT   MATCH
------                 --------   --------   -----
-user                  15         15         OK
-terminal              25144      25144      OK
-...
-All table row counts match.
-```
-
-## Common Commands
-
-```bash
-# Start
-docker compose up -d
-
-# Stop
-docker compose down
-
-# Restart app only
-docker compose restart app
-
-# View app logs
-docker compose logs -f app
-
-# View all logs
-docker compose logs -f
-
-# Rebuild after code changes
-docker compose up -d --build app
-
-# Access MySQL shell
-docker compose exec mysql mysql -u root -p veristoretools3
-
-# Access Redis shell
-docker compose exec redis redis-cli
-```
-
-## Backup
-
-```bash
-# Database backup
-docker compose exec mysql mysqldump -u root -p veristoretools3 > backup_$(date +%Y%m%d).sql
-
-# Restore
-docker compose exec -T mysql mysql -u root -p veristoretools3 < backup_20260221.sql
-```
-
-## Updating
-
-```bash
-# Pull latest code
-git pull
-
-# Rebuild and restart
-docker compose up -d --build app
-
-# Run new migrations if any
-docker compose exec app ./migrate
+┌─────────────────────────────────────────────┐
+│               Linux Server                  │
+│                                             │
+│  ┌───────────┐  ┌─────────┐  ┌───────────┐ │
+│  │    App    │──│  MySQL  │  │   Redis   │ │
+│  │   :8080   │  │  :3306  │  │   :6379   │ │
+│  └───────────┘  └─────────┘  └───────────┘ │
+│       │                                     │
+│       ├── config.docker.yaml (mounted)      │
+│       ├── mysql_data (Docker volume)        │
+│       └── redis_data (Docker volume)        │
+└───────┼─────────────────────────────────────┘
+        │ HTTPS
+        ▼
+  TMS API Server
+  (app.veristore.net / tps.veristore.net)
 ```
