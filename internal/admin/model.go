@@ -102,8 +102,8 @@ type Import struct {
 	ImpID       int     `gorm:"column:imp_id;primaryKey;autoIncrement" json:"imp_id"`
 	ImpCodeID   string  `gorm:"column:imp_code_id;type:varchar(10);not null;default:CSI" json:"imp_code_id"`
 	ImpFilename string  `gorm:"column:imp_filename;type:varchar(100);not null" json:"imp_filename"`
-	ImpCurrent  *string `gorm:"column:imp_current;type:varchar(10);default:0" json:"imp_current"`
-	ImpTotal    *string `gorm:"column:imp_total;type:varchar(10);default:0" json:"imp_total"`
+	ImpCurrent  *string `gorm:"column:imp_cur_row;type:varchar(10);default:0" json:"imp_cur_row"`
+	ImpTotal    *string `gorm:"column:imp_total_row;type:varchar(10);default:0" json:"imp_total_row"`
 }
 
 func (Import) TableName() string {

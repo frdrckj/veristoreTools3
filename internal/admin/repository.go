@@ -213,15 +213,15 @@ func (r *Repository) CreateImport(i *Import) error {
 // UpdateImportProgress updates only the progress fields of an import record.
 func (r *Repository) UpdateImportProgress(id int, current, total string) error {
 	return r.db.Model(&Import{}).Where("imp_id = ?", id).Updates(map[string]interface{}{
-		"imp_current": current,
-		"imp_total":   total,
+		"imp_cur_row":   current,
+		"imp_total_row": total,
 	}).Error
 }
 
 // FindInProgressImport finds an import that is still being processed (current != total).
 func (r *Repository) FindInProgressImport() (*Import, error) {
 	var i Import
-	err := r.db.Where("imp_current != imp_total").Order("imp_id DESC").First(&i).Error
+	err := r.db.Where("imp_cur_row != imp_total_row").Order("imp_id DESC").First(&i).Error
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func (r *Repository) FindLatestImport() (*Import, error) {
 
 // DeleteIncompleteImports removes imports that are stuck (current != total).
 func (r *Repository) DeleteIncompleteImports() error {
-	return r.db.Where("imp_current != imp_total").Delete(&Import{}).Error
+	return r.db.Where("imp_cur_row != imp_total_row").Delete(&Import{}).Error
 }
 
 // ==================== Export ====================
