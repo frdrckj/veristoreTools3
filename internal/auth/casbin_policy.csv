@@ -152,6 +152,9 @@ p, TMS ADMIN, /scheduler/:action, *
 # ---------------------------------------------------------------------------
 # TMS SUPERVISOR - TMS operations + activation/credential (no user mgmt/scheduler)
 # ---------------------------------------------------------------------------
+# User management (view)
+p, TMS SUPERVISOR, /user/:action, GET
+
 # Veristore (TMS)
 p, TMS SUPERVISOR, /veristore/:action, *
 p, TMS SUPERVISOR, /veristore/edit/:action, *
@@ -180,6 +183,9 @@ p, TMS SUPERVISOR, /appcredential/:action, *
 # ---------------------------------------------------------------------------
 # TMS OPERATOR - basic TMS operations only
 # ---------------------------------------------------------------------------
+# User management (view)
+p, TMS OPERATOR, /user/:action, GET
+
 # Veristore (TMS)
 p, TMS OPERATOR, /veristore/:action, *
 p, TMS OPERATOR, /veristore/edit/:action, *

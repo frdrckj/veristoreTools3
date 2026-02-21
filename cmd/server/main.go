@@ -136,7 +136,7 @@ func main() {
 	authHandler.SetTmsSessionClearer(func(username string) error {
 		return tmsService.ClearUserSession(username)
 	})
-	siteHandler := site.NewHandler(terminalRepo, syncRepo, csiRepo, adminRepo, sessionStore, sessionName, appName, appVersion)
+	siteHandler := site.NewHandler(terminalRepo, syncRepo, csiRepo, adminRepo, tmsService, sessionStore, sessionName, appName, appVersion)
 	userHandler := user.NewHandler(userRepo, userService, sessionStore, sessionName, appName, appVersion)
 	termHandler := terminal.NewHandler(terminalService, sessionStore, sessionName, appName, appVersion)
 	paramHandler := terminal.NewParamHandler(terminalRepo, sessionStore, sessionName, appName, appVersion)

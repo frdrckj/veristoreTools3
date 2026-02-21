@@ -11,6 +11,7 @@ import (
 	"github.com/verifone/veristoretools3/internal/shared"
 	syncpkg "github.com/verifone/veristoretools3/internal/sync"
 	"github.com/verifone/veristoretools3/internal/terminal"
+	"github.com/verifone/veristoretools3/internal/tms"
 	"github.com/verifone/veristoretools3/templates/layouts"
 	siteTmpl "github.com/verifone/veristoretools3/templates/site"
 )
@@ -21,6 +22,7 @@ type Handler struct {
 	syncRepo         *syncpkg.Repository
 	csiRepo          *csi.Repository
 	adminRepo        *admin.Repository
+	tmsService       *tms.Service
 	store            sessions.Store
 	sessionName      string
 	appName          string
@@ -41,6 +43,7 @@ func NewHandler(
 	syncRepo *syncpkg.Repository,
 	csiRepo *csi.Repository,
 	adminRepo *admin.Repository,
+	tmsService *tms.Service,
 	store sessions.Store,
 	sessionName string,
 	appName string,
@@ -51,6 +54,7 @@ func NewHandler(
 		syncRepo:         syncRepo,
 		csiRepo:          csiRepo,
 		adminRepo:        adminRepo,
+		tmsService:       tmsService,
 		store:            store,
 		sessionName:      sessionName,
 		appName:          appName,
@@ -162,21 +166,47 @@ func (h *Handler) csiDashboard(c echo.Context, page layouts.PageData) error {
 	return shared.Render(c, http.StatusOK, siteTmpl.CSIDashboard(page, data))
 }
 
-// tmsDashboard renders the TMS dashboard. TMS metrics are typically fetched from
-// the external TMS API. For now, we render placeholder data that can be populated
-// once the TMS helper client is integrated.
+// tmsDashboard fetches TMS metrics from the TMS API and renders the dashboard.
 func (h *Handler) tmsDashboard(c echo.Context, page layouts.PageData) error {
-	// TODO: integrate TMS API client (TmsHelper.getDashboard equivalent) to
-	// fetch real metrics. For now, render with zero values so the template
-	// structure is in place.
-	data := siteTmpl.TMSDashboardData{
-		TerminalTotalNum:   0,
-		TerminalActivedNum: 0,
-		AppTotalNum:        0,
-		AppDownloadsNum:    0,
-		DownloadsTasks:     0,
-		MerchTotalNum:      0,
+	data := siteTmpl.TMSDashboardData{}
+
+	if h.tmsService != nil {
+		resp, err := h.tmsService.GetDashboard()
+		if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+			if v, ok := resp.Data["terminalTotalNum"]; ok {
+				data.TerminalTotalNum = toInt(v)
+			}
+			if v, ok := resp.Data["terminalActivedNum"]; ok {
+				data.TerminalActivedNum = toInt(v)
+			}
+			if v, ok := resp.Data["appTotalNum"]; ok {
+				data.AppTotalNum = toInt(v)
+			}
+			if v, ok := resp.Data["appDownloadsNum"]; ok {
+				data.AppDownloadsNum = toInt(v)
+			}
+			if v, ok := resp.Data["downloadsTask"]; ok {
+				data.DownloadsTasks = toInt(v)
+			}
+			if v, ok := resp.Data["merchTotalNum"]; ok {
+				data.MerchTotalNum = toInt(v)
+			}
+		}
 	}
 
 	return shared.Render(c, http.StatusOK, siteTmpl.TMSDashboard(page, data))
+}
+
+// toInt converts an interface{} value to int, handling float64 and int types.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
 }
