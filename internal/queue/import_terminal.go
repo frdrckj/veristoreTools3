@@ -22,6 +22,7 @@ type ImportTerminalPayload struct {
 	FilePath string `json:"file_path"`
 	Session  string `json:"session"`
 	User     string `json:"user"`
+	ImportID int    `json:"import_id"`
 }
 
 // ImportTerminalHandler processes Excel files containing terminal data and
@@ -94,6 +95,9 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	if len(rows) < 2 {
 		logger.Warn().Msg("Excel file has no data rows (only header)")
+		if payload.ImportID > 0 {
+			h.adminRepo.UpdateImportProgress(payload.ImportID, "0", "0")
+		}
 		return nil
 	}
 
@@ -103,6 +107,12 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 	if session == "" {
 		return fmt.Errorf("import_terminal: no active TMS session")
+	}
+
+	totalRows := len(rows) - 1
+	// Update total in import record.
+	if payload.ImportID > 0 {
+		h.adminRepo.UpdateImportProgress(payload.ImportID, "0", strconv.Itoa(totalRows))
 	}
 
 	var successCount, failCount int
@@ -116,6 +126,11 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			logger.Warn().Int("row", rowNum).Msg("context cancelled, stopping import")
 			return ctx.Err()
 		default:
+		}
+
+		// Update progress for each row processed.
+		if payload.ImportID > 0 {
+			h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(rowIdx), strconv.Itoa(totalRows))
 		}
 
 		// Extract columns with safe access.
@@ -234,6 +249,11 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 		successCount++
 		logger.Info().Int("row", rowNum).Str("serial", serialNum).Msg("terminal imported successfully")
+	}
+
+	// Mark import as complete (current == total).
+	if payload.ImportID > 0 {
+		h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
 	}
 
 	logger.Info().

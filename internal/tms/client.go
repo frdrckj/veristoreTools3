@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -724,6 +725,51 @@ func (c *Client) GetTerminalList(session string, pageNum int) (*TMSResponse, err
 	return resp, nil
 }
 
+// GetTerminalListWithSize retrieves a paginated list of terminals with a
+// configurable page size. Used by background jobs that need to iterate all
+// terminals efficiently (e.g., report generation). Also returns the total
+// terminal count for progress tracking.
+func (c *Client) GetTerminalListWithSize(pageNum, pageSize int) (*TMSResponse, error) {
+	params := map[string]interface{}{
+		"page": pageNum,
+		"size": pageSize,
+	}
+
+	result, err := c.doSignedPost("/v1/tps/terminal/list", params)
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+
+	resp := &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+	}
+
+	if rc == 0 {
+		data, _ := result["data"].(map[string]interface{})
+		if data != nil {
+			list, _ := data["list"].([]interface{})
+			for i, item := range list {
+				if m, ok := item.(map[string]interface{}); ok {
+					m["status"] = m["alertStatus"]
+					list[i] = m
+				}
+			}
+			total, _ := toInt(data["total"])
+			resp.Data = map[string]interface{}{
+				"totalPage":    data["pages"],
+				"total":        total,
+				"terminalList": list,
+			}
+		}
+	}
+
+	return resp, nil
+}
+
 // GetTerminalListSearch searches terminals with filters based on queryType:
 //
 //	0 = SN, 1 = merchantName, 2 = groupName, 3 = TID param,
@@ -874,6 +920,92 @@ func (c *Client) GetTerminalDetail(session, serialNum string) (*TMSResponse, err
 	}, nil
 }
 
+// GetTerminalAppsById retrieves the installed app list for a terminal using its
+// internal ID directly (no SN→ID resolution needed). This is a lightweight
+// alternative to GetTerminalDetail when only app information is needed.
+// Returns a flat slice of app maps with packageName, name, version, id.
+func (c *Client) GetTerminalAppsById(terminalId string) ([]map[string]interface{}, error) {
+	appResult, err := c.doSignedPost("/v2/tps/terminalApp/list", map[string]interface{}{
+		"terminalId": terminalId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	appCode, _ := toInt(appResult["code"])
+	if appCode != 200 {
+		return nil, fmt.Errorf("tms: terminalApp/list returned code %d: %s", appCode, toString(appResult["desc"]))
+	}
+
+	var apps []map[string]interface{}
+	if appData, ok := appResult["data"].([]interface{}); ok {
+		for _, a := range appData {
+			am, _ := a.(map[string]interface{})
+			if am == nil {
+				continue
+			}
+			pkgName := toString(am["packageName"])
+			if items, ok := am["itemList"].([]interface{}); ok {
+				for _, item := range items {
+					im, _ := item.(map[string]interface{})
+					if im != nil {
+						apps = append(apps, map[string]interface{}{
+							"packageName": pkgName,
+							"name":        toString(im["appName"]),
+							"version":     toString(im["appVersion"]),
+							"id":          toIntDefault(im["appId"], 0),
+						})
+					}
+				}
+			}
+		}
+	}
+	return apps, nil
+}
+
+// GetTerminalDetailById retrieves terminal detail using the internal terminal ID
+// directly (skipping the SN→ID resolution step). Used when the caller already
+// has the terminal ID from a list response. Only fetches detail (not apps).
+func (c *Client) GetTerminalDetailById(terminalId string) (*TMSResponse, error) {
+	detailResult, err := c.doSignedPost("/v1/tps/terminal/detail", map[string]interface{}{
+		"terminalId": terminalId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	detailCode, _ := toInt(detailResult["code"])
+	if detailCode != 200 {
+		return &TMSResponse{
+			ResultCode: mapResponseCode(detailCode),
+			Desc:       toString(detailResult["desc"]),
+		}, nil
+	}
+
+	data, _ := detailResult["data"].(map[string]interface{})
+	if data == nil {
+		return &TMSResponse{ResultCode: 99, Desc: "no data in detail response"}, nil
+	}
+
+	// Extract PN from diagnostic.
+	data["pn"] = nil
+	if diags, ok := data["diagnostic"].([]interface{}); ok {
+		for _, d := range diags {
+			if dm, ok := d.(map[string]interface{}); ok {
+				if toString(dm["attribute"]) == "PN" {
+					data["pn"] = toString(dm["value"])
+					break
+				}
+			}
+		}
+	}
+
+	return &TMSResponse{
+		ResultCode: 0,
+		Data:       data,
+	}, nil
+}
+
 // GetTerminalParameter retrieves terminal app parameters for a specific tab
 // using the old session-based API (/market/manage/terminalAppParameter/view).
 // tabName is the second segment of tparam_field (e.g. "MERCHANT" from "TP-MERCHANT-FIELD").
@@ -1000,6 +1132,7 @@ func (c *Client) GetTerminalParameterMultiTab(session, serialNum, appId string, 
 }
 
 // AddTerminal registers a new terminal in the TMS.
+// Uses old session-based API (like v2): POST /market/manage/terminal/add.
 func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string, groupIds []string, sn string, moveConf int) (*TMSResponse, error) {
 	if groupIds == nil {
 		groupIds = []string{}
@@ -1015,6 +1148,9 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 	}
 
 	params := map[string]interface{}{
+		"bundleId":   "",
+		"id":         "",
+		"status":     0,
 		"vendor":     vendor,
 		"deviceId":   did,
 		"model":      model,
@@ -1024,7 +1160,7 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 		"iotFlag":    moveConf,
 	}
 
-	result, err := c.doSignedPost("/v1/tps/terminal/add", params)
+	result, err := c.doPost(session, "/market/manage/terminal/add", params)
 	if err != nil {
 		return nil, err
 	}
@@ -1153,12 +1289,15 @@ func (c *Client) ReplaceTerminal(session, oldSn, newSn string) (*TMSResponse, er
 // App & Parameter Management
 // ---------------------------------------------------------------------------
 
-// GetAppList retrieves all available apps and their versions.
+// GetAppList retrieves all available apps and their versions via old session-based API (like v2).
+// Step 1: POST /market/manage/app/page to get the app list.
+// Step 2: POST /market/common/appVersion/selector for each app to get all versions (parallel).
 func (c *Client) GetAppList(session string) (*TMSResponse, error) {
-	// New API: single call returns apps with version info.
-	result, err := c.doSignedPost("/v1/tps/app/list", map[string]interface{}{
-		"page": 1,
-		"size": 100,
+	// Step 1: Get the app list.
+	result, err := c.doPost(session, "/market/manage/app/page", map[string]interface{}{
+		"page":   1,
+		"search": "",
+		"size":   100,
 	})
 	if err != nil {
 		return nil, err
@@ -1178,19 +1317,64 @@ func (c *Client) GetAppList(session string) (*TMSResponse, error) {
 	}
 
 	appItems, _ := data["list"].([]interface{})
-	allApps := []interface{}{}
+	if len(appItems) == 0 {
+		return &TMSResponse{ResultCode: 0, Data: map[string]interface{}{"allApps": []interface{}{}}}, nil
+	}
 
-	for _, appItem := range appItems {
+	// Step 2: Fetch versions for each app in parallel (v2 does this sequentially).
+	type appVersionResult struct {
+		apps []map[string]interface{}
+		err  error
+	}
+
+	var wg sync.WaitGroup
+	results := make([]appVersionResult, len(appItems))
+
+	for i, appItem := range appItems {
 		app, _ := appItem.(map[string]interface{})
 		if app == nil {
 			continue
 		}
-		allApps = append(allApps, map[string]interface{}{
-			"id":          toIntDefault(app["id"], 0),
-			"name":        toString(app["name"]),
-			"version":     toString(app["version"]),
-			"packageName": toString(app["packageName"]),
-		})
+		wg.Add(1)
+		go func(idx int, appName, pkgName string) {
+			defer wg.Done()
+			vResult, vErr := c.doPost(session, "/market/common/appVersion/selector", map[string]interface{}{
+				"packageName": pkgName,
+				"appName":     appName,
+			})
+			if vErr != nil {
+				results[idx] = appVersionResult{err: vErr}
+				return
+			}
+			vCode, _ := toInt(vResult["code"])
+			if vCode != 200 {
+				return
+			}
+			vData, _ := vResult["data"].([]interface{})
+			var versions []map[string]interface{}
+			for _, v := range vData {
+				vm, _ := v.(map[string]interface{})
+				if vm == nil {
+					continue
+				}
+				versions = append(versions, map[string]interface{}{
+					"id":          toIntDefault(vm["id"], 0),
+					"name":        appName,
+					"version":     toString(vm["label"]),
+					"packageName": pkgName,
+				})
+			}
+			results[idx] = appVersionResult{apps: versions}
+		}(i, toString(app["name"]), toString(app["packageName"]))
+	}
+	wg.Wait()
+
+	// Collect all versions into a flat list.
+	allApps := []interface{}{}
+	for _, r := range results {
+		for _, a := range r.apps {
+			allApps = append(allApps, a)
+		}
 	}
 
 	return &TMSResponse{
@@ -1299,7 +1483,7 @@ func (c *Client) AddParameter(session, deviceId, appId string) (*TMSResponse, er
 }
 
 // UpdateParameter updates terminal app parameters.
-// New API: single call instead of the old view → preSubmit → submit loop.
+// Uses new signed API: single call with updParamMap.
 func (c *Client) UpdateParameter(session, serialNum string, paraList []map[string]interface{}, appId string) (*TMSResponse, error) {
 	// Resolve SN to internal terminal ID.
 	terminalId, err := c.getTerminalIdFromSN(serialNum)
@@ -2029,9 +2213,10 @@ func (c *Client) GetTimeZoneList(session string) (*TMSResponse, error) {
 // Vendor / Model
 // ---------------------------------------------------------------------------
 
-// GetVendorList retrieves the list of terminal vendors.
+// GetVendorList retrieves the list of terminal vendors via old session-based API (like v2).
+// Endpoint: GET /market/common/vendor/selector
 func (c *Client) GetVendorList(session string) (*TMSResponse, error) {
-	result, err := c.doSignedPost("/v1/tps/common/vendor/selector", nil)
+	result, err := c.doGet(session, "/market/common/vendor/selector", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2061,9 +2246,10 @@ func (c *Client) GetVendorList(session string) (*TMSResponse, error) {
 	return resp, nil
 }
 
-// GetModelList retrieves the list of terminal models for a given vendor.
+// GetModelList retrieves the list of terminal models for a given vendor via old session-based API (like v2).
+// Endpoint: POST /market/common/model/selector
 func (c *Client) GetModelList(session string, vendorId string) (*TMSResponse, error) {
-	result, err := c.doSignedPost("/v1/tps/common/model/selector", map[string]interface{}{
+	result, err := c.doPost(session, "/market/common/model/selector", map[string]interface{}{
 		"vendor": vendorId,
 	})
 	if err != nil {

@@ -35,16 +35,41 @@ func (r *Repository) FindByCreatorID(creatorID int) ([]SyncTerminal, error) {
 	return syncs, nil
 }
 
+// SyncSearchFilter holds filter parameters for searching sync terminal records.
+type SyncSearchFilter struct {
+	CreatorName string // LIKE match on sync_term_creator_name
+	CreatedTime string // Date match (yyyy-mm-dd) on sync_term_created_time
+	Status      string // Exact match on sync_term_status
+	SyncedBy    string // LIKE match on created_by
+	SyncedDate  string // Date match (yyyy-mm-dd) on created_dt
+}
+
 // Search returns a paginated list of sync terminal records matching the given query.
 // The query string is matched against creator name.
 func (r *Repository) Search(query string, page, perPage int) ([]SyncTerminal, shared.Pagination, error) {
+	return r.SearchWithFilters(SyncSearchFilter{CreatorName: query}, page, perPage)
+}
+
+// SearchWithFilters returns a paginated list of sync terminal records matching the given filters.
+func (r *Repository) SearchWithFilters(filters SyncSearchFilter, page, perPage int) ([]SyncTerminal, shared.Pagination, error) {
 	var syncs []SyncTerminal
 	var total int64
 
 	tx := r.db.Model(&SyncTerminal{})
-	if query != "" {
-		like := "%" + query + "%"
-		tx = tx.Where("sync_term_creator_name LIKE ?", like)
+	if filters.CreatorName != "" {
+		tx = tx.Where("sync_term_creator_name LIKE ?", "%"+filters.CreatorName+"%")
+	}
+	if filters.CreatedTime != "" {
+		tx = tx.Where("DATE(sync_term_created_time) = ?", filters.CreatedTime)
+	}
+	if filters.Status != "" {
+		tx = tx.Where("sync_term_status = ?", filters.Status)
+	}
+	if filters.SyncedBy != "" {
+		tx = tx.Where("created_by LIKE ?", "%"+filters.SyncedBy+"%")
+	}
+	if filters.SyncedDate != "" {
+		tx = tx.Where("DATE(created_dt) = ?", filters.SyncedDate)
 	}
 
 	if err := tx.Count(&total).Error; err != nil {

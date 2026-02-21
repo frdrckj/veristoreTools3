@@ -245,6 +245,7 @@ func main() {
 	protected.POST("/veristore/import", tmsHandler.Import)
 	protected.GET("/veristore/import-format", tmsHandler.ImportFormat)
 	protected.GET("/veristore/import-result", tmsHandler.ImportResult)
+	protected.GET("/veristore/importreset", tmsHandler.ImportReset)
 	protected.GET("/veristore/import-merchant", tmsHandler.ImportMerchant)
 	protected.POST("/veristore/import-merchant", tmsHandler.ImportMerchant)
 	protected.POST("/veristore/change-merchant", tmsHandler.ChangeMerchant)
@@ -365,19 +366,21 @@ func main() {
 	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.TMS.SyncBatchSize)
 	tmsPingHandler := queue.NewTMSPingHandler(tmsService, tmsRepo)
 	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient)
+	reportTermHandler := queue.NewReportTerminalHandler(tmsService, tmsClient, adminRepo, db)
 
 	// -----------------------------------------------------------------------
 	// 18. Start Asynq worker in a goroutine
 	// -----------------------------------------------------------------------
 	asynqWorker := queue.NewWorker(redisCfg)
 	asynqMux := queue.NewMux(map[string]asynq.Handler{
-		queue.TaskImportTerminal: importTermHandler,
-		queue.TaskExportTerminal: exportTermHandler,
-		queue.TaskImportMerchant: importMerchHandler,
-		queue.TaskSyncParameter:  syncParamHandler,
-		queue.TaskExportAll:      exportTermHandler, // reuse export handler for export-all
-		queue.TaskTMSPing:        tmsPingHandler,
-		queue.TaskSchedulerCheck: schedulerCheckHandler,
+		queue.TaskImportTerminal:  importTermHandler,
+		queue.TaskExportTerminal:  exportTermHandler,
+		queue.TaskImportMerchant:  importMerchHandler,
+		queue.TaskSyncParameter:   syncParamHandler,
+		queue.TaskExportAll:       exportTermHandler, // reuse export handler for export-all
+		queue.TaskTMSPing:         tmsPingHandler,
+		queue.TaskSchedulerCheck:  schedulerCheckHandler,
+		queue.TaskReportTerminal:  reportTermHandler,
 	})
 
 	go func() {

@@ -81,42 +81,61 @@ func toSyncDataSlice(syncs []SyncTerminal) []syncTmpl.SyncData {
 	return result
 }
 
-// Index lists sync terminal records with pagination. Supports HTMX partial updates.
+// Index lists sync terminal records with pagination and column filters.
+// Supports HTMX partial updates.
 func (h *Handler) Index(c echo.Context) error {
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
 	}
 
-	syncs, pagination, err := h.service.repo.Search("", pageNum, 20)
+	perPage := 20
+
+	// Parse filter/search params from query string.
+	filters := SyncSearchFilter{
+		CreatorName: c.QueryParam("creator_name"),
+		CreatedTime: c.QueryParam("created_time"),
+		Status:      c.QueryParam("status"),
+		SyncedBy:    c.QueryParam("synced_by"),
+		SyncedDate:  c.QueryParam("synced_date"),
+	}
+
+	syncs, pagination, err := h.service.repo.SearchWithFilters(filters, pageNum, perPage)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load sync records")
+	}
+
+	// Build template search params (for pre-filling filter inputs).
+	tmplSearch := syncTmpl.SyncSearchParams{
+		CreatorName: filters.CreatorName,
+		CreatedTime: filters.CreatedTime,
+		Status:      filters.Status,
+		SyncedBy:    filters.SyncedBy,
+		SyncedDate:  filters.SyncedDate,
 	}
 
 	paginationData := components.PaginationData{
 		CurrentPage: pagination.CurrentPage,
 		TotalPages:  pagination.TotalPages,
 		Total:       pagination.Total,
+		PerPage:     perPage,
 		BaseURL:     "/sync-terminal/index",
 		HTMXTarget:  "sync-table-container",
+		QueryString: tmplSearch.QueryString(),
 	}
 
-	// Get last sync time.
-	lastSync, _ := h.service.GetLastSyncTime()
-	lastSyncStr := ""
-	if lastSync != nil {
-		lastSyncStr = lastSync.Format("2006-01-02 15:04:05")
-	}
+	// Check if there's a pending sync process (disables the "Sekarang" button).
+	syncProcess := h.service.HasPendingSync()
 
-	page := h.pageData(c, "Sync Terminal")
 	syncData := toSyncDataSlice(syncs)
 
 	// For HTMX requests, return only the table partial.
 	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, syncTmpl.SyncTablePartial(syncData, paginationData))
+		return shared.Render(c, http.StatusOK, syncTmpl.SyncTablePartial(syncData, paginationData, tmplSearch))
 	}
 
-	return shared.Render(c, http.StatusOK, syncTmpl.IndexPage(page, syncData, paginationData, lastSyncStr))
+	page := h.pageData(c, "Sinkronisasi Data CSI")
+	return shared.Render(c, http.StatusOK, syncTmpl.IndexPage(page, syncData, paginationData, tmplSearch, syncProcess))
 }
 
 // View displays a sync terminal record detail by ID.
@@ -175,22 +194,27 @@ func (h *Handler) Delete(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/sync-terminal/index")
 }
 
-// Download generates and serves an XLSX report for the given sync record.
-// TODO: Implement actual XLSX generation using excelize.
+// Download serves the XLSX report file associated with the given sync record.
+// The report is stored in the tms_report table, linked by user ID and timestamp.
 func (h *Handler) Download(c echo.Context) error {
 	id, err := strconv.Atoi(c.QueryParam("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid sync ID")
 	}
 
-	_, err = h.service.GetSyncByID(id)
+	syncRec, err := h.service.GetSyncByID(id)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "sync record not found")
 	}
 
-	// TODO: Generate XLSX file using excelize and serve it.
-	// For now, return a placeholder response.
-	return echo.NewHTTPError(http.StatusNotImplemented, "XLSX download not yet implemented")
+	fileData, fileName, err := h.service.GetReportFileForSync(syncRec)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("Report file not available: %v", err))
+	}
+
+	c.Response().Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileData)
 }
 
 // Reset resets all sync terminal statuses to "3".

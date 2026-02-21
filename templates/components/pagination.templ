@@ -10,8 +10,15 @@ type PaginationData struct {
 	CurrentPage int
 	TotalPages  int
 	Total       int64
+	PerPage     int    // Items per page (used for "Showing X-Y of Z" display)
 	BaseURL     string // The base URL for pagination links, e.g., "/csi/terminal"
 	HTMXTarget  string // The HTMX target element ID for partial updates
+	QueryString string // Additional query params to append, e.g., "&creator_name=abc&status=3"
+}
+
+// pageURL builds a pagination URL for the given page number, appending any extra query params.
+func (d PaginationData) pageURL(page int) string {
+	return d.BaseURL + "?page=" + strconv.Itoa(page) + d.QueryString
 }
 
 // Pagination renders pagination controls with HTMX support.
@@ -24,9 +31,9 @@ templ Pagination(data PaginationData) {
 					if data.CurrentPage > 1 {
 						<a
 							class="page-link"
-							href={ templ.SafeURL(data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage-1)) }
+							href={ templ.SafeURL(data.pageURL(data.CurrentPage - 1)) }
 							if data.HTMXTarget != "" {
-								hx-get={ data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage-1) }
+								hx-get={ data.pageURL(data.CurrentPage - 1) }
 								hx-target={ "#" + data.HTMXTarget }
 								hx-push-url="true"
 							}
@@ -42,9 +49,9 @@ templ Pagination(data PaginationData) {
 					<li class={ "page-item", templ.KV("active", page == data.CurrentPage) }>
 						<a
 							class="page-link"
-							href={ templ.SafeURL(data.BaseURL + "?page=" + strconv.Itoa(page)) }
+							href={ templ.SafeURL(data.pageURL(page)) }
 							if data.HTMXTarget != "" {
-								hx-get={ data.BaseURL + "?page=" + strconv.Itoa(page) }
+								hx-get={ data.pageURL(page) }
 								hx-target={ "#" + data.HTMXTarget }
 								hx-push-url="true"
 							}
@@ -58,9 +65,9 @@ templ Pagination(data PaginationData) {
 					if data.CurrentPage < data.TotalPages {
 						<a
 							class="page-link"
-							href={ templ.SafeURL(data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage+1)) }
+							href={ templ.SafeURL(data.pageURL(data.CurrentPage + 1)) }
 							if data.HTMXTarget != "" {
-								hx-get={ data.BaseURL + "?page=" + strconv.Itoa(data.CurrentPage+1) }
+								hx-get={ data.pageURL(data.CurrentPage + 1) }
 								hx-target={ "#" + data.HTMXTarget }
 								hx-push-url="true"
 							}

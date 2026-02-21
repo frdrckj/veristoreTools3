@@ -60,15 +60,22 @@ func mapGetInt(m map[string]interface{}, key string) int {
 }
 
 // TerminalPage renders the full terminal list page with layout.
-templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, totalPage int, currentPage int, searchParams SearchParams, pagination components.PaginationData) {
+// buttonsDisabled is true when a report sync or import is in progress (like v2).
+templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, totalPage int, currentPage int, searchParams SearchParams, pagination components.PaginationData, buttonsDisabled bool) {
 	@layouts.Base(page) {
 		<!-- Toolbar row matching v2 layout -->
 		<div class="row mb-3 align-items-center">
 			<!-- Left: Import / Export -->
 			<div class="col-auto">
-				<a href="/veristore/import" class="btn btn-primary">
-					<i class="fas fa-file-import"></i> Import
-				</a>
+				if buttonsDisabled {
+					<a class="btn btn-primary disabled" aria-disabled="true">
+						<i class="fas fa-file-import"></i> Import
+					</a>
+				} else {
+					<a href="/veristore/import" class="btn btn-primary">
+						<i class="fas fa-file-import"></i> Import
+					</a>
+				}
 				<button type="button" class="btn btn-success" onclick="return submitExport()">
 					<i class="fas fa-file-export"></i> Export
 				</button>
@@ -82,9 +89,15 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 			<!-- Center: Update + Search -->
 			<div class="col text-center">
 				<div class="d-inline-flex align-items-center">
-					<a href="/veristore/check" class="btn btn-info mr-3">
-						<i class="fas fa-sync-alt"></i> Update
-					</a>
+					if buttonsDisabled {
+						<a class="btn btn-info mr-3 disabled" aria-disabled="true">
+							<i class="fas fa-sync-alt"></i> Update
+						</a>
+					} else {
+						<a href="/veristore/report" class="btn btn-info mr-3">
+							<i class="fas fa-sync-alt"></i> Update
+						</a>
+					}
 					<form
 						class="d-inline-flex"
 						hx-get="/veristore/terminal"
@@ -115,25 +128,40 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 			</div>
 			<!-- Right: Add / Delete -->
 			<div class="col-auto">
-				<a href="/veristore/add" class="btn btn-primary">
-					<i class="fas fa-plus-square"></i> Add
-				</a>
-				<button type="button" class="btn btn-danger" onclick="return confirmBulkDelete()">
-					<i class="fas fa-trash"></i> Delete
-				</button>
+				if buttonsDisabled {
+					<a class="btn btn-primary disabled" aria-disabled="true">
+						<i class="fas fa-plus-square"></i> Add
+					</a>
+					<button type="button" class="btn btn-danger disabled" disabled>
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				} else {
+					<a href="/veristore/add" class="btn btn-primary">
+						<i class="fas fa-plus-square"></i> Add
+					</a>
+					<button type="button" class="btn btn-danger" onclick="return confirmBulkDelete()">
+						<i class="fas fa-trash"></i> Delete
+					</button>
+				}
 			</div>
 		</div>
+		if buttonsDisabled {
+			<div class="alert alert-warning">
+				<i class="fas fa-spinner fa-spin mr-2"></i>
+				Update / Import is currently in progress. Some actions are temporarily disabled.
+			</div>
+		}
 		<!-- Table card -->
 		<div class="card">
 			<div id="terminal-table-container">
-				@TerminalTablePartial(terminals, pagination, searchParams)
+				@TerminalTablePartial(terminals, pagination, searchParams, buttonsDisabled)
 			</div>
 		</div>
 	}
 }
 
 // TerminalTablePartial renders the terminal table body and pagination for HTMX updates.
-templ TerminalTablePartial(terminals []map[string]interface{}, pagination components.PaginationData, searchParams SearchParams) {
+templ TerminalTablePartial(terminals []map[string]interface{}, pagination components.PaginationData, searchParams SearchParams, buttonsDisabled bool) {
 	<div class="card-body table-responsive p-0">
 		<table class="table table-hover">
 			<thead>
@@ -184,12 +212,18 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 							>
 								<i class="fas fa-edit"></i> Edit
 							</a>
-							<a
-								href={ templ.SafeURL(fmt.Sprintf("/veristore/copy?sourceSn=%s", mapGet(t, "deviceId"))) }
-								class="btn btn-sm btn-default"
-							>
-								<i class="fas fa-copy"></i> Copy
-							</a>
+							if buttonsDisabled {
+								<a class="btn btn-sm btn-default disabled" aria-disabled="true">
+									<i class="fas fa-copy"></i> Copy
+								</a>
+							} else {
+								<a
+									href={ templ.SafeURL(fmt.Sprintf("/veristore/copy?sourceSn=%s", mapGet(t, "deviceId"))) }
+									class="btn btn-sm btn-default"
+								>
+									<i class="fas fa-copy"></i> Copy
+								</a>
+							}
 						</td>
 					</tr>
 				}

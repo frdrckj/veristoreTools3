@@ -37,6 +37,9 @@ templ ExportPage(page layouts.PageData, data ExportData) {
 					<a href="/veristore/export?refresh=true" class="btn btn-success">
 						<i class="fas fa-sync-alt"></i> Refresh
 					</a>
+					<a href="/veristore/exportreset" class="btn btn-warning ml-2" onclick="return confirm('Reset the export process?')">
+						<i class="fas fa-undo"></i> Reset
+					</a>
 				} else if data.DownloadReady {
 					<div class="alert alert-info" style="font-size: 1.1rem;">
 						Last export on { data.LastExportDate }

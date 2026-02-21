@@ -40,9 +40,10 @@ templ ViewPage(page layouts.PageData, s SyncData) {
 						<tr>
 							<th>Status</th>
 							<td>
-								<span class={ "badge", s.StatusClass() }>
-									{ s.StatusLabel() }
-								</span>
+								{ s.StatusLabel() }
+								if s.StatusIcon() != "" {
+									<i class={ s.StatusIcon() }></i>
+								}
 							</td>
 						</tr>
 						<tr>

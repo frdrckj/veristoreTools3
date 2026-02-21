@@ -72,7 +72,7 @@ templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants
 							<div class="form-group row">
 								<label class="col-sm-3 col-form-label font-weight-bold" for="model">Model</label>
 								<div class="col-sm-9">
-									<select class="form-control select2" id="model" name="model" required>
+									<select class="form-control select2" id="model" name="model">
 										<option value="">Model</option>
 									</select>
 								</div>
@@ -121,7 +121,7 @@ templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants
 							</div>
 						</div>
 						<div class="card-footer">
-							<button type="button" class="btn btn-primary" onclick="confirmSubmit()">
+							<button type="submit" class="btn btn-primary">
 								<i class="fas fa-save"></i> Add Terminal
 							</button>
 							<a href="/veristore/terminal" class="btn btn-default ml-2">Cancel</a>
@@ -184,13 +184,6 @@ templ AddPage(page layouts.PageData, vendors []map[string]interface{}, merchants
 					});
 			}
 
-			// Confirmation before submit.
-			function confirmSubmit() {
-				if (!document.getElementById('formSubmit').reportValidity()) return;
-				if (confirm('Are you sure?')) {
-					document.getElementById('formSubmit').submit();
-				}
-			}
-		</script>
+			</script>
 	}
 }

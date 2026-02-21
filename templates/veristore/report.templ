@@ -2,56 +2,73 @@ package veristore
 
 import "github.com/verifone/veristoretools3/templates/layouts"
 
-// ReportPage renders the terminal report page.
-templ ReportPage(page layouts.PageData) {
+// ReportApp holds an app entry for the report dropdown.
+type ReportApp struct {
+	Version     string // app version (used as value)
+	DisplayName string // "name - version"
+}
+
+// ReportPage renders the CSI (Update) page with an app version dropdown (like v2).
+templ ReportPage(page layouts.PageData, apps []ReportApp) {
 	@layouts.Base(page) {
-		<div class="row">
-			<div class="col-md-10 offset-md-1">
-				<div class="card card-primary">
-					<div class="card-header">
-						<h3 class="card-title">Terminal Report</h3>
-						<div class="card-tools">
-							<a href="/veristore/terminal" class="btn btn-sm btn-default">
-								<i class="fas fa-arrow-left"></i> Back to List
-							</a>
-						</div>
-					</div>
-					<div class="card-body">
-						<form method="POST" action="/veristore/report">
-							<div class="row">
-								<div class="col-md-6">
-									<div class="form-group">
-										<label for="reportName">Report Name</label>
-										<input
-											type="text"
-											class="form-control"
-											id="reportName"
-											name="reportName"
-											placeholder="Enter report name"
-											value="terminal_report"
-										/>
-									</div>
-								</div>
-								<div class="col-md-6">
-									<div class="form-group">
-										<label>&nbsp;</label>
-										<div>
-											<button type="submit" class="btn btn-primary">
-												<i class="fas fa-chart-bar"></i> Generate Report
-											</button>
-										</div>
-									</div>
-								</div>
-							</div>
-						</form>
-						<hr/>
-						<div class="text-center text-muted py-4">
-							<i class="fas fa-chart-bar fa-3x mb-2"></i>
-							<p>Generate a report to view terminal statistics and details.</p>
-						</div>
-					</div>
+		<form id="formReport" method="POST" action="/veristore/report">
+			<br/>
+			<div class="row align-items-center">
+				<div class="col-lg-2">
+					<h5><strong>App Name</strong></h5>
+				</div>
+				<div class="col-lg-10">
+					<select class="form-control select2" id="appVersion" name="appVersion" required>
+						<option value="">App Name</option>
+						for _, app := range apps {
+							<option value={ app.Version }>{ app.DisplayName }</option>
+						}
+					</select>
 				</div>
 			</div>
-		</div>
+			<br/>
+			<div class="row">
+				<div class="col-lg-1">
+					<a href="/veristore/terminal" class="btn btn-danger">
+						<i class="fas fa-arrow-circle-left"></i> Back
+					</a>
+				</div>
+				<div class="col-lg-11">
+					<button type="submit" class="btn btn-success" id="btnSubmit">
+						<i class="fas fa-file"></i> Submit
+					</button>
+					<span id="spinSubmit" style="display:none;" class="ml-2">
+						<i class="fas fa-spinner fa-spin fa-lg text-success"></i>
+					</span>
+				</div>
+			</div>
+		</form>
+		<script>
+			window.addEventListener('load', function() {
+				if (typeof $ !== 'undefined' && $.fn.select2) {
+					$('#appVersion').select2({
+						placeholder: 'App Name',
+						allowClear: false,
+						width: '350px'
+					});
+				}
+				// Confirmation before submit.
+				var form = document.getElementById('formReport');
+				form.addEventListener('submit', function(e) {
+					var sel = document.getElementById('appVersion');
+					if (!sel.value) {
+						e.preventDefault();
+						alert('Please select an App Name');
+						return;
+					}
+					if (!confirm('Are you sure?')) {
+						e.preventDefault();
+						return;
+					}
+					document.getElementById('spinSubmit').style.display = 'inline';
+					document.getElementById('btnSubmit').disabled = true;
+				});
+			});
+		</script>
 	}
 }

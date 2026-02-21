@@ -10,4 +10,5 @@ const (
 	TaskExportAll      = "export:all_terminals"
 	TaskTMSPing        = "tms:ping"
 	TaskSchedulerCheck = "tms:scheduler_check"
+	TaskReportTerminal = "report:terminal"
 )

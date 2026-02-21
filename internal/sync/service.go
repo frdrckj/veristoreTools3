@@ -1,8 +1,10 @@
 package sync
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/verifone/veristoretools3/internal/admin"
 	"gorm.io/gorm"
 )
 
@@ -60,6 +62,16 @@ func (s *Service) ResetAllSync() error {
 		Update("sync_term_status", "3").Error
 }
 
+// HasPendingSync returns true if there are any sync terminal records with
+// status 0 (Menunggu), 1 (Download), or 2 (Proses) — i.e., not yet completed.
+func (s *Service) HasPendingSync() bool {
+	var count int64
+	s.db.Model(&SyncTerminal{}).
+		Where("sync_term_status IN ?", []string{"0", "1", "2"}).
+		Count(&count)
+	return count > 0
+}
+
 // GetLastSyncTime returns the most recent sync time, or nil if no records exist.
 func (s *Service) GetLastSyncTime() (*time.Time, error) {
 	var sync SyncTerminal
@@ -73,4 +85,31 @@ func (s *Service) GetLastSyncTime() (*time.Time, error) {
 		return nil, err
 	}
 	return &sync.SyncTermCreatedTime, nil
+}
+
+// GetReportFileForSync finds the tms_report XLSX file associated with a sync record.
+// The report name convention is "{userId}_{timestamp}.xlsx" matching the sync record's
+// creator ID and created time.
+func (s *Service) GetReportFileForSync(syncRec *SyncTerminal) ([]byte, string, error) {
+	// Build the expected report name: {userId}_{YYYYMMDDHHmmss}.xlsx
+	reportName := fmt.Sprintf("%d_%s.xlsx",
+		syncRec.SyncTermCreatorID,
+		syncRec.SyncTermCreatedTime.Format("20060102150405"),
+	)
+
+	var rpt admin.TmsReport
+	if err := s.db.Where("tms_rpt_name = ?", reportName).First(&rpt).Error; err != nil {
+		// Also try a broader search by user ID prefix in case of timing differences.
+		prefix := fmt.Sprintf("%d_%%", syncRec.SyncTermCreatorID)
+		if err2 := s.db.Where("tms_rpt_name LIKE ?", prefix).
+			Order("tms_rpt_id DESC").First(&rpt).Error; err2 != nil {
+			return nil, "", fmt.Errorf("report not found: %w", err)
+		}
+	}
+
+	if len(rpt.TmsRptFile) == 0 {
+		return nil, "", fmt.Errorf("report file is empty")
+	}
+
+	return rpt.TmsRptFile, rpt.TmsRptName, nil
 }

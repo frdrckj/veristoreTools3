@@ -138,9 +138,13 @@ func (s *Service) GetTerminalParameterTab(serialNum, appId, tabName string) (*TM
 }
 
 // AddTerminal registers a new terminal.
-// Uses new signed API (no session needed).
+// Uses old session-based API (like v2).
 func (s *Service) AddTerminal(data AddTerminalRequest) (*TMSResponse, error) {
-	return s.client.AddTerminal("", data.DeviceID, data.Vendor, data.Model, data.MerchantID, data.GroupIDs, data.SN, data.MoveConf)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.AddTerminal(session, data.DeviceID, data.Vendor, data.Model, data.MerchantID, data.GroupIDs, data.SN, data.MoveConf)
 }
 
 // AddParameter assigns an app to a terminal (preAdd + submit, like v2).
@@ -297,15 +301,23 @@ func (s *Service) GetDashboard() (*TMSResponse, error) {
 }
 
 // GetVendorList retrieves the vendor selector list.
-// Uses new signed API (no session needed).
+// Uses old session-based API (like v2).
 func (s *Service) GetVendorList() (*TMSResponse, error) {
-	return s.client.GetVendorList("")
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.GetVendorList(session)
 }
 
 // GetModelList retrieves terminal models for a given vendor.
-// Uses new signed API (no session needed).
+// Uses old session-based API (like v2).
 func (s *Service) GetModelList(vendorId string) (*TMSResponse, error) {
-	return s.client.GetModelList("", vendorId)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.GetModelList(session, vendorId)
 }
 
 // GetCountryList retrieves the country list.
@@ -427,9 +439,13 @@ func (s *Service) GetGroupTerminalSearch(search string) (*TMSResponse, error) {
 }
 
 // GetAppList retrieves all available apps and their versions.
-// Uses new signed API (no session needed).
+// Uses old session-based API (like v2) with parallel version fetching.
 func (s *Service) GetAppList() (*TMSResponse, error) {
-	return s.client.GetAppList("")
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.GetAppList(session)
 }
 
 // GetAppListSearch retrieves apps installed on a specific terminal.

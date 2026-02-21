@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +23,7 @@ import (
 	"github.com/verifone/veristoretools3/templates/components"
 	"github.com/verifone/veristoretools3/templates/layouts"
 	vsTmpl "github.com/verifone/veristoretools3/templates/veristore"
+	"github.com/xuri/excelize/v2"
 )
 
 // paramCacheEntry holds pre-fetched parameter data with a timestamp.
@@ -212,7 +216,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load terminals: %v", err))
-		return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, nil, 0, pageNum, vsTmpl.SearchParams{}, components.PaginationData{}))
+		return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, nil, 0, pageNum, vsTmpl.SearchParams{}, components.PaginationData{}, false))
 	}
 
 	var terminals []map[string]interface{}
@@ -244,11 +248,14 @@ func (h *Handler) Terminal(c echo.Context) error {
 		HTMXTarget:  "terminal-table-container",
 	}
 
+	// Check if buttons should be disabled (pending sync or import in progress, like v2).
+	buttonsDisabled := h.adminRepo.HasPendingSync() || h.adminRepo.HasPendingImport()
+
 	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, vsTmpl.TerminalTablePartial(terminals, pagination, searchParams))
+		return shared.Render(c, http.StatusOK, vsTmpl.TerminalTablePartial(terminals, pagination, searchParams, buttonsDisabled))
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, terminals, totalPage, pageNum, searchParams, pagination))
+	return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, terminals, totalPage, pageNum, searchParams, pagination, buttonsDisabled))
 }
 
 // Add handles GET/POST /veristore/add - Add terminal form and submission.
@@ -362,8 +369,11 @@ func (h *Handler) Edit(c echo.Context) error {
 
 		var paramGroups []vsTmpl.ParamGroup
 		// If appId is provided, build tree from template_parameter DB table.
-		// No TMS API calls here — dynamic titles are resolved lazily via AJAX.
+		// Fetch terminal parameters to resolve dynamic (*-prefixed) titles (like v2).
 		if appId != "" {
+			// Fetch params synchronously so we can resolve *-prefixed tree titles.
+			paramData := h.getCachedParams(serialNum, appId)
+
 			type tplGroup struct {
 				Title      string
 				IndexTitle string
@@ -384,10 +394,14 @@ func (h *Handler) Edit(c echo.Context) error {
 				var subItems []vsTmpl.ParamSubItem
 				for i := 0; i < tg.Index && i < len(subTitles); i++ {
 					subTitle := subTitles[i]
-					// Dynamic titles (*-prefixed): show index number for now,
-					// resolved lazily when the sub-item is clicked.
 					if len(subTitle) > 0 && subTitle[0] == '*' {
-						subTitle = fmt.Sprintf("%d", i+1)
+						// Strip '*' to get the dataName key, look up actual value from params.
+						key := subTitle[1:]
+						if entry, ok := paramData[key]; ok && entry[1] != "" {
+							subTitle = entry[1]
+						} else {
+							subTitle = key
+						}
 					}
 					subItems = append(subItems, vsTmpl.ParamSubItem{
 						Title: subTitle,
@@ -399,11 +413,6 @@ func (h *Handler) Edit(c echo.Context) error {
 					SubItems: subItems,
 				})
 			}
-		}
-
-		// Pre-fetch all parameters in the background so Check is instant.
-		if appId != "" {
-			h.prefetchParams(serialNum, appId)
 		}
 
 		// Find selected app name/version.
@@ -1137,21 +1146,92 @@ func (h *Handler) CheckPDF(c echo.Context) error {
 	return c.Blob(http.StatusOK, "application/pdf", buf.Bytes())
 }
 
-// Report handles GET/POST /veristore/report - Terminal report page.
+// reportPayload mirrors the background job payload to avoid import cycle.
+type reportPayload struct {
+	UserID      int    `json:"user_id"`
+	UserName    string `json:"user_name"`
+	AppVersion  string `json:"app_version"`
+	Session     string `json:"session"`
+	DateTime    string `json:"date_time"`
+	PackageName string `json:"package_name"`
+}
+
+// Report handles GET/POST /veristore/report - CSI (Update) page (like v2 actionReport).
 func (h *Handler) Report(c echo.Context) error {
-	page := h.pageData(c, "Terminal Report")
+	page := h.pageData(c, "CSI (Update)")
 
 	if c.Request().Method == http.MethodPost {
-		// Process report generation request.
-		reportName := c.FormValue("reportName")
-		if reportName == "" {
-			reportName = "terminal_report"
+		appVersion := c.FormValue("appVersion")
+		if appVersion == "" {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Please select an App Name")
+			return c.Redirect(http.StatusFound, "/veristore/report")
 		}
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashInfo, "Report generation initiated")
-		return c.Redirect(http.StatusFound, "/veristore/report")
+
+		// Create SyncTerminal record IMMEDIATELY so buttons are disabled
+		// on redirect (like v2's cache flag). The background job will update it.
+		now := time.Now()
+		userID := mw.GetCurrentUserID(c)
+		userName := mw.GetCurrentUserFullname(c)
+		_ = h.adminRepo.CreateSyncTerminal(&admin.SyncTerminal{
+			SyncTermCreatorID:   userID,
+			SyncTermCreatorName: userName,
+			SyncTermCreatedTime: now,
+			SyncTermStatus:      "0",
+			SyncTermProcess:     "0",
+			CreatedBy:           "-",
+			CreatedDt:           now,
+		})
+
+		// Queue background report job (like v2 ReportTerminal).
+		session := h.service.GetSession()
+		payload := reportPayload{
+			UserID:      userID,
+			UserName:    userName,
+			AppVersion:  appVersion,
+			Session:     session,
+			DateTime:    now.Format("2006-01-02 15:04:05"),
+			PackageName: h.packageName,
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		task := asynq.NewTask("report:terminal", payloadBytes)
+		if _, err := h.queueClient.Enqueue(task); err != nil {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to enqueue report job: %v", err))
+			return c.Redirect(http.StatusFound, "/veristore/report")
+		}
+
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Report generation started. The report will be available shortly.")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.ReportPage(page))
+	// GET — populate app dropdown from TMS API.
+	var apps []vsTmpl.ReportApp
+	resp, err := h.service.GetAppList()
+	if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+		if allApps, ok := resp.Data["allApps"].([]interface{}); ok {
+			for _, a := range allApps {
+				am, ok := a.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				pkgName := fmt.Sprintf("%v", am["packageName"])
+				if h.packageName != "" && pkgName != h.packageName {
+					continue
+				}
+				name := fmt.Sprintf("%v", am["name"])
+				version := fmt.Sprintf("%v", am["version"])
+				displayName := name
+				if version != "" {
+					displayName = name + " - " + version
+				}
+				apps = append(apps, vsTmpl.ReportApp{
+					Version:     version,
+					DisplayName: displayName,
+				})
+			}
+		}
+	}
+
+	return shared.Render(c, http.StatusOK, vsTmpl.ReportPage(page, apps))
 }
 
 // Export handles GET/POST /veristore/export - Export terminal data.
@@ -1349,27 +1429,264 @@ func (h *Handler) ExportReset(c echo.Context) error {
 // Import handles GET/POST /veristore/import - Import terminals from Excel.
 func (h *Handler) Import(c echo.Context) error {
 	page := h.pageData(c, "Import Terminals")
+	data := vsTmpl.ImportData{}
+
+	// Check if there is an import in progress.
+	inProgress, _ := h.adminRepo.FindInProgressImport()
+	if inProgress != nil {
+		data.InProgress = true
+		data.RequestDate = inProgress.ImpFilename
+		cur, tot := "0", "0"
+		if inProgress.ImpCurrent != nil {
+			cur = *inProgress.ImpCurrent
+		}
+		if inProgress.ImpTotal != nil {
+			tot = *inProgress.ImpTotal
+		}
+		data.Progress = cur + " / " + tot
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
 
 	if c.Request().Method == http.MethodGet {
-		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, nil, nil))
+		// Check latest import for completed status.
+		latest, err := h.adminRepo.FindLatestImport()
+		if err == nil && latest != nil {
+			cur, tot := "0", "0"
+			if latest.ImpCurrent != nil {
+				cur = *latest.ImpCurrent
+			}
+			if latest.ImpTotal != nil {
+				tot = *latest.ImpTotal
+			}
+			if cur == tot && cur != "0" {
+				data.LastComplete = true
+				data.LastFilename = latest.ImpFilename
+				data.Progress = cur + " / " + tot
+			}
+		}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
 	}
 
 	// POST - handle file upload.
 	file, err := c.FormFile("file")
 	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, []string{"Please select a file to upload"}, nil))
+		data.Errors = []string{"Please select a file to upload"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
 	}
 
-	_ = file // TODO: Process the Excel file for terminal import.
+	// Validate file extension.
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".xlsx" && ext != ".xls" {
+		data.Errors = []string{"Only .xlsx files are supported"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
 
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Import completed. Check the result for details.")
+	// Save file to static/import/.
+	src, err := file.Open()
+	if err != nil {
+		data.Errors = []string{"Failed to read uploaded file"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
+	defer src.Close()
+
+	filename := fmt.Sprintf("csi_%s%s", time.Now().Format("20060102_1504"), ext)
+	destPath := filepath.Join("static", "import", filename)
+	dst, err := os.Create(destPath)
+	if err != nil {
+		data.Errors = []string{"Failed to save uploaded file"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, src); err != nil {
+		data.Errors = []string{"Failed to save uploaded file"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
+
+	// Count rows in Excel to set total.
+	ef, err := excelize.OpenFile(destPath)
+	rowCount := 0
+	if err == nil {
+		sheetName := ef.GetSheetName(0)
+		if rows, err := ef.GetRows(sheetName); err == nil {
+			rowCount = len(rows) - 1 // Subtract header row.
+			if rowCount < 0 {
+				rowCount = 0
+			}
+		}
+		ef.Close()
+	}
+
+	// Get TMS session for background job.
+	session := h.service.GetSession()
+	if session == "" {
+		_ = os.Remove(destPath)
+		data.Errors = []string{"No active TMS session. Please login to Veristore first."}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
+
+	// Create import record for progress tracking.
+	current := "0"
+	total := strconv.Itoa(rowCount)
+	imp := &admin.Import{
+		ImpCodeID:   "CSI",
+		ImpFilename: filename,
+		ImpCurrent:  &current,
+		ImpTotal:    &total,
+	}
+	if err := h.adminRepo.CreateImport(imp); err != nil {
+		_ = os.Remove(destPath)
+		data.Errors = []string{fmt.Sprintf("Failed to create import record: %v", err)}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
+
+	// Get current user.
+	user := ""
+	if u, ok := c.Get("user").(string); ok {
+		user = u
+	}
+	if user == "" {
+		sess, _ := h.store.Get(c.Request(), h.sessionName)
+		if sess != nil {
+			if u, ok := sess.Values["username"].(string); ok {
+				user = u
+			}
+		}
+	}
+
+	// Enqueue background import job.
+	payload := map[string]interface{}{
+		"file_path": destPath,
+		"session":   session,
+		"user":      user,
+		"import_id": imp.ImpID,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	task := asynq.NewTask("import:terminal", payloadBytes)
+	if _, err := h.queueClient.Enqueue(task); err != nil {
+		_ = os.Remove(destPath)
+		data.Errors = []string{fmt.Sprintf("Failed to enqueue import job: %v", err)}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+	}
+
+	data.InProgress = true
+	data.RequestDate = filename
+	data.Progress = "0 / " + total
+	return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
+}
+
+// ImportReset handles GET /veristore/importreset - Remove stuck/incomplete imports.
+func (h *Handler) ImportReset(c echo.Context) error {
+	_ = h.adminRepo.DeleteIncompleteImports()
 	return c.Redirect(http.StatusFound, "/veristore/import")
 }
 
 // ImportFormat handles GET /veristore/import-format - Download import template.
+// Dynamically generates an Excel template with headers and reference sheets (like v2).
 func (h *Handler) ImportFormat(c echo.Context) error {
-	// TODO: Generate and return an Excel template for terminal import.
-	return echo.NewHTTPError(http.StatusNotImplemented, "import format template not yet available")
+	f := excelize.NewFile()
+
+	// -- CSI sheet (main data sheet) --
+	csiSheet := "CSI"
+	f.SetSheetName("Sheet1", csiSheet)
+
+	csiHeaders := []string{
+		"No", "Template", "CSI", "Merchant ID", "Group ID",
+		"Header 1", "Header 2", "Header 3", "Header 4", "Header 5",
+		"TID Reguler 1", "MID Reguler 1",
+		"TID Reguler 2", "MID Reguler 2",
+		"TID Cicilan 3", "MID Cicilan 3", "Promo Code 3",
+		"TID Cicilan 6", "MID Cicilan 6", "Promo Code 6",
+		"TID Cicilan 9", "MID Cicilan 9", "Promo Code 9",
+		"TID Cicilan 12", "MID Cicilan 12", "Promo Code 12",
+		"TID Cicilan 18", "MID Cicilan 18", "Promo Code 18",
+		"TID Cicilan 24", "MID Cicilan 24", "Promo Code 24",
+		"TID Cicilan 36", "MID Cicilan 36", "Promo Code 36",
+		"TID QR", "MID QR",
+	}
+
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "000000"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"FFE699"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+		Border: []excelize.Border{
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
+			{Type: "bottom", Color: "000000", Style: 1},
+		},
+	})
+
+	for i, header := range csiHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(csiSheet, cell, header)
+		f.SetCellStyle(csiSheet, cell, cell, headerStyle)
+	}
+
+	// Set column widths for readability.
+	f.SetColWidth(csiSheet, "A", "A", 5)
+	f.SetColWidth(csiSheet, "B", "C", 15)
+	f.SetColWidth(csiSheet, "D", "E", 12)
+	f.SetColWidth(csiSheet, "F", "J", 25)
+	f.SetColWidth(csiSheet, "K", "AK", 18)
+
+	// -- Reference sheets --
+	refHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "000000"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"9BC2E6"}},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+		Border: []excelize.Border{
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
+			{Type: "bottom", Color: "000000", Style: 1},
+		},
+	})
+
+	// Merchant reference sheet.
+	merchSheet := "Profil Merchant"
+	f.NewSheet(merchSheet)
+	f.SetCellValue(merchSheet, "A1", "Merchant ID")
+	f.SetCellValue(merchSheet, "B1", "Merchant Name")
+	f.SetCellStyle(merchSheet, "A1", "B1", refHeaderStyle)
+	f.SetColWidth(merchSheet, "A", "A", 15)
+	f.SetColWidth(merchSheet, "B", "B", 40)
+
+	merchants := h.loadMerchants()
+	for i, m := range merchants {
+		row := i + 2
+		cellA, _ := excelize.CoordinatesToCellName(1, row)
+		cellB, _ := excelize.CoordinatesToCellName(2, row)
+		f.SetCellValue(merchSheet, cellA, toString(m["id"]))
+		f.SetCellValue(merchSheet, cellB, toString(m["name"]))
+	}
+
+	// Group reference sheet.
+	groupSheet := "Group Merchant"
+	f.NewSheet(groupSheet)
+	f.SetCellValue(groupSheet, "A1", "Group ID")
+	f.SetCellValue(groupSheet, "B1", "Group Name")
+	f.SetCellStyle(groupSheet, "A1", "B1", refHeaderStyle)
+	f.SetColWidth(groupSheet, "A", "A", 15)
+	f.SetColWidth(groupSheet, "B", "B", 40)
+
+	groups := h.loadGroups()
+	for i, g := range groups {
+		row := i + 2
+		cellA, _ := excelize.CoordinatesToCellName(1, row)
+		cellB, _ := excelize.CoordinatesToCellName(2, row)
+		f.SetCellValue(groupSheet, cellA, toString(g["id"]))
+		f.SetCellValue(groupSheet, cellB, toString(g["name"]))
+	}
+
+	// Write to buffer and send.
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate template")
+	}
+
+	c.Response().Header().Set("Content-Disposition", `attachment; filename="import_format_csi.xlsx"`)
+	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }
 
 // ImportResult handles GET /veristore/import-result - Download import result file.
@@ -1890,11 +2207,8 @@ func (h *Handler) GetModel(c echo.Context) error {
 
 	resp, err := h.service.GetModelList(vendorId)
 	if err != nil {
-		fmt.Printf("[GetModel] error for vendor=%s: %v\n", vendorId, err)
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 	}
-
-	fmt.Printf("[GetModel] vendor=%s resultCode=%d data=%v\n", vendorId, resp.ResultCode, resp.Data)
 
 	var models []interface{}
 	if resp.ResultCode == 0 && resp.Data != nil {
@@ -2028,14 +2342,12 @@ func (h *Handler) Login(c echo.Context) error {
 func (h *Handler) loadVendors() []map[string]interface{} {
 	resp, err := h.service.GetVendorList()
 	if err != nil || resp.ResultCode != 0 || resp.Data == nil {
-		fmt.Printf("[loadVendors] error=%v resultCode=%d\n", err, resp.ResultCode)
 		return nil
 	}
 	var vendors []map[string]interface{}
 	if vl, ok := resp.Data["vendors"].([]interface{}); ok {
 		for _, v := range vl {
 			if m, ok := v.(map[string]interface{}); ok {
-				fmt.Printf("[loadVendors] vendor keys: %v\n", m)
 				vendors = append(vendors, m)
 			}
 		}

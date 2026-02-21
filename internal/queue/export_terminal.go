@@ -22,7 +22,7 @@ import (
 // Number of concurrent workers for fetching terminal data from TMS.
 // Each worker makes 2 API calls per terminal (detail + parameters).
 // At ~2s per terminal pair and 50 workers: 25,000 terminals ≈ 17 minutes.
-const exportWorkerCount = 10
+const exportWorkerCount = 50
 
 // ExportTerminalPayload is the JSON payload for the export:terminal task.
 type ExportTerminalPayload struct {

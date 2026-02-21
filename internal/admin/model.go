@@ -97,6 +97,19 @@ func (QueueLog) TableName() string {
 	return "queue_log"
 }
 
+// Import maps to the `import` table — tracks terminal import job progress.
+type Import struct {
+	ImpID       int     `gorm:"column:imp_id;primaryKey;autoIncrement" json:"imp_id"`
+	ImpCodeID   string  `gorm:"column:imp_code_id;type:varchar(10);not null;default:CSI" json:"imp_code_id"`
+	ImpFilename string  `gorm:"column:imp_filename;type:varchar(100);not null" json:"imp_filename"`
+	ImpCurrent  *string `gorm:"column:imp_current;type:varchar(10);default:0" json:"imp_current"`
+	ImpTotal    *string `gorm:"column:imp_total;type:varchar(10);default:0" json:"imp_total"`
+}
+
+func (Import) TableName() string {
+	return "import"
+}
+
 // Export maps to the `export` table from veristoreTools2.
 type Export struct {
 	ExpID       int     `gorm:"column:exp_id;primaryKey;autoIncrement" json:"exp_id"`
@@ -118,6 +131,36 @@ type ExportResult struct {
 
 func (ExportResult) TableName() string {
 	return "export_result"
+}
+
+// TmsReport maps to the `tms_report` table — stores report generation state and output.
+type TmsReport struct {
+	TmsRptID        int     `gorm:"column:tms_rpt_id;uniqueIndex;autoIncrement" json:"tms_rpt_id"`
+	TmsRptName      string  `gorm:"column:tms_rpt_name;type:varchar(255);primaryKey" json:"tms_rpt_name"`
+	TmsRptFile      []byte  `gorm:"column:tms_rpt_file;type:longblob" json:"-"`
+	TmsRptRow       *string `gorm:"column:tms_rpt_row;type:longtext" json:"tms_rpt_row"`
+	TmsRptCurPage   string  `gorm:"column:tms_rpt_cur_page;type:varchar(10);default:0" json:"tms_rpt_cur_page"`
+	TmsRptTotalPage string  `gorm:"column:tms_rpt_total_page;type:varchar(10);default:0" json:"tms_rpt_total_page"`
+}
+
+func (TmsReport) TableName() string {
+	return "tms_report"
+}
+
+// SyncTerminal maps to the `sync_terminal` table — tracks report sync operations.
+type SyncTerminal struct {
+	SyncTermID          int       `gorm:"column:sync_term_id;uniqueIndex;autoIncrement" json:"sync_term_id"`
+	SyncTermCreatorID   int       `gorm:"column:sync_term_creator_id;primaryKey" json:"sync_term_creator_id"`
+	SyncTermCreatorName string    `gorm:"column:sync_term_creator_name;type:text;not null" json:"sync_term_creator_name"`
+	SyncTermCreatedTime time.Time `gorm:"column:sync_term_created_time;primaryKey" json:"sync_term_created_time"`
+	SyncTermStatus      string    `gorm:"column:sync_term_status;type:varchar(1);not null;default:0" json:"sync_term_status"`
+	SyncTermProcess     string    `gorm:"column:sync_term_process;type:varchar(10);default:0" json:"sync_term_process"`
+	CreatedBy           string    `gorm:"column:created_by;type:varchar(100);not null" json:"created_by"`
+	CreatedDt           time.Time `gorm:"column:created_dt;not null" json:"created_dt"`
+}
+
+func (SyncTerminal) TableName() string {
+	return "sync_terminal"
 }
 
 // Hash maps to the `hash` table from veristoreTools2.

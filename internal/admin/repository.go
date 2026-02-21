@@ -201,6 +201,48 @@ func (r *Repository) FindExportByID(id int) (*Export, error) {
 	return &e, nil
 }
 
+// ==================== Import ====================
+
+// CreateImport inserts a new import record.
+func (r *Repository) CreateImport(i *Import) error {
+	return r.db.Create(i).Error
+}
+
+// UpdateImportProgress updates only the progress fields of an import record.
+func (r *Repository) UpdateImportProgress(id int, current, total string) error {
+	return r.db.Model(&Import{}).Where("imp_id = ?", id).Updates(map[string]interface{}{
+		"imp_current": current,
+		"imp_total":   total,
+	}).Error
+}
+
+// FindInProgressImport finds an import that is still being processed (current != total).
+func (r *Repository) FindInProgressImport() (*Import, error) {
+	var i Import
+	err := r.db.Where("imp_current != imp_total").Order("imp_id DESC").First(&i).Error
+	if err != nil {
+		return nil, err
+	}
+	return &i, nil
+}
+
+// FindLatestImport retrieves the most recent import record.
+func (r *Repository) FindLatestImport() (*Import, error) {
+	var i Import
+	err := r.db.Order("imp_id DESC").First(&i).Error
+	if err != nil {
+		return nil, err
+	}
+	return &i, nil
+}
+
+// DeleteIncompleteImports removes imports that are stuck (current != total).
+func (r *Repository) DeleteIncompleteImports() error {
+	return r.db.Where("imp_current != imp_total").Delete(&Import{}).Error
+}
+
+// ==================== Export ====================
+
 // CreateExport inserts a new export record.
 func (r *Repository) CreateExport(e *Export) error {
 	return r.db.Create(e).Error
@@ -344,4 +386,88 @@ func (r *Repository) UpdateFaq(f *Faq) error {
 // DeleteFaq removes a FAQ record by ID.
 func (r *Repository) DeleteFaq(id int) error {
 	return r.db.Delete(&Faq{}, "faq_id = ?", id).Error
+}
+
+// ==================== TmsReport ====================
+
+// CreateTmsReport inserts a new TMS report record.
+func (r *Repository) CreateTmsReport(rpt *TmsReport) error {
+	return r.db.Create(rpt).Error
+}
+
+// FindTmsReportByName retrieves a TMS report by name.
+func (r *Repository) FindTmsReportByName(name string) (*TmsReport, error) {
+	var rpt TmsReport
+	if err := r.db.First(&rpt, "tms_rpt_name = ?", name).Error; err != nil {
+		return nil, err
+	}
+	return &rpt, nil
+}
+
+// UpdateTmsReportProgress updates the current page and appends rows.
+func (r *Repository) UpdateTmsReportProgress(name string, rows string, processedPages int) error {
+	return r.db.Model(&TmsReport{}).Where("tms_rpt_name = ?", name).
+		Updates(map[string]interface{}{
+			"tms_rpt_row":      gorm.Expr("CONCAT_WS('', tms_rpt_row, ?, ',')", rows),
+			"tms_rpt_cur_page": gorm.Expr("tms_rpt_cur_page + ?", processedPages),
+		}).Error
+}
+
+// UpdateTmsReportFile stores the generated Excel file in the report record.
+func (r *Repository) UpdateTmsReportFile(name string, fileData []byte, totalPage string) error {
+	return r.db.Model(&TmsReport{}).Where("tms_rpt_name = ?", name).
+		Updates(map[string]interface{}{
+			"tms_rpt_file":       fileData,
+			"tms_rpt_total_page": totalPage,
+		}).Error
+}
+
+// ==================== SyncTerminal ====================
+
+// CreateSyncTerminal inserts a new sync terminal record.
+func (r *Repository) CreateSyncTerminal(st *SyncTerminal) error {
+	return r.db.Create(st).Error
+}
+
+// HasPendingSync returns true if there are any SyncTerminal records with
+// status 0, 1, or 2 (not yet completed). Used to disable buttons on the
+// terminal list page while a report/sync is in progress (like v2).
+func (r *Repository) HasPendingSync() bool {
+	var count int64
+	r.db.Model(&SyncTerminal{}).Where("sync_term_status IN ?", []string{"0", "1", "2"}).Count(&count)
+	return count > 0
+}
+
+// HasPendingImport returns true if there is an import in progress.
+func (r *Repository) HasPendingImport() bool {
+	imp, _ := r.FindInProgressImport()
+	return imp != nil
+}
+
+// CompletePendingSyncs marks all pending SyncTerminal records for a user as
+// completed (status 3). Called when the report background job finishes.
+func (r *Repository) CompletePendingSyncs(userID int) {
+	r.db.Model(&SyncTerminal{}).
+		Where("sync_term_creator_id = ? AND sync_term_status IN ?", userID, []string{"0", "1", "2"}).
+		Update("sync_term_status", "3")
+}
+
+// UpdateSyncProcess updates the sync_term_process and sync_term_status fields
+// for pending sync records of a given user. Used by background report jobs to
+// report progress (e.g., "150/500") and transition status (0→1→3).
+func (r *Repository) UpdateSyncProcess(userID int, process string, status string) {
+	r.db.Model(&SyncTerminal{}).
+		Where("sync_term_creator_id = ? AND sync_term_status IN ?", userID, []string{"0", "1", "2"}).
+		Updates(map[string]interface{}{
+			"sync_term_process": process,
+			"sync_term_status":  status,
+		})
+}
+
+// FailPendingSyncs marks all pending SyncTerminal records for a user as
+// failed (status 4). Called when the report background job encounters an error.
+func (r *Repository) FailPendingSyncs(userID int) {
+	r.db.Model(&SyncTerminal{}).
+		Where("sync_term_creator_id = ? AND sync_term_status IN ?", userID, []string{"0", "1", "2"}).
+		Update("sync_term_status", "4")
 }
