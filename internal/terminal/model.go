@@ -19,6 +19,7 @@ type Terminal struct {
 	CreatedDt              time.Time  `gorm:"column:created_dt;not null" json:"created_dt"`
 	UpdatedBy              *string    `gorm:"column:updated_by;type:varchar(100)" json:"updated_by"`
 	UpdatedDt              *time.Time `gorm:"column:updated_dt" json:"updated_dt"`
+	LastSyncedAt           *time.Time `gorm:"column:last_synced_at" json:"last_synced_at"`
 }
 
 func (Terminal) TableName() string {

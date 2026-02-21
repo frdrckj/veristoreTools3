@@ -234,6 +234,7 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	// Phase 3 (after workers finish) removes any local terminals
 	// that are no longer in the TMS report (e.g. deleted from TMS).
 	// ------------------------------------------------------------------
+	syncStartTime := time.Now()
 	tabNames := tms.GetAllTabNames(h.db)
 	jobs := make(chan syncTerminalRow, totalTerminals)
 	var processedCount int64
@@ -311,12 +312,27 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 		return ctx.Err()
 	}
 
+	// ------------------------------------------------------------------
+	// Phase 3: Remove terminals that were previously synced but are no
+	// longer in the current report (e.g. deleted from TMS).
+	// Only targets terminals with last_synced_at set (from a previous
+	// sync) whose timestamp is older than this sync's start time.
+	// V2-copied terminals (last_synced_at IS NULL) are never touched.
+	// ------------------------------------------------------------------
+	deleted, err := h.termRepo.DeleteStaleSynced(syncStartTime)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to clean up stale terminals")
+	} else if deleted > 0 {
+		logger.Info().Int64("deleted", deleted).Msg("removed stale terminals no longer in TMS report")
+	}
+
 	// Mark sync as complete (status "3").
 	h.adminRepo.CompletePendingSyncs(payload.UserID)
 
 	logger.Info().
 		Int64("synced", successCount).
 		Int("total", totalTerminals).
+		Int64("removed", deleted).
 		Msg("parameter sync job completed")
 
 	return nil
@@ -366,6 +382,7 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 			term.TermTmsUpdateDtOperator = &now
 			term.UpdatedBy = &user
 			term.UpdatedDt = &now
+			term.LastSyncedAt = &now
 			if err := termRepo.Update(term); err != nil {
 				return fmt.Errorf("update terminal: %w", err)
 			}
@@ -381,6 +398,7 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 				TermTmsCreateDtOperator: now,
 				CreatedBy:               user,
 				CreatedDt:               now,
+				LastSyncedAt:            &now,
 			}
 			if err := termRepo.Create(term); err != nil {
 				return fmt.Errorf("create terminal: %w", err)

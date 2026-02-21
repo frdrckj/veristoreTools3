@@ -1,6 +1,8 @@
 package terminal
 
 import (
+	"time"
+
 	"github.com/verifone/veristoretools3/internal/shared"
 	"gorm.io/gorm"
 )
@@ -208,4 +210,27 @@ func (r *Repository) DistinctAppVersions() ([]string, error) {
 		return nil, err
 	}
 	return versions, nil
+}
+
+// DeleteStaleSynced deletes terminals that were previously synced (last_synced_at
+// is NOT NULL) but were not included in the current sync (last_synced_at is older
+// than syncStart). Also deletes their associated terminal_parameter records.
+func (r *Repository) DeleteStaleSynced(syncStart time.Time) (int64, error) {
+	// Find stale terminal IDs.
+	var staleIDs []int
+	if err := r.db.Model(&Terminal{}).
+		Where("last_synced_at IS NOT NULL AND last_synced_at < ?", syncStart).
+		Pluck("term_id", &staleIDs).Error; err != nil {
+		return 0, err
+	}
+	if len(staleIDs) == 0 {
+		return 0, nil
+	}
+
+	// Delete their parameters first.
+	r.db.Where("param_term_id IN ?", staleIDs).Delete(&TerminalParameter{})
+
+	// Delete the terminals.
+	result := r.db.Where("term_id IN ?", staleIDs).Delete(&Terminal{})
+	return result.RowsAffected, result.Error
 }
