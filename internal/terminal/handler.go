@@ -136,36 +136,76 @@ func ptrStr(s *string) string {
 	return ""
 }
 
-// Index lists terminals with search and pagination. Supports HTMX partial updates.
+// Index lists terminals with per-column filters and pagination (matching V2's Data CSI page).
 func (h *Handler) Index(c echo.Context) error {
-	query := c.QueryParam("q")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
 	}
 
-	terminals, pagination, err := h.service.repo.Search(query, pageNum, 20)
+	// Per-column filters (matching V2's GridView filterModel).
+	filters := TerminalFilter{
+		CSI:           c.QueryParam("term_serial_num"),
+		SerialNumber:  c.QueryParam("term_device_id"),
+		ProductNumber: c.QueryParam("term_product_num"),
+		Model:         c.QueryParam("term_model"),
+		AppVersion:    c.QueryParam("term_app_version"),
+	}
+
+	terminals, pagination, err := h.service.repo.SearchFiltered(filters, pageNum, 20)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load terminals")
+	}
+
+	// Build query string from active filters for pagination links.
+	qs := ""
+	if filters.CSI != "" {
+		qs += "&term_serial_num=" + filters.CSI
+	}
+	if filters.SerialNumber != "" {
+		qs += "&term_device_id=" + filters.SerialNumber
+	}
+	if filters.ProductNumber != "" {
+		qs += "&term_product_num=" + filters.ProductNumber
+	}
+	if filters.Model != "" {
+		qs += "&term_model=" + filters.Model
+	}
+	if filters.AppVersion != "" {
+		qs += "&term_app_version=" + filters.AppVersion
 	}
 
 	paginationData := components.PaginationData{
 		CurrentPage: pagination.CurrentPage,
 		TotalPages:  pagination.TotalPages,
 		Total:       pagination.Total,
+		PerPage:     20,
 		BaseURL:     "/terminal/index",
 		HTMXTarget:  "terminal-table-container",
+		QueryString: qs,
 	}
 
-	page := h.pageData(c, "Terminals")
+	// Get distinct values for dropdown filters.
+	models, _ := h.service.repo.DistinctModels()
+	appVersions, _ := h.service.repo.DistinctAppVersions()
+
+	filterParams := termTmpl.FilterParams{
+		CSI:           filters.CSI,
+		SerialNumber:  filters.SerialNumber,
+		ProductNumber: filters.ProductNumber,
+		Model:         filters.Model,
+		AppVersion:    filters.AppVersion,
+	}
+
+	page := h.pageData(c, "Data CSI")
 	termData := toTerminalDataSlice(terminals)
 
 	// For HTMX requests, return only the table partial.
 	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, termTmpl.TerminalTablePartial(termData, paginationData, query))
+		return shared.Render(c, http.StatusOK, termTmpl.TerminalTablePartial(termData, paginationData, filterParams, models, appVersions))
 	}
 
-	return shared.Render(c, http.StatusOK, termTmpl.IndexPage(page, termData, paginationData, query))
+	return shared.Render(c, http.StatusOK, termTmpl.IndexPage(page, termData, paginationData, filterParams, models, appVersions))
 }
 
 // View displays a terminal detail page with its parameters.

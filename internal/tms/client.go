@@ -33,6 +33,37 @@ const (
 	tokenRenewalDesc = "toke更新"
 )
 
+// alertMsgTranslations maps Chinese TMS alert messages to English.
+// The new signed API returns Chinese; the old session API returned English.
+var alertMsgTranslations = map[string]string{
+	"参数任务失败":  "Parameter Task Failure",
+	"参数任务成功":  "Parameter Task Success",
+	"正常":      "Normal",
+	"已激活":     "Activated",
+	"未激活":     "Not Activated",
+	"离线":      "Offline",
+	"在线":      "Online",
+	"已禁用":     "Disabled",
+	"已注销":     "Deregistered",
+	"待激活":     "Pending Activation",
+	"已过期":     "Expired",
+	"锁定":      "Locked",
+	"下载任务失败":  "Download Task Failure",
+	"下载任务成功":  "Download Task Success",
+	"推送任务失败":  "Push Task Failure",
+	"推送任务成功":  "Push Task Success",
+	"toke更新":  "Token Renewal",
+}
+
+// translateAlertMsg translates a Chinese alert message to English.
+// Returns the original string if no translation is found.
+func translateAlertMsg(msg string) string {
+	if t, ok := alertMsgTranslations[msg]; ok {
+		return t
+	}
+	return msg
+}
+
 // ---------------------------------------------------------------------------
 // Response types
 // ---------------------------------------------------------------------------
@@ -712,6 +743,7 @@ func (c *Client) GetTerminalList(session string, pageNum int) (*TMSResponse, err
 			for i, item := range list {
 				if m, ok := item.(map[string]interface{}); ok {
 					m["status"] = m["alertStatus"]
+					m["alertMsg"] = translateAlertMsg(toString(m["alertMsg"]))
 					list[i] = m
 				}
 			}
@@ -802,6 +834,7 @@ func (c *Client) GetTerminalListSearch(session string, pageNum int, search strin
 			for i, item := range list {
 				if m, ok := item.(map[string]interface{}); ok {
 					m["status"] = m["alertStatus"]
+					m["alertMsg"] = translateAlertMsg(toString(m["alertMsg"]))
 					list[i] = m
 				}
 			}

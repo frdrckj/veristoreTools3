@@ -215,10 +215,11 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 
 	// ------------------------------------------------------------------
 	// Phase 2: Fetch parameters and update local DB using worker pool.
-	// Uses incremental create/update per terminal (matching V2 behavior).
+	// Uses incremental create/update per terminal.
 	// Each terminal's parameters are deleted and recreated individually
-	// inside updateLocalTerminal, but terminals NOT in the report are
-	// preserved.
+	// inside updateLocalTerminal.
+	// Phase 3 (after workers finish) removes any local terminals
+	// that are no longer in the TMS report (e.g. deleted from TMS).
 	// ------------------------------------------------------------------
 	tabNames := tms.GetAllTabNames(h.db)
 	jobs := make(chan syncTerminalRow, totalTerminals)
@@ -281,6 +282,35 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	if ctx.Err() != nil {
 		h.adminRepo.FailPendingSyncs(payload.UserID)
 		return ctx.Err()
+	}
+
+	// ------------------------------------------------------------------
+	// Phase 3: Remove local terminals that no longer exist in TMS.
+	// Collect all CSIs from the report, then delete any local terminal
+	// (and its parameters) whose term_serial_num is NOT in the list.
+	// ------------------------------------------------------------------
+	if totalTerminals > 0 {
+		reportCSIs := make([]string, 0, len(terminals))
+		for _, t := range terminals {
+			if t.CSI != "" {
+				reportCSIs = append(reportCSIs, t.CSI)
+			}
+		}
+
+		if len(reportCSIs) > 0 {
+			// Delete orphaned terminal_parameter rows first (FK constraint).
+			h.db.Exec(
+				"DELETE FROM terminal_parameter WHERE param_term_id IN (SELECT term_id FROM terminal WHERE term_serial_num NOT IN (?))",
+				reportCSIs,
+			)
+			// Delete orphaned terminal rows.
+			result := h.db.Where("term_serial_num NOT IN (?)", reportCSIs).Delete(&terminal.Terminal{})
+			if result.RowsAffected > 0 {
+				logger.Info().
+					Int64("deleted", result.RowsAffected).
+					Msg("removed local terminals no longer in TMS")
+			}
+		}
 	}
 
 	// Mark sync as complete (status "3").

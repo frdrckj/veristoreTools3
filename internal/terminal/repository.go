@@ -148,3 +148,64 @@ func (r *Repository) SearchParameters(query string, page, perPage int) ([]Termin
 func (r *Repository) DeleteParameter(id int) error {
 	return r.db.Delete(&TerminalParameter{}, "param_id = ?", id).Error
 }
+
+// TerminalFilter holds per-column filter values for the Data CSI page.
+type TerminalFilter struct {
+	CSI           string
+	SerialNumber  string
+	ProductNumber string
+	Model         string
+	AppVersion    string
+}
+
+// SearchFiltered returns a paginated list of terminals matching per-column filters (like V2's Data CSI page).
+func (r *Repository) SearchFiltered(filters TerminalFilter, page, perPage int) ([]Terminal, shared.Pagination, error) {
+	var terminals []Terminal
+	var total int64
+
+	tx := r.db.Model(&Terminal{})
+	if filters.CSI != "" {
+		tx = tx.Where("term_serial_num LIKE ?", "%"+filters.CSI+"%")
+	}
+	if filters.SerialNumber != "" {
+		tx = tx.Where("term_device_id LIKE ?", "%"+filters.SerialNumber+"%")
+	}
+	if filters.ProductNumber != "" {
+		tx = tx.Where("term_product_num LIKE ?", "%"+filters.ProductNumber+"%")
+	}
+	if filters.Model != "" {
+		tx = tx.Where("term_model = ?", filters.Model)
+	}
+	if filters.AppVersion != "" {
+		tx = tx.Where("term_app_version = ?", filters.AppVersion)
+	}
+
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, shared.Pagination{}, err
+	}
+
+	p := shared.NewPagination(page, perPage, total)
+	if err := tx.Offset(p.Offset()).Limit(p.PerPage).Order("term_id DESC").Find(&terminals).Error; err != nil {
+		return nil, shared.Pagination{}, err
+	}
+
+	return terminals, p, nil
+}
+
+// DistinctModels returns all unique terminal model values (non-empty).
+func (r *Repository) DistinctModels() ([]string, error) {
+	var models []string
+	if err := r.db.Model(&Terminal{}).Distinct("term_model").Where("term_model != ''").Order("term_model ASC").Pluck("term_model", &models).Error; err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
+// DistinctAppVersions returns all unique app version values (non-empty), ordered descending.
+func (r *Repository) DistinctAppVersions() ([]string, error) {
+	var versions []string
+	if err := r.db.Model(&Terminal{}).Distinct("term_app_version").Where("term_app_version != ''").Order("term_app_version DESC").Pluck("term_app_version", &versions).Error; err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
