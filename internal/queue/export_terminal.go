@@ -20,9 +20,15 @@ import (
 )
 
 // Number of concurrent workers for fetching terminal data from TMS.
-// Each worker makes 2 API calls per terminal (detail + parameters).
-// At ~2s per terminal pair and 50 workers: 25,000 terminals ≈ 17 minutes.
-const exportWorkerCount = 50
+// Each worker makes 3 + N API calls per terminal where N = number of tabs:
+//   - getTerminalIdFromSN (1 call)
+//   - terminal/detail (1 call)
+//   - terminalApp/list (1 call)
+//   - N × terminalAppParameter/view (concurrent, 1 per tab)
+// operationMark is cached once for all terminals (not per-terminal).
+// Tab calls within each worker are concurrent, so total connections ≈
+// exportWorkerCount × N. Keep this low to avoid overwhelming TMS.
+const exportWorkerCount = 10
 
 // ExportTerminalPayload is the JSON payload for the export:terminal task.
 type ExportTerminalPayload struct {
@@ -109,6 +115,16 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		SerialNo string
 	}
 
+	// Fetch tab names and operationMark once (not per-terminal).
+	tabNames := tms.GetAllTabNames(h.db)
+	operationMark, err := h.tmsClient.GetOperationMark(session)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to get operation mark, parameter export may be incomplete")
+	}
+	logger.Info().Int("tabs", len(tabNames)).Msg("cached tab names and operation mark for export")
+
+	startTime := time.Now()
+
 	jobs := make(chan job, len(payload.SerialNos))
 	results := make([]exportRow, len(payload.SerialNos))
 	var processedCount int64
@@ -161,9 +177,12 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					}
 				}
 
-				if appID != "" {
-					tabNames := tms.GetAllTabNames(h.db)
-					paramResp, err := h.tmsClient.GetTerminalParameterMultiTab(session, j.SerialNo, appID, tabNames)
+				if appID != "" && operationMark != "" {
+					// Use the resolved terminal ID from GetTerminalDetail to
+					// skip the redundant getIdFromSN call, and fetch all tabs
+					// concurrently instead of sequentially.
+					resolvedID := tms.ToString(data["_resolvedTerminalId"])
+					paramResp, err := h.tmsClient.GetTerminalParameterFast(session, resolvedID, operationMark, appID, tabNames)
 					if err == nil && paramResp.ResultCode == 0 && paramResp.Data != nil {
 						if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
 							row.Params = pl
@@ -189,6 +208,13 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// Wait for all workers to finish.
 	wg.Wait()
+
+	fetchDuration := time.Since(startTime)
+	logger.Info().
+		Int64("processed", processedCount).
+		Str("fetch_duration", fetchDuration.String()).
+		Int("tabs_per_terminal", len(tabNames)).
+		Msg("Phase 1 complete: all terminal data fetched")
 
 	if ctx.Err() != nil {
 		logger.Warn().Int64("processed", processedCount).Msg("context cancelled, stopping export")
@@ -298,14 +324,10 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	return nil
 }
 
-// updateProgress updates the export record's current/total counts.
+// updateProgress updates only the export progress fields (lightweight, no BLOB rewrite).
 func (h *ExportTerminalHandler) updateProgress(export *admin.Export, current, total int) {
 	if export == nil {
 		return
 	}
-	c := strconv.Itoa(current)
-	t := strconv.Itoa(total)
-	export.ExpCurrent = &c
-	export.ExpTotal = &t
-	_ = h.adminRepo.UpdateExport(export)
+	_ = h.adminRepo.UpdateExportProgress(export.ExpID, strconv.Itoa(current), strconv.Itoa(total))
 }

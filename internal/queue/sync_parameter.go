@@ -24,8 +24,10 @@ import (
 
 const (
 	// syncWorkerCount is the number of concurrent workers for fetching
-	// terminal parameters. Each worker makes 1 API call per terminal.
-	syncWorkerCount = 50
+	// terminal parameters. Each worker makes 1 + N API calls per terminal
+	// (getIdFromSN + N tab calls, sequential). Keep moderate to avoid
+	// overwhelming TMS.
+	syncWorkerCount = 10
 )
 
 // SyncParameterPayload is the JSON payload for the sync:parameter task.
@@ -236,6 +238,13 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	// ------------------------------------------------------------------
 	syncStartTime := time.Now()
 	tabNames := tms.GetAllTabNames(h.db)
+	// Fetch operationMark once — it's session-level, same for all terminals.
+	operationMark, err := h.tmsClient.GetOperationMark(session)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to get operation mark, sync may be incomplete")
+	}
+	logger.Info().Int("tabs", len(tabNames)).Msg("cached tab names and operation mark for sync")
+
 	jobs := make(chan syncTerminalRow, totalTerminals)
 	var processedCount int64
 	var successCount int64
@@ -271,10 +280,15 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 					termAppVersion = payload.AppVersion
 				}
 
-				// Fetch terminal parameters from TMS (1 API call).
+				// Fetch terminal parameters from TMS using cached operationMark
+				// and concurrent tab fetching for speed.
 				var paramResp *tms.TMSResponse
-				if termAppID != "" && serialNum != "" {
-					resp, err := h.tmsClient.GetTerminalParameterMultiTab(session, serialNum, termAppID, tabNames)
+				if termAppID != "" && serialNum != "" && operationMark != "" {
+					// Use GetTerminalParameterMultiTabCached (which still resolves
+					// SN→ID via getIdFromSN, since sync doesn't call GetTerminalDetail).
+					// Tabs are fetched sequentially here to avoid overwhelming TMS
+					// with syncWorkerCount × N concurrent connections during sync.
+					resp, err := h.tmsClient.GetTerminalParameterMultiTabCached(session, serialNum, termAppID, tabNames, operationMark)
 					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
 						if pl, ok := resp.Data["paraList"].([]interface{}); ok && len(pl) > 0 {
 							paramResp = resp

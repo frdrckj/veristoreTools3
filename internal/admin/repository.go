@@ -255,6 +255,14 @@ func (r *Repository) UpdateExport(e *Export) error {
 	return r.db.Save(e).Error
 }
 
+// UpdateExportProgress updates only the progress fields (avoids rewriting the BLOB).
+func (r *Repository) UpdateExportProgress(id int, current, total string) error {
+	return r.db.Model(&Export{}).Where("exp_id = ?", id).Updates(map[string]interface{}{
+		"exp_current": current,
+		"exp_total":   total,
+	}).Error
+}
+
 // DeleteExport removes an export record by ID.
 func (r *Repository) DeleteExport(id int) error {
 	return r.db.Delete(&Export{}, "exp_id = ?", id).Error

@@ -523,6 +523,13 @@ func (c *Client) getOperationMark(session string) (string, error) {
 	return "", fmt.Errorf("tms: getOperationMark returned code %d", code)
 }
 
+// GetOperationMark is the public wrapper for getOperationMark. The operation
+// mark is session-level and can be cached across multiple calls to avoid
+// redundant API round-trips during bulk operations like export.
+func (c *Client) GetOperationMark(session string) (string, error) {
+	return c.getOperationMark(session)
+}
+
 // ---------------------------------------------------------------------------
 // Authentication methods
 // ---------------------------------------------------------------------------
@@ -947,6 +954,10 @@ func (c *Client) GetTerminalDetail(session, serialNum string) (*TMSResponse, err
 		data["desc"] = toString(appResult["desc"])
 	}
 
+	// Store resolved terminal ID so callers (e.g. export) can reuse it
+	// for parameter fetching without a second SN→ID resolution call.
+	data["_resolvedTerminalId"] = terminalId
+
 	return &TMSResponse{
 		ResultCode: 0,
 		Data:       data,
@@ -1114,54 +1125,141 @@ func (c *Client) GetTerminalParameterMultiTab(session, serialNum, appId string, 
 	if err != nil {
 		return nil, err
 	}
+	return c.fetchParameterTabs(session, terminalId, operationMark, appId, tabNames)
+}
 
+// GetTerminalParameterMultiTabCached is like GetTerminalParameterMultiTab but
+// accepts a pre-fetched operationMark. Use this during bulk operations (e.g.
+// export) where operationMark is the same for all terminals in a session.
+func (c *Client) GetTerminalParameterMultiTabCached(session, serialNum, appId string, tabNames []string, operationMark string) (*TMSResponse, error) {
+	terminalId, err := c.getIdFromSN(session, serialNum)
+	if err != nil {
+		return nil, err
+	}
+	return c.fetchParameterTabs(session, terminalId, operationMark, appId, tabNames)
+}
+
+// fetchParameterTabs is the internal implementation that fetches parameters for
+// all tabs given a resolved terminalId and operationMark.
+func (c *Client) fetchParameterTabs(session string, terminalId int, operationMark, appId string, tabNames []string) (*TMSResponse, error) {
 	allParams := []interface{}{}
 	for _, tabName := range tabNames {
-		result, err := c.doPost(session, "/market/manage/terminalAppParameter/view", map[string]interface{}{
-			"appId":         appId,
-			"operationMark": operationMark,
-			"tabName":       tabName,
-			"terminalId":    terminalId,
-		})
-		if err != nil {
-			continue
-		}
-		code, _ := toInt(result["code"])
-		if code != 200 {
-			continue
-		}
-		data, _ := result["data"].(map[string]interface{})
-		if data == nil {
-			continue
-		}
-		cardValues, _ := data["cardValueList"].([]interface{})
-		cardTabs, _ := data["cardTabList"].([]interface{})
-		for _, cv := range cardValues {
-			row, _ := cv.(map[string]interface{})
-			if row == nil {
-				continue
-			}
-			number := toString(row["NUMBER"])
-			for _, ct := range cardTabs {
-				field, _ := ct.(map[string]interface{})
-				if field == nil {
-					continue
-				}
-				key := toString(field["key"])
-				allParams = append(allParams, map[string]interface{}{
-					"dataName":    key + "-" + number,
-					"viewName":    tabName,
-					"value":       toString(row[key]),
-					"description": toString(field["description"]),
-				})
-			}
-		}
+		params := c.fetchSingleTab(session, terminalId, operationMark, appId, tabName)
+		allParams = append(allParams, params...)
 	}
 
 	return &TMSResponse{
 		ResultCode: 0,
 		Data:       map[string]interface{}{"paraList": allParams},
 	}, nil
+}
+
+// fetchParameterTabsConcurrent fetches parameters for all tabs concurrently,
+// dramatically reducing per-terminal latency from N×RTT to ~1×RTT.
+func (c *Client) fetchParameterTabsConcurrent(session string, terminalId int, operationMark, appId string, tabNames []string) (*TMSResponse, error) {
+	type tabResult struct {
+		index  int
+		params []interface{}
+	}
+
+	results := make(chan tabResult, len(tabNames))
+	var wg sync.WaitGroup
+
+	for i, tabName := range tabNames {
+		wg.Add(1)
+		go func(idx int, tab string) {
+			defer wg.Done()
+			params := c.fetchSingleTab(session, terminalId, operationMark, appId, tab)
+			results <- tabResult{index: idx, params: params}
+		}(i, tabName)
+	}
+
+	// Close channel when all goroutines finish.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results in order.
+	ordered := make([][]interface{}, len(tabNames))
+	for r := range results {
+		ordered[r.index] = r.params
+	}
+
+	allParams := []interface{}{}
+	for _, params := range ordered {
+		allParams = append(allParams, params...)
+	}
+
+	return &TMSResponse{
+		ResultCode: 0,
+		Data:       map[string]interface{}{"paraList": allParams},
+	}, nil
+}
+
+// fetchSingleTab fetches parameters for a single tab and parses the response.
+func (c *Client) fetchSingleTab(session string, terminalId int, operationMark, appId, tabName string) []interface{} {
+	result, err := c.doPost(session, "/market/manage/terminalAppParameter/view", map[string]interface{}{
+		"appId":         appId,
+		"operationMark": operationMark,
+		"tabName":       tabName,
+		"terminalId":    terminalId,
+	})
+	if err != nil {
+		return nil
+	}
+	code, _ := toInt(result["code"])
+	if code != 200 {
+		return nil
+	}
+	data, _ := result["data"].(map[string]interface{})
+	if data == nil {
+		return nil
+	}
+
+	var params []interface{}
+	cardValues, _ := data["cardValueList"].([]interface{})
+	cardTabs, _ := data["cardTabList"].([]interface{})
+	for _, cv := range cardValues {
+		row, _ := cv.(map[string]interface{})
+		if row == nil {
+			continue
+		}
+		number := toString(row["NUMBER"])
+		for _, ct := range cardTabs {
+			field, _ := ct.(map[string]interface{})
+			if field == nil {
+				continue
+			}
+			key := toString(field["key"])
+			params = append(params, map[string]interface{}{
+				"dataName":    key + "-" + number,
+				"viewName":    tabName,
+				"value":       toString(row[key]),
+				"description": toString(field["description"]),
+			})
+		}
+	}
+	return params
+}
+
+// GetTerminalParameterFast is optimized for bulk export: it accepts a
+// pre-resolved terminal ID (from GetTerminalDetail's _resolvedTerminalId)
+// and a cached operationMark, and fetches all tabs concurrently.
+// This reduces per-terminal API calls from 2+N (sequential) to N (concurrent).
+func (c *Client) GetTerminalParameterFast(session string, resolvedTerminalId string, operationMark, appId string, tabNames []string) (*TMSResponse, error) {
+	// The resolvedTerminalId comes from the new signed API (getTerminalIdFromSN).
+	// The old parameter API also uses numeric IDs from the same TMS database.
+	// Convert string→int for the old API endpoint.
+	terminalId, err := strconv.Atoi(resolvedTerminalId)
+	if err != nil {
+		// Fallback: resolve via old API if the ID format doesn't match.
+		terminalId, err = c.getIdFromSN(session, resolvedTerminalId)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.fetchParameterTabsConcurrent(session, terminalId, operationMark, appId, tabNames)
 }
 
 // AddTerminal registers a new terminal in the TMS.
