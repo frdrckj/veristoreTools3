@@ -284,8 +284,9 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					continue
 				}
 
-				// Check if terminal has the target package installed (any version).
-				// Record the actual version and appId for each terminal.
+				// Check if terminal has the target package installed with the
+				// selected version. Only terminals running the exact version
+				// chosen by the user are included in the report/sync.
 				matched := false
 				matchedVersion := ""
 				matchedAppID := ""
@@ -294,8 +295,12 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					if payload.PackageName != "" && aPkg != payload.PackageName {
 						continue
 					}
+					aVer := fmt.Sprintf("%v", app["version"])
+					if payload.AppVersion != "" && aVer != payload.AppVersion {
+						continue
+					}
 					matched = true
-					matchedVersion = fmt.Sprintf("%v", app["version"])
+					matchedVersion = aVer
 					matchedAppID = fmt.Sprintf("%v", app["id"])
 					break
 				}

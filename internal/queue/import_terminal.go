@@ -49,13 +49,14 @@ func NewImportTerminalHandler(tmsService *tms.Service, tmsClient *tms.Client, ad
 // the payload, iterates over rows, and calls the TMS API to add each terminal.
 // Progress is logged to the queue_log table.
 //
-// Excel column mapping (matching v2 ImportTerminal.php):
-//   - Column A (1): Template SN (source serial number to copy from)
-//   - Column B (2): Serial Number (destination CSI)
-//   - Column C (3): Vendor
-//   - Column D (4): Merchant ID
-//   - Column E (5): Group ID(s)
-//   - Columns F-AK: Parameter fields (TID, MID, print headers, etc.)
+// Excel column mapping (matching import_format_csi.xlsx):
+//   - Column A (1): No (row number — skipped)
+//   - Column B (2): Template (source terminal SN to copy from)
+//   - Column C (3): CSI (destination serial number)
+//   - Column D (4): Profil Merchant (merchant ID)
+//   - Column E (5): Group Merchant (group ID)
+//   - Column F: Nama Merchant, Columns G-J: Alamat 1-4
+//   - Columns K-AK: TID/MID/Plan Code fields
 func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Task) error {
 	var payload ImportTerminalPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
@@ -157,16 +158,16 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		}
 
 		// Extract columns with safe access.
-		templateSN := cellValue(row, 0) // Column A: Template SN
-		serialNum := cellValue(row, 1)  // Column B: Serial Number (CSI)
-		vendor := cellValue(row, 2)     // Column C: Vendor
-		merchantID := cellValue(row, 3) // Column D: Merchant ID
-		groupIDStr := cellValue(row, 4) // Column E: Group ID(s)
+		// Column A (idx 0) is "No" (row number) — skip.
+		templateSN := cellValue(row, 1) // Column B: Template (source SN)
+		serialNum := cellValue(row, 2)  // Column C: CSI (destination SN)
+		merchantID := cellValue(row, 3) // Column D: Profil Merchant
+		groupIDStr := cellValue(row, 4) // Column E: Group Merchant
 
 		// Validate required fields.
 		if templateSN == "" || serialNum == "" {
 			failCount++
-			logger.Warn().Int("row", rowNum).Msg("skipping row: template SN or serial number is empty")
+			logger.Warn().Int("row", rowNum).Msg("skipping row: template or CSI is empty")
 			continue
 		}
 
@@ -260,7 +261,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			deviceID = tms.ToString(detailResp.Data["deviceId"])
 		}
 
-		if vendor != "" || merchantID != "" || len(groupIDsInt) > 0 {
+		if merchantID != "" || len(groupIDsInt) > 0 {
 			updateDevResp, err := h.tmsClient.UpdateDeviceId(session, serialNum, model, merchantIDInt, groupIDsInt, deviceID)
 			if err != nil || updateDevResp.ResultCode != 0 {
 				failCount++

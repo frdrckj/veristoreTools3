@@ -1162,6 +1162,7 @@ type reportPayload struct {
 	Session     string `json:"session"`
 	DateTime    string `json:"date_time"`
 	PackageName string `json:"package_name"`
+	TriggerSync bool   `json:"trigger_sync"`
 }
 
 // Report handles GET/POST /veristore/report - CSI (Update) page (like v2 actionReport).
@@ -1176,7 +1177,8 @@ func (h *Handler) Report(c echo.Context) error {
 		}
 
 		// Create SyncTerminal record IMMEDIATELY so buttons are disabled
-		// on redirect (like v2's cache flag). The background job will update it.
+		// on redirect. The background job will update status through
+		// report → sync pipeline.
 		now := time.Now()
 		userID := mw.GetCurrentUserID(c)
 		userName := mw.GetCurrentUserFullname(c)
@@ -1186,11 +1188,13 @@ func (h *Handler) Report(c echo.Context) error {
 			SyncTermCreatedTime: now,
 			SyncTermStatus:      "0",
 			SyncTermProcess:     "0",
-			CreatedBy:           "-",
+			CreatedBy:           userName,
 			CreatedDt:           now,
 		})
 
-		// Queue background report job (like v2 ReportTerminal).
+		// Queue background report job with TriggerSync=true so it
+		// automatically chains to sync:parameter after the report.
+		// This combines update + sync into a single action / single row.
 		session := h.service.GetSession()
 		payload := reportPayload{
 			UserID:      userID,
@@ -1199,6 +1203,7 @@ func (h *Handler) Report(c echo.Context) error {
 			Session:     session,
 			DateTime:    now.Format("2006-01-02 15:04:05"),
 			PackageName: h.packageName,
+			TriggerSync: true,
 		}
 		payloadBytes, _ := json.Marshal(payload)
 		task := asynq.NewTask("report:terminal", payloadBytes)
@@ -1207,8 +1212,8 @@ func (h *Handler) Report(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/report")
 		}
 
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Report generation started. The report will be available shortly.")
-		return c.Redirect(http.StatusFound, "/veristore/terminal")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update & Sync dimulai. Report akan tersedia dalam beberapa saat.")
+		return c.Redirect(http.StatusFound, "/sync-terminal/index")
 	}
 
 	// GET — populate app dropdown from TMS API.
@@ -1597,17 +1602,17 @@ func (h *Handler) ImportFormat(c echo.Context) error {
 	f.SetSheetName("Sheet1", csiSheet)
 
 	csiHeaders := []string{
-		"No", "Template", "CSI", "Merchant ID", "Group ID",
-		"Header 1", "Header 2", "Header 3", "Header 4", "Header 5",
-		"TID Reguler 1", "MID Reguler 1",
-		"TID Reguler 2", "MID Reguler 2",
-		"TID Cicilan 3", "MID Cicilan 3", "Promo Code 3",
-		"TID Cicilan 6", "MID Cicilan 6", "Promo Code 6",
-		"TID Cicilan 9", "MID Cicilan 9", "Promo Code 9",
-		"TID Cicilan 12", "MID Cicilan 12", "Promo Code 12",
-		"TID Cicilan 18", "MID Cicilan 18", "Promo Code 18",
-		"TID Cicilan 24", "MID Cicilan 24", "Promo Code 24",
-		"TID Cicilan 36", "MID Cicilan 36", "Promo Code 36",
+		"No", "Template", "CSI", "Profil Merchant", "Group Merchant",
+		"Nama Merchant", "Alamat 1", "Alamat 2", "Alamat 3", "Alamat 4",
+		"TID Reguler Debit/Credit 1", "MID Reguler Debit/Credit 1",
+		"TID Reguler Debit/Credit 2", "MID Reguler Debit/Credit 2",
+		"TID Ciltap 3", "MID Ciltap 3", "Plan Code Ciltap 3",
+		"TID Ciltap 6", "MID Ciltap 6", "Plan Code Ciltap 6",
+		"TID Ciltap 9", "MID Ciltap 9", "Plan Code Ciltap 9",
+		"TID Ciltap 12", "MID Ciltap 12", "Plan Code Ciltap 12",
+		"TID Ciltap 18", "MID Ciltap 18", "Plan Code Ciltap 18",
+		"TID Ciltap 24", "MID Ciltap 24", "Plan Code Ciltap 24",
+		"TID Ciltap 36", "MID Ciltap 36", "Plan Code Ciltap 36",
 		"TID QR", "MID QR",
 	}
 
@@ -1631,10 +1636,12 @@ func (h *Handler) ImportFormat(c echo.Context) error {
 
 	// Set column widths for readability.
 	f.SetColWidth(csiSheet, "A", "A", 5)
-	f.SetColWidth(csiSheet, "B", "C", 15)
-	f.SetColWidth(csiSheet, "D", "E", 12)
-	f.SetColWidth(csiSheet, "F", "J", 25)
-	f.SetColWidth(csiSheet, "K", "AK", 18)
+	f.SetColWidth(csiSheet, "B", "B", 20)
+	f.SetColWidth(csiSheet, "C", "C", 15)
+	f.SetColWidth(csiSheet, "D", "E", 25)
+	f.SetColWidth(csiSheet, "F", "F", 30)
+	f.SetColWidth(csiSheet, "G", "J", 25)
+	f.SetColWidth(csiSheet, "K", "AK", 22)
 
 	// -- Reference sheets --
 	refHeaderStyle, _ := f.NewStyle(&excelize.Style{
@@ -1649,13 +1656,22 @@ func (h *Handler) ImportFormat(c echo.Context) error {
 		},
 	})
 
+	// Template reference sheet.
+	tplSheet := "Template"
+	f.NewSheet(tplSheet)
+	f.SetCellValue(tplSheet, "A1", "Id")
+	f.SetCellValue(tplSheet, "B1", "Template")
+	f.SetCellStyle(tplSheet, "A1", "B1", refHeaderStyle)
+	f.SetColWidth(tplSheet, "A", "A", 20)
+	f.SetColWidth(tplSheet, "B", "B", 20)
+
 	// Merchant reference sheet.
 	merchSheet := "Profil Merchant"
 	f.NewSheet(merchSheet)
-	f.SetCellValue(merchSheet, "A1", "Merchant ID")
-	f.SetCellValue(merchSheet, "B1", "Merchant Name")
+	f.SetCellValue(merchSheet, "A1", "Id")
+	f.SetCellValue(merchSheet, "B1", "Merchant")
 	f.SetCellStyle(merchSheet, "A1", "B1", refHeaderStyle)
-	f.SetColWidth(merchSheet, "A", "A", 15)
+	f.SetColWidth(merchSheet, "A", "A", 25)
 	f.SetColWidth(merchSheet, "B", "B", 40)
 
 	merchants := h.loadMerchants()
@@ -1670,10 +1686,10 @@ func (h *Handler) ImportFormat(c echo.Context) error {
 	// Group reference sheet.
 	groupSheet := "Group Merchant"
 	f.NewSheet(groupSheet)
-	f.SetCellValue(groupSheet, "A1", "Group ID")
-	f.SetCellValue(groupSheet, "B1", "Group Name")
+	f.SetCellValue(groupSheet, "A1", "Id")
+	f.SetCellValue(groupSheet, "B1", "Group")
 	f.SetCellStyle(groupSheet, "A1", "B1", refHeaderStyle)
-	f.SetColWidth(groupSheet, "A", "A", 15)
+	f.SetColWidth(groupSheet, "A", "A", 25)
 	f.SetColWidth(groupSheet, "B", "B", 40)
 
 	groups := h.loadGroups()
