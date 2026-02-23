@@ -139,8 +139,7 @@ cd /opt/veristoretools3
 # Load the updated image
 docker load < app-update.tar.gz
 
-# Restart only the app container (database & Redis data are preserved)
-docker compose restart app
+docker compose up -d app
 ```
 
 ### If there are new database migrations:
