@@ -19,3 +19,4 @@ static/sync/*
 !static/import/.gitkeep
 !static/sync/.gitkeep
 *_templ.go
+deploy-package/
