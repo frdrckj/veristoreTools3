@@ -1213,7 +1213,7 @@ func (h *Handler) Report(c echo.Context) error {
 		}
 
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update & Sync dimulai. Report akan tersedia dalam beberapa saat.")
-		return c.Redirect(http.StatusFound, "/sync-terminal/index")
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
 	// GET — populate app dropdown from TMS API.

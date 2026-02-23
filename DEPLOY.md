@@ -118,8 +118,15 @@ cd veristoreTools3
 MySQL and Redis images never change, so you can skip them:
 
 ```bash
+docker build --platform linux/amd64 -t veristoretools3-app:latest .
+
 # On Mac — save just the app image (~20 MB vs ~600 MB)
-docker save veristoretools3-app:latest | gzip > app-update.tar.gz
+docker save veristoretools3-app:latest -o app-update.tar
+gzip app-update.tar
+
+
+rsync -avz --progress app-update.tar.gz frearm01@10.120.8.116:/opt/veristoretools3/
+
 ```
 
 Transfer only `app-update.tar.gz` to the server.
