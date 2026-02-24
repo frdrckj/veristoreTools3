@@ -282,13 +282,17 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 
 				// Fetch terminal parameters from TMS using cached operationMark
 				// and concurrent tab fetching for speed.
+				// Use CSI (Column A = TMS deviceId) for the TMS lookup, not
+				// the hardware SN. getIdFromSN searches TMS's deviceId field,
+				// which stores the CSI name (e.g. "ErickProPlus"), not the
+				// hardware serial number (e.g. "VG20000005").
+				tmsDeviceId := t.CSI
+				if tmsDeviceId == "" {
+					tmsDeviceId = serialNum
+				}
 				var paramResp *tms.TMSResponse
-				if termAppID != "" && serialNum != "" && operationMark != "" {
-					// Use GetTerminalParameterMultiTabCached (which still resolves
-					// SN→ID via getIdFromSN, since sync doesn't call GetTerminalDetail).
-					// Tabs are fetched sequentially here to avoid overwhelming TMS
-					// with syncWorkerCount × N concurrent connections during sync.
-					resp, err := h.tmsClient.GetTerminalParameterMultiTabCached(session, serialNum, termAppID, tabNames, operationMark)
+				if termAppID != "" && tmsDeviceId != "" && operationMark != "" {
+					resp, err := h.tmsClient.GetTerminalParameterMultiTabCached(session, tmsDeviceId, termAppID, tabNames, operationMark)
 					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
 						if pl, ok := resp.Data["paraList"].([]interface{}); ok && len(pl) > 0 {
 							paramResp = resp
@@ -387,7 +391,9 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 
 		if len(existing) > 0 {
 			term = &existing[0]
-			term.TermDeviceID = deviceID
+			// Match V2 convention: term_serial_num = CSI name, term_device_id = hardware SN
+			term.TermSerialNum = deviceID
+			term.TermDeviceID = serialNum
 			term.TermProductNum = productNum
 			term.TermModel = model
 			term.TermAppName = appName
@@ -402,8 +408,9 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 			}
 		} else {
 			term = &terminal.Terminal{
-				TermDeviceID:            deviceID,
-				TermSerialNum:           serialNum,
+				// Match V2 convention: term_serial_num = CSI name, term_device_id = hardware SN
+				TermDeviceID:            serialNum,
+				TermSerialNum:           deviceID,
 				TermProductNum:          productNum,
 				TermModel:               model,
 				TermAppName:             appName,
@@ -419,13 +426,15 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 			}
 		}
 
-		// Delete existing parameters for this terminal.
-		tx.Where("param_term_id = ?", term.TermID).Delete(&terminal.TerminalParameter{})
-
-		// Parse and insert new parameters if we have param data.
+		// Only delete and replace parameters if we have new param data from TMS.
+		// This preserves existing parameters (e.g. from V2 import) when the TMS
+		// API doesn't return parameters for a terminal.
 		if paramResp == nil || paramResp.Data == nil {
 			return nil
 		}
+
+		// Delete existing parameters before inserting fresh ones.
+		tx.Where("param_term_id = ?", term.TermID).Delete(&terminal.TerminalParameter{})
 
 		paraList, ok := paramResp.Data["paraList"].([]interface{})
 		if !ok || len(paraList) == 0 {

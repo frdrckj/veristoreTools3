@@ -115,9 +115,10 @@ func (h *Handler) handleSearch(c echo.Context, page layouts.PageData, csi string
 	}
 
 	// Terminal found: calculate activation password.
+	// Model is hardcoded as "X990" to match V2's VerificationController behaviour.
 	password := h.service.CalcVerificationPassword(
 		result.CSI, result.TID, result.MID,
-		result.DeviceType, result.AppVersion,
+		"X990", result.AppVersion,
 	)
 
 	// Load technicians for the dropdown.
