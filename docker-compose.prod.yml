@@ -3,6 +3,8 @@ services:
     image: veristoretools3-app:latest
     ports:
       - "8080:8080"
+    environment:
+      - TZ=Asia/Jakarta
     depends_on:
       mysql:
         condition: service_healthy
@@ -17,6 +19,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: veristoretools3
       MYSQL_DATABASE: veristoretools3
+      TZ: Asia/Jakarta
     ports:
       - "3307:3306"
     volumes:
