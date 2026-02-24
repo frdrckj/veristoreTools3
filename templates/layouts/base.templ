@@ -35,6 +35,13 @@ func (p PageData) IsTMS() bool {
 	return p.UserPrivileges == "TMS ADMIN" || p.UserPrivileges == "TMS SUPERVISOR" || p.UserPrivileges == "TMS OPERATOR"
 }
 
+// Role-specific helpers for sidebar menu filtering (matching V2 behavior).
+func (p PageData) IsAdmin() bool        { return p.UserPrivileges == "ADMIN" }
+func (p PageData) IsOperator() bool      { return p.UserPrivileges == "OPERATOR" }
+func (p PageData) IsTMSAdmin() bool      { return p.UserPrivileges == "TMS ADMIN" }
+func (p PageData) IsTMSSupervisor() bool { return p.UserPrivileges == "TMS SUPERVISOR" }
+func (p PageData) IsTMSOperator() bool   { return p.UserPrivileges == "TMS OPERATOR" }
+
 // AppTypeLabel returns the header label based on user role.
 func (p PageData) AppTypeLabel() string {
 	if p.IsCSI() {

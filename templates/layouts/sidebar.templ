@@ -51,10 +51,10 @@ templ Sidebar(data PageData) {
 						</a>
 					</li>
 					if data.IsCSI() {
-						@csiMenu()
+						@csiMenu(data)
 					}
 					if data.IsTMS() {
-						@tmsMenu()
+						@tmsMenu(data)
 					}
 				</ul>
 			</nav>
@@ -84,55 +84,82 @@ templ Sidebar(data PageData) {
 	</aside>
 }
 
-// csiMenu renders the CSI-specific sidebar menu items (matching v2 layout).
-templ csiMenu() {
-	<li class="nav-item">
-		<a href="/user/index" class="nav-link">
-			<i class="far fa-circle nav-icon"></i>
-			<p>Pengguna</p>
-		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/activitylog/index" class="nav-link">
-			<i class="far fa-circle nav-icon"></i>
-			<p>Aktifitas</p>
-		</a>
-	</li>
-	<li class="nav-item has-treeview">
-		<a href="#" class="nav-link">
-			<i class="far fa-circle nav-icon"></i>
-			<p>
-				Sinkronisasi CSI
-				<i class="right fas fa-angle-left"></i>
-			</p>
-		</a>
-		<ul class="nav nav-treeview">
-			<li class="nav-item">
-				<a href="/scheduler/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Penjadwalan</p>
-				</a>
-			</li>
-			<li class="nav-item">
-				<a href="/sync-terminal/index" class="nav-link">
-					<i class="far fa-circle nav-icon"></i>
-					<p>Manual</p>
-				</a>
-			</li>
-		</ul>
-	</li>
+// csiMenu renders the CSI-specific sidebar menu items (role-filtered like V2).
+templ csiMenu(data PageData) {
+	if data.IsAdmin() {
+		<li class="nav-item">
+			<a href="/user/index" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>Pengguna</p>
+			</a>
+		</li>
+		<li class="nav-item">
+			<a href="/activitylog/index" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>Aktifitas</p>
+			</a>
+		</li>
+	}
+	if data.IsAdmin() {
+		<!-- ADMIN sees full Sinkronisasi CSI with Penjadwalan + Manual -->
+		<li class="nav-item has-treeview">
+			<a href="#" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>
+					Sinkronisasi CSI
+					<i class="right fas fa-angle-left"></i>
+				</p>
+			</a>
+			<ul class="nav nav-treeview">
+				<li class="nav-item">
+					<a href="/scheduler/index" class="nav-link">
+						<i class="far fa-circle nav-icon"></i>
+						<p>Penjadwalan</p>
+					</a>
+				</li>
+				<li class="nav-item">
+					<a href="/sync-terminal/index" class="nav-link">
+						<i class="far fa-circle nav-icon"></i>
+						<p>Manual</p>
+					</a>
+				</li>
+			</ul>
+		</li>
+	}
+	if data.IsOperator() {
+		<!-- OPERATOR sees Sinkronisasi CSI with Manual only (no Penjadwalan) -->
+		<li class="nav-item has-treeview">
+			<a href="#" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>
+					Sinkronisasi CSI
+					<i class="right fas fa-angle-left"></i>
+				</p>
+			</a>
+			<ul class="nav nav-treeview">
+				<li class="nav-item">
+					<a href="/sync-terminal/index" class="nav-link">
+						<i class="far fa-circle nav-icon"></i>
+						<p>Manual</p>
+					</a>
+				</li>
+			</ul>
+		</li>
+	}
 	<li class="nav-item">
 		<a href="/terminal/index" class="nav-link">
 			<i class="far fa-circle nav-icon"></i>
 			<p>Data CSI</p>
 		</a>
 	</li>
-	<li class="nav-item">
-		<a href="/technician/index" class="nav-link">
-			<i class="far fa-circle nav-icon"></i>
-			<p>Teknisi</p>
-		</a>
-	</li>
+	if data.IsAdmin() {
+		<li class="nav-item">
+			<a href="/technician/index" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>Teknisi</p>
+			</a>
+		</li>
+	}
 	<li class="nav-item">
 		<a href="/verification/index" class="nav-link">
 			<i class="far fa-circle nav-icon"></i>
@@ -147,20 +174,24 @@ templ csiMenu() {
 	</li>
 }
 
-// tmsMenu renders the TMS-specific sidebar menu items.
-templ tmsMenu() {
-	<li class="nav-item">
-		<a href="/user/index" class="nav-link">
-			<i class="far fa-circle nav-icon"></i>
-			<p>Pengguna</p>
-		</a>
-	</li>
-	<li class="nav-item">
-		<a href="/activitylog/index" class="nav-link">
-			<i class="far fa-circle nav-icon"></i>
-			<p>Aktifitas</p>
-		</a>
-	</li>
+// tmsMenu renders the TMS-specific sidebar menu items (role-filtered like V2).
+templ tmsMenu(data PageData) {
+	if data.IsTMSAdmin() {
+		<li class="nav-item">
+			<a href="/user/index" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>Pengguna</p>
+			</a>
+		</li>
+	}
+	if data.IsTMSAdmin() || data.IsTMSSupervisor() {
+		<li class="nav-item">
+			<a href="/activitylog/index" class="nav-link">
+				<i class="far fa-circle nav-icon"></i>
+				<p>Aktifitas</p>
+			</a>
+		</li>
+	}
 	<li class="nav-item has-treeview">
 		<a href="#" class="nav-link">
 			<i class="far fa-circle nav-icon"></i>
