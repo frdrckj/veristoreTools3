@@ -361,16 +361,26 @@ func (h *Handler) Edit(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/terminal")
 		}
 
-		// Auto-select the latest app if appId not provided (like v2).
+		// Auto-select the app with the highest version if appId not provided (like v2).
 		if appId == "" && detailResp.ResultCode == 0 && detailResp.Data != nil {
 			if apps, ok := detailResp.Data["terminalShowApps"].([]interface{}); ok && len(apps) > 0 {
-				// Pick the last app (latest version).
-				lastApp := apps[len(apps)-1]
-				if am, ok := lastApp.(map[string]interface{}); ok {
-					if id := am["id"]; id != nil {
-						appId = fmt.Sprintf("%v", id)
-						return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, appId))
+				bestId := ""
+				bestVer := ""
+				for _, a := range apps {
+					am, ok := a.(map[string]interface{})
+					if !ok {
+						continue
 					}
+					ver := fmt.Sprintf("%v", am["version"])
+					id := fmt.Sprintf("%v", am["id"])
+					if bestVer == "" || compareAppVersions(ver, bestVer) > 0 {
+						bestVer = ver
+						bestId = id
+					}
+				}
+				if bestId != "" {
+					appId = bestId
+					return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, appId))
 				}
 			}
 		}
@@ -424,7 +434,9 @@ func (h *Handler) Edit(c echo.Context) error {
 		}
 
 		// Find selected app name/version.
+		// First get the app info from terminalShowApps (itemList) by appId.
 		appName := ""
+		appPkg := ""
 		if detailResp.Data != nil {
 			if apps, ok := detailResp.Data["terminalShowApps"].([]interface{}); ok {
 				for _, a := range apps {
@@ -434,7 +446,60 @@ func (h *Handler) Edit(c echo.Context) error {
 							if v, ok := am["version"].(string); ok && v != "" {
 								appName += " " + v
 							}
+							appPkg = fmt.Sprintf("%v", am["packageName"])
 							break
+						}
+					}
+				}
+			}
+
+			// Override version using the same hybrid logic as reports:
+			// 1. If appInstalls has the package → use that version (ground truth)
+			// 2. If appInstalls is empty → use the HIGHEST version from terminalShowApps
+			if appPkg != "" {
+				overridden := false
+
+				// Step 1: Check appInstalls (ground truth for connected terminals).
+				if installs, ok := detailResp.Data["appInstalls"].([]interface{}); ok {
+					for _, inst := range installs {
+						im, _ := inst.(map[string]interface{})
+						if im == nil {
+							continue
+						}
+						if fmt.Sprintf("%v", im["packageName"]) == appPkg {
+							iName := fmt.Sprintf("%v", im["appName"])
+							iVer := fmt.Sprintf("%v", im["version"])
+							if iName != "" && iVer != "" {
+								appName = iName + " " + iVer
+								overridden = true
+							}
+							break
+						}
+					}
+				}
+
+				// Step 2: If appInstalls didn't have it (disconnected terminal),
+				// find the HIGHEST version from terminalShowApps for this package.
+				if !overridden {
+					if apps2, ok := detailResp.Data["terminalShowApps"].([]interface{}); ok {
+						highestName := ""
+						highestVer := ""
+						for _, a := range apps2 {
+							am, ok := a.(map[string]interface{})
+							if !ok {
+								continue
+							}
+							if fmt.Sprintf("%v", am["packageName"]) != appPkg {
+								continue
+							}
+							ver := fmt.Sprintf("%v", am["version"])
+							if highestVer == "" || compareAppVersions(ver, highestVer) > 0 {
+								highestVer = ver
+								highestName = fmt.Sprintf("%v", am["name"])
+							}
+						}
+						if highestVer != "" && highestName != "" {
+							appName = highestName + " " + highestVer
 						}
 					}
 				}
@@ -2474,4 +2539,28 @@ func (h *Handler) loadApps() []map[string]interface{} {
 		}
 	}
 	return apps
+}
+
+// compareAppVersions compares two dot-separated version strings (e.g. "4.3.0.0" vs "4.2.1.2").
+// Returns >0 if a > b, <0 if a < b, 0 if equal.
+func compareAppVersions(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	maxLen := len(aParts)
+	if len(bParts) > maxLen {
+		maxLen = len(bParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		var av, bv int
+		if i < len(aParts) {
+			av, _ = strconv.Atoi(aParts[i])
+		}
+		if i < len(bParts) {
+			bv, _ = strconv.Atoi(bParts[i])
+		}
+		if av != bv {
+			return av - bv
+		}
+	}
+	return 0
 }
