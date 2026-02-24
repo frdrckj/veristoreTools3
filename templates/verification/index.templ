@@ -72,7 +72,8 @@ templ VerificationPage(data layouts.PageData, result *TerminalResult, technician
 									if result != nil {
 										value={ result.CSI }
 									}
-									style="max-width: 350px;"
+									style="max-width: 350px; text-transform: uppercase;"
+								oninput="this.value=this.value.toUpperCase()"
 								/>
 							</div>
 							<div class="form-group">

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/sessions"
@@ -70,7 +71,7 @@ func (h *Handler) Index(c echo.Context) error {
 	}
 
 	// POST - determine which action based on form fields.
-	csiVal := c.FormValue("csi")
+	csiVal := strings.ToUpper(strings.TrimSpace(c.FormValue("csi")))
 	teknisiIdStr := c.FormValue("teknisiId")
 	spkNo := c.FormValue("spkNo")
 
@@ -131,7 +132,7 @@ func (h *Handler) handleSearch(c echo.Context, page layouts.PageData, csi string
 
 // handleReportSubmission processes the verification report save POST request.
 func (h *Handler) handleReportSubmission(c echo.Context, page layouts.PageData, appVersions []string) error {
-	csi := c.FormValue("csi")
+	csi := strings.ToUpper(strings.TrimSpace(c.FormValue("csi")))
 	appVersion := c.FormValue("appVersion")
 	teknisiIdStr := c.FormValue("teknisiId")
 	spkNo := c.FormValue("spkNo")

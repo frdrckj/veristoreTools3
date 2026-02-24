@@ -26,10 +26,12 @@ func (r *Repository) FindByID(id int) (*Terminal, error) {
 	return &t, nil
 }
 
-// FindByCSI retrieves terminals by serial number (CSI).
-func (r *Repository) FindByCSI(serialNum string) ([]Terminal, error) {
+// FindByCSI retrieves terminals by CSI (stored in term_device_id).
+// Also checks term_serial_num as fallback for terminals where SN was empty
+// and CSI was stored there instead.
+func (r *Repository) FindByCSI(csi string) ([]Terminal, error) {
 	var terminals []Terminal
-	if err := r.db.Where("term_serial_num = ?", serialNum).Find(&terminals).Error; err != nil {
+	if err := r.db.Where("term_device_id = ? OR term_serial_num = ?", csi, csi).Find(&terminals).Error; err != nil {
 		return nil, err
 	}
 	return terminals, nil

@@ -223,7 +223,7 @@ func (s *Service) GetAppVersions() ([]string, error) {
 // matching the v2 behaviour that filters by both serial_num and app_version.
 func (s *Service) SearchTerminalWithVersion(csi, appVersion string) (*SearchResult, error) {
 	var t terminal.Terminal
-	err := s.db.Where("term_serial_num = ? AND term_app_version = ?", csi, appVersion).First(&t).Error
+	err := s.db.Where("(term_device_id = ? OR term_serial_num = ?) AND term_app_version = ?", csi, csi, appVersion).First(&t).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return &SearchResult{Found: false, CSI: csi}, nil
