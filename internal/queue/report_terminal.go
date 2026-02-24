@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -256,7 +257,18 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// ------------------------------------------------------------------
 	// Phase 3: Check apps concurrently using worker pool.
-	// Each worker: 1 API call per terminal (app check), +1 for matches (PN).
+	//
+	// Hybrid matching to ensure each terminal appears in exactly ONE
+	// version report (no duplicates across versions):
+	//
+	//  1. Get terminal detail (appInstalls + PN) — 1 API call.
+	//  2. If appInstalls has the target package → use that version.
+	//     appInstalls is the ground truth (what's actually installed).
+	//  3. If appInstalls is empty (disconnected terminal, never reported) →
+	//     fall back to itemList, but only match the HIGHEST version
+	//     (the latest push is what the terminal will run when online).
+	//     This prevents the terminal from appearing in every version
+	//     that was ever pushed to it.
 	// ------------------------------------------------------------------
 	jobs := make(chan reportJob, len(allJobs))
 	var mu sync.Mutex
@@ -275,46 +287,90 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				default:
 				}
 
-				// Lightweight call: only check installed apps (1 API call).
-				apps, err := h.tmsClient.GetTerminalAppsById(j.TerminalID)
-				if err != nil {
-					logger.Debug().Str("terminal_id", j.TerminalID).Err(err).Msg("failed to get terminal apps")
+				// Step 1: Get terminal detail → appInstalls + PN.
+				detailResp, err := h.tmsClient.GetTerminalDetailById(j.TerminalID)
+				if err != nil || detailResp == nil || detailResp.Data == nil {
+					logger.Debug().Str("terminal_id", j.TerminalID).Err(err).Msg("failed to get terminal detail")
 					count := atomic.AddInt64(&processedCount, 1)
 					h.reportProgress(payload.UserID, int(count), totalTerminals)
 					continue
 				}
 
-				// Check if terminal has the target package installed with the
-				// selected version. Only terminals running the exact version
-				// chosen by the user are included in the report/sync.
+				pn := ""
+				if v, ok := detailResp.Data["pn"]; ok && v != nil {
+					pn = fmt.Sprintf("%v", v)
+				}
+
+				// Step 2: Check appInstalls for the target package.
+				installedVersion := ""
+				if installs, ok := detailResp.Data["appInstalls"].([]interface{}); ok {
+					for _, inst := range installs {
+						im, _ := inst.(map[string]interface{})
+						if im == nil {
+							continue
+						}
+						iPkg := fmt.Sprintf("%v", im["packageName"])
+						if payload.PackageName != "" && iPkg == payload.PackageName {
+							installedVersion = fmt.Sprintf("%v", im["version"])
+							break
+						}
+					}
+				}
+
 				matched := false
 				matchedVersion := ""
 				matchedAppID := ""
-				for _, app := range apps {
-					aPkg := fmt.Sprintf("%v", app["packageName"])
-					if payload.PackageName != "" && aPkg != payload.PackageName {
-						continue
+
+				if installedVersion != "" {
+					// appInstalls has the package → definitive installed version.
+					if installedVersion == payload.AppVersion {
+						matched = true
+						matchedVersion = installedVersion
 					}
-					aVer := fmt.Sprintf("%v", app["version"])
-					if payload.AppVersion != "" && aVer != payload.AppVersion {
-						continue
+				} else {
+					// appInstalls empty (disconnected terminal) → fall back to
+					// itemList, but only match the HIGHEST version to prevent
+					// the terminal from appearing in multiple version reports.
+					apps, appErr := h.tmsClient.GetTerminalAppsById(j.TerminalID)
+					if appErr == nil {
+						highestVer := ""
+						highestAppID := ""
+						for _, app := range apps {
+							aPkg := fmt.Sprintf("%v", app["packageName"])
+							if payload.PackageName != "" && aPkg != payload.PackageName {
+								continue
+							}
+							aVer := fmt.Sprintf("%v", app["version"])
+							if highestVer == "" || compareVersions(aVer, highestVer) > 0 {
+								highestVer = aVer
+								highestAppID = fmt.Sprintf("%v", app["id"])
+							}
+						}
+						// Only match if the requested version IS the highest version.
+						if highestVer == payload.AppVersion {
+							matched = true
+							matchedVersion = highestVer
+							matchedAppID = highestAppID
+						}
 					}
-					matched = true
-					matchedVersion = aVer
-					matchedAppID = fmt.Sprintf("%v", app["id"])
-					break
+				}
+
+				// For appInstalls match, we still need the appID from itemList.
+				if matched && matchedAppID == "" {
+					apps, appErr := h.tmsClient.GetTerminalAppsById(j.TerminalID)
+					if appErr == nil {
+						for _, app := range apps {
+							aPkg := fmt.Sprintf("%v", app["packageName"])
+							aVer := fmt.Sprintf("%v", app["version"])
+							if aPkg == payload.PackageName && aVer == matchedVersion {
+								matchedAppID = fmt.Sprintf("%v", app["id"])
+								break
+							}
+						}
+					}
 				}
 
 				if matched {
-					// Fetch full detail for matched terminals (to get PN).
-					pn := ""
-					detailResp, err := h.tmsClient.GetTerminalDetailById(j.TerminalID)
-					if err == nil && detailResp != nil && detailResp.Data != nil {
-						if v, ok := detailResp.Data["pn"]; ok && v != nil {
-							pn = fmt.Sprintf("%v", v)
-						}
-					}
-
 					mu.Lock()
 					rows = append(rows, reportRow{
 						CSI:        j.DeviceID,
@@ -507,4 +563,28 @@ func (h *ReportTerminalHandler) reportProgress(userID, current, total int) {
 		process := strconv.Itoa(pct)
 		h.adminRepo.UpdateSyncProcess(userID, process, "1")
 	}
+}
+
+// compareVersions compares two dot-separated version strings (e.g. "4.3.0.0").
+// Returns >0 if a > b, <0 if a < b, 0 if equal.
+func compareVersions(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	maxLen := len(aParts)
+	if len(bParts) > maxLen {
+		maxLen = len(bParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		var av, bv int
+		if i < len(aParts) {
+			av, _ = strconv.Atoi(aParts[i])
+		}
+		if i < len(bParts) {
+			bv, _ = strconv.Atoi(bParts[i])
+		}
+		if av != bv {
+			return av - bv
+		}
+	}
+	return 0
 }
