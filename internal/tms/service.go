@@ -3,9 +3,14 @@ package tms
 import (
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
+
+const deleteWorkerCount = 10
 
 // GetAllTabNames returns the unique tab names from template_parameter table.
 func GetAllTabNames(db *gorm.DB) []string {
@@ -106,9 +111,11 @@ func (s *Service) GetTerminalList(page int) (*TMSResponse, error) {
 }
 
 // SearchTerminals searches terminals with filters.
-// Uses new signed API (no session needed).
+// queryType 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
+// Group/Merchant/TID/MID use old session-based API; CSI/SN use new signed API.
 func (s *Service) SearchTerminals(page int, search string, queryType int) (*TMSResponse, error) {
-	return s.client.GetTerminalListSearch("", page, search, queryType)
+	session := s.GetSession()
+	return s.client.GetTerminalListSearch(session, page, search, queryType)
 }
 
 // GetTerminalDetail retrieves detailed information about a terminal.
@@ -172,21 +179,63 @@ func (s *Service) CopyTerminal(sourceSn, destSn string) (*TMSResponse, error) {
 	return s.client.CopyTerminal(session, sourceSn, destSn)
 }
 
-// DeleteTerminals removes terminals by their serial numbers.
+// DeleteTerminals removes terminals by their serial numbers concurrently.
 // Uses new signed API (no session needed).
 func (s *Service) DeleteTerminals(serialNos []string) (*TMSResponse, error) {
-	var lastResp *TMSResponse
-	for _, sn := range serialNos {
-		resp, err := s.client.DeleteTerminal("", sn)
-		if err != nil {
-			return nil, err
-		}
-		lastResp = resp
-		if resp.ResultCode != 0 {
-			return resp, nil
-		}
+	if len(serialNos) == 0 {
+		return nil, nil
 	}
-	return lastResp, nil
+	if len(serialNos) == 1 {
+		return s.client.DeleteTerminal("", serialNos[0])
+	}
+
+	logger := log.With().Str("task", "delete:terminal").Logger()
+	logger.Info().Int("count", len(serialNos)).Msg("starting concurrent delete")
+
+	var successCount int64
+	var failCount int64
+
+	jobs := make(chan string, len(serialNos))
+	var wg sync.WaitGroup
+
+	workers := deleteWorkerCount
+	if len(serialNos) < workers {
+		workers = len(serialNos)
+	}
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sn := range jobs {
+				resp, err := s.client.DeleteTerminal("", sn)
+				if err != nil {
+					atomic.AddInt64(&failCount, 1)
+					logger.Warn().Err(err).Str("sn", sn).Msg("delete failed")
+					continue
+				}
+				if resp.ResultCode != 0 {
+					atomic.AddInt64(&failCount, 1)
+					logger.Warn().Str("sn", sn).Str("desc", resp.Desc).Msg("delete failed")
+					continue
+				}
+				atomic.AddInt64(&successCount, 1)
+			}
+		}()
+	}
+
+	for _, sn := range serialNos {
+		jobs <- sn
+	}
+	close(jobs)
+	wg.Wait()
+
+	logger.Info().Int64("success", successCount).Int64("failed", failCount).Msg("concurrent delete completed")
+
+	if failCount > 0 && successCount == 0 {
+		return &TMSResponse{ResultCode: 1, Desc: fmt.Sprintf("all %d deletes failed", failCount)}, nil
+	}
+	return &TMSResponse{ResultCode: 0, Desc: fmt.Sprintf("%d deleted, %d failed", successCount, failCount)}, nil
 }
 
 // ReplaceTerminal replaces a terminal's SN with a new one.
@@ -455,7 +504,11 @@ func (s *Service) GetAppListSearch(serialNum string) (*TMSResponse, error) {
 }
 
 // UpdateDeviceId updates a terminal's device ID, model, merchant, and groups.
-// Uses new signed API (no session needed).
+// Uses old session-based API (requires active TMS session).
 func (s *Service) UpdateDeviceId(serialNum, model string, merchantId int, groupList []int, deviceId string) (*TMSResponse, error) {
-	return s.client.UpdateDeviceId("", serialNum, model, merchantId, groupList, deviceId)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.UpdateDeviceId(session, serialNum, model, merchantId, groupList, deviceId)
 }

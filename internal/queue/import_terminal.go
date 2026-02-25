@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
@@ -16,6 +19,27 @@ import (
 	"github.com/verifone/veristoretools3/internal/admin"
 	"github.com/verifone/veristoretools3/internal/tms"
 )
+
+// Number of concurrent workers for importing terminals via the TMS API.
+// Each worker processes one row at a time (5-6 API calls per row):
+//   - CopyTerminal (1 call)
+//   - GetTerminalDetail (1 call)
+//   - GetTerminalParameterMultiTab (1 call, fetches all tabs)
+//   - UpdateParameter (1 call)
+//   - UpdateDeviceId (1 call)
+//
+// Total concurrent connections ≈ importWorkerCount × 1-2 (pipelined).
+const importWorkerCount = 10
+
+// importJob represents a single row from the Excel file to be imported.
+type importJob struct {
+	RowNum     int
+	TemplateSN string
+	SerialNum  string
+	MerchantID string
+	GroupIDs   []string
+	Row        []string // full row data for buildParaList
+}
 
 // ImportTerminalPayload is the JSON payload for the import:terminal task.
 type ImportTerminalPayload struct {
@@ -133,45 +157,25 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		return fmt.Errorf("import_terminal: no active TMS session")
 	}
 
-	totalRows := len(rows) - 1
-	// Update total in import record.
-	if payload.ImportID > 0 {
-		h.adminRepo.UpdateImportProgress(payload.ImportID, "0", strconv.Itoa(totalRows))
-	}
-
-	var successCount, failCount int
-
-	// Process data rows (skip header row at index 0).
+	// ------------------------------------------------------------------
+	// Phase 1: Pre-parse all rows and validate required fields.
+	// ------------------------------------------------------------------
+	var jobs []importJob
+	var skipCount int
 	for rowIdx, row := range rows[1:] {
 		rowNum := rowIdx + 2 // 1-indexed, +1 for header
 
-		select {
-		case <-ctx.Done():
-			logger.Warn().Int("row", rowNum).Msg("context cancelled, stopping import")
-			return ctx.Err()
-		default:
-		}
-
-		// Update progress for each row processed.
-		if payload.ImportID > 0 {
-			h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(rowIdx), strconv.Itoa(totalRows))
-		}
-
-		// Extract columns with safe access.
-		// Column A (idx 0) is "No" (row number) — skip.
 		templateSN := cellValue(row, 1) // Column B: Template (source SN)
 		serialNum := cellValue(row, 2)  // Column C: CSI (destination SN)
 		merchantID := cellValue(row, 3) // Column D: Profil Merchant
 		groupIDStr := cellValue(row, 4) // Column E: Group Merchant
 
-		// Validate required fields.
 		if templateSN == "" || serialNum == "" {
-			failCount++
+			skipCount++
 			logger.Warn().Int("row", rowNum).Msg("skipping row: template or CSI is empty")
 			continue
 		}
 
-		// Parse group IDs.
 		var groupIDs []string
 		if groupIDStr != "" {
 			for _, g := range strings.Split(groupIDStr, ",") {
@@ -182,110 +186,303 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			}
 		}
 
-		// Step 1: Copy terminal from template.
-		copyResp, err := h.tmsClient.CopyTerminal(session, templateSN, serialNum)
-		if err != nil {
-			failCount++
-			logger.Error().Err(err).Int("row", rowNum).Msg("copy terminal API call failed")
-			continue
-		}
-		if copyResp.ResultCode != 0 {
-			failCount++
-			logger.Warn().Int("row", rowNum).Str("desc", copyResp.Desc).Msg("copy terminal returned error")
-			continue
-		}
-
-		// Step 2: Get terminal detail for the new terminal.
-		detailResp, err := h.tmsClient.GetTerminalDetail(session, serialNum)
-		if err != nil || detailResp.ResultCode != 0 {
-			failCount++
-			_ = h.deleteTerminalOnError(session, serialNum)
-			logger.Warn().Int("row", rowNum).Msg("failed to get terminal detail after copy")
-			continue
-		}
-
-		// Step 3: Find the target app and get parameter info.
-		appID := h.findAppID(detailResp)
-		if appID == "" {
-			failCount++
-			_ = h.deleteTerminalOnError(session, serialNum)
-			logger.Warn().Int("row", rowNum).Msg("target app not found on terminal")
-			continue
-		}
-
-		// Step 4: Get terminal parameters (batch multi-tab).
-		tabNames := tms.GetAllTabNames(h.db)
-		paramResp, err := h.tmsClient.GetTerminalParameterMultiTab(session, serialNum, appID, tabNames)
-		if err != nil || paramResp.Data == nil {
-			failCount++
-			_ = h.deleteTerminalOnError(session, serialNum)
-			logger.Warn().Int("row", rowNum).Msg("failed to get terminal parameters")
-			continue
-		}
-		allParams, _ := paramResp.Data["paraList"].([]interface{})
-		if len(allParams) == 0 {
-			failCount++
-			_ = h.deleteTerminalOnError(session, serialNum)
-			logger.Warn().Int("row", rowNum).Msg("failed to get terminal parameters")
-			continue
-		}
-
-		// Step 5: Update parameters from Excel columns F onwards.
-		paraList := h.buildParaList(paramResp, row)
-
-		if len(paraList) > 0 {
-			updateResp, err := h.tmsClient.UpdateParameter(session, serialNum, paraList, appID)
-			if err != nil || updateResp.ResultCode != 0 {
-				failCount++
-				_ = h.deleteTerminalOnError(session, serialNum)
-				logger.Warn().Int("row", rowNum).Msg("failed to update terminal parameters")
-				continue
-			}
-		}
-
-		// Step 6: Update device ID, merchant, and groups.
-		model := ""
-		if detailResp.Data != nil {
-			model = tms.ToString(detailResp.Data["model"])
-		}
-		merchantIDInt, _ := strconv.Atoi(merchantID)
-		groupIDsInt := make([]int, 0, len(groupIDs))
-		for _, g := range groupIDs {
-			if gInt, err := strconv.Atoi(g); err == nil {
-				groupIDsInt = append(groupIDsInt, gInt)
-			}
-		}
-
-		deviceID := ""
-		if detailResp.Data != nil {
-			deviceID = tms.ToString(detailResp.Data["deviceId"])
-		}
-
-		if merchantID != "" || len(groupIDsInt) > 0 {
-			updateDevResp, err := h.tmsClient.UpdateDeviceId(session, serialNum, model, merchantIDInt, groupIDsInt, deviceID)
-			if err != nil || updateDevResp.ResultCode != 0 {
-				failCount++
-				_ = h.deleteTerminalOnError(session, serialNum)
-				logger.Warn().Int("row", rowNum).Msg("failed to update device details")
-				continue
-			}
-		}
-
-		successCount++
-		logger.Info().Int("row", rowNum).Str("serial", serialNum).Msg("terminal imported successfully")
+		jobs = append(jobs, importJob{
+			RowNum:     rowNum,
+			TemplateSN: templateSN,
+			SerialNum:  serialNum,
+			MerchantID: merchantID,
+			GroupIDs:   groupIDs,
+			Row:        row,
+		})
 	}
 
-	// Mark import as complete (current == total).
+	totalRows := len(rows) - 1
+	totalJobs := len(jobs)
 	if payload.ImportID > 0 {
-		h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+		h.adminRepo.UpdateImportProgress(payload.ImportID, "0", strconv.Itoa(totalRows))
 	}
 
 	logger.Info().
-		Int("success", successCount).
-		Int("failed", failCount).
-		Msg("terminal import job completed")
+		Int("total_rows", totalRows).
+		Int("valid_jobs", totalJobs).
+		Int("skipped", skipCount).
+		Int("workers", importWorkerCount).
+		Msg("parsed Excel, starting concurrent import")
+
+	if totalJobs == 0 {
+		if payload.ImportID > 0 {
+			h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+		}
+		logger.Warn().Int("skipped", skipCount).Msg("no valid rows to import")
+		return nil
+	}
+
+	// ------------------------------------------------------------------
+	// Phase 2: Process rows concurrently using a worker pool.
+	// ------------------------------------------------------------------
+
+	// Cache tab names once (shared across all workers).
+	tabNames := tms.GetAllTabNames(h.db)
+
+	// Build group name → ID map so users can use group names in the Excel.
+	groupMap := h.buildGroupMap(session)
+	if len(groupMap) > 0 {
+		logger.Info().Int("groups", len(groupMap)).Msg("loaded group name→ID map")
+	}
+
+	// Create a cancellable context so we can stop workers when the user
+	// clicks "Reset" (which deletes the import record from the DB).
+	importCtx, importCancel := context.WithCancel(ctx)
+	defer importCancel()
+
+	// Monitor for cancellation: check every 3 seconds if the import
+	// record was deleted (user clicked Reset). If so, cancel all workers.
+	if payload.ImportID > 0 {
+		go func() {
+			ticker := time.NewTicker(3 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-importCtx.Done():
+					return
+				case <-ticker.C:
+					imp, err := h.adminRepo.FindLatestImport()
+					if err != nil || imp == nil || imp.ImpID != payload.ImportID {
+						logger.Info().Msg("import record deleted (reset), cancelling workers")
+						importCancel()
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	jobCh := make(chan importJob, totalJobs)
+	var processedCount int64
+	var successCount int64
+	var failCount int64
+	var wg sync.WaitGroup
+
+	// Start workers.
+	for w := 0; w < importWorkerCount; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobCh {
+				select {
+				case <-importCtx.Done():
+					return
+				default:
+				}
+
+				ok := h.importSingleTerminal(importCtx, session, j, tabNames, groupMap, &logger)
+				if ok {
+					atomic.AddInt64(&successCount, 1)
+				} else {
+					atomic.AddInt64(&failCount, 1)
+				}
+
+				count := atomic.AddInt64(&processedCount, 1)
+				// Update progress every 5 rows to reduce DB writes.
+				if payload.ImportID > 0 && (count%5 == 0 || int(count) == totalJobs) {
+					processed := skipCount + int(count)
+					h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(processed), strconv.Itoa(totalRows))
+				}
+			}
+		}()
+	}
+
+	// Send all jobs to the channel. Stop early if cancelled.
+sendLoop:
+	for _, j := range jobs {
+		select {
+		case <-importCtx.Done():
+			break sendLoop
+		case jobCh <- j:
+		}
+	}
+	close(jobCh)
+
+	// Wait for all workers to finish.
+	wg.Wait()
+
+	cancelled := importCtx.Err() != nil && ctx.Err() == nil // cancelled by reset, not by asynq
+
+	// Mark import as complete (only if not cancelled by reset).
+	if payload.ImportID > 0 && !cancelled {
+		h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+	}
+
+	if cancelled {
+		logger.Info().
+			Int64("success", atomic.LoadInt64(&successCount)).
+			Int64("failed", atomic.LoadInt64(&failCount)).
+			Int("skipped", skipCount).
+			Msg("terminal import job cancelled (reset)")
+	} else {
+		logger.Info().
+			Int64("success", atomic.LoadInt64(&successCount)).
+			Int64("failed", atomic.LoadInt64(&failCount)).
+			Int("skipped", skipCount).
+			Msg("terminal import job completed")
+	}
 
 	return nil
+}
+
+// importSingleTerminal processes one row: copy from template, get detail,
+// fetch params, update params, update device/merchant/group. Returns true
+// on success, false on failure. Called from worker goroutines.
+func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, session string, j importJob, tabNames []string, groupMap map[string]int, logger *zerolog.Logger) bool {
+	// Step 1: Copy terminal from template.
+	// If the terminal already exists ("Duplicate"), continue with update steps.
+	isExisting := false
+	copyResp, err := h.tmsClient.CopyTerminal(session, j.TemplateSN, j.SerialNum)
+	if err != nil {
+		logger.Error().Err(err).Int("row", j.RowNum).Msg("copy terminal API call failed")
+		return false
+	}
+	if copyResp.ResultCode != 0 {
+		if strings.Contains(strings.ToLower(copyResp.Desc), "duplicate") {
+			isExisting = true
+			logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal already exists, updating")
+		} else {
+			logger.Warn().Int("row", j.RowNum).Str("desc", copyResp.Desc).Msg("copy terminal returned error")
+			return false
+		}
+	}
+
+	// Step 2: Get terminal detail.
+	detailResp, err := h.tmsClient.GetTerminalDetail(session, j.SerialNum)
+	if err != nil || detailResp.ResultCode != 0 {
+		if !isExisting {
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
+		}
+		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal detail")
+		return false
+	}
+
+	// Step 3: Find the target app.
+	appID := h.findAppID(detailResp)
+	if appID == "" {
+		if !isExisting {
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
+		}
+		logger.Warn().Int("row", j.RowNum).Msg("target app not found on terminal")
+		return false
+	}
+
+	// Step 4: Get terminal parameters (batch multi-tab).
+	paramResp, err := h.tmsClient.GetTerminalParameterMultiTab(session, j.SerialNum, appID, tabNames)
+	if err != nil || paramResp.Data == nil {
+		if !isExisting {
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
+		}
+		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal parameters")
+		return false
+	}
+	allParams, _ := paramResp.Data["paraList"].([]interface{})
+	if len(allParams) == 0 {
+		if !isExisting {
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
+		}
+		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal parameters")
+		return false
+	}
+
+	// Step 5: Update parameters from Excel columns F onwards.
+	paraList := h.buildParaList(paramResp, j.Row)
+	if len(paraList) > 0 {
+		updateResp, err := h.tmsClient.UpdateParameter(session, j.SerialNum, paraList, appID)
+		if err != nil || updateResp.ResultCode != 0 {
+			if !isExisting {
+				_ = h.deleteTerminalOnError(session, j.SerialNum)
+			}
+			desc := ""
+			if updateResp != nil {
+				desc = updateResp.Desc
+			}
+			logger.Warn().Int("row", j.RowNum).Str("desc", desc).Msg("failed to update terminal parameters")
+			return false
+		}
+	}
+
+	// Step 6: Update device ID, merchant, and groups.
+	model := ""
+	if detailResp.Data != nil {
+		model = tms.ToString(detailResp.Data["model"])
+	}
+	merchantIDInt, _ := strconv.Atoi(j.MerchantID)
+
+	// Resolve group IDs: accept both numeric IDs and group names.
+	groupIDsInt := make([]int, 0, len(j.GroupIDs))
+	for _, g := range j.GroupIDs {
+		if gInt, err := strconv.Atoi(g); err == nil {
+			groupIDsInt = append(groupIDsInt, gInt)
+		} else if gInt, ok := groupMap[strings.ToLower(g)]; ok {
+			groupIDsInt = append(groupIDsInt, gInt)
+		} else {
+			logger.Warn().Int("row", j.RowNum).Str("group", g).Msg("unknown group name, skipping")
+		}
+	}
+
+	deviceID := ""
+	if detailResp.Data != nil {
+		deviceID = tms.ToString(detailResp.Data["deviceId"])
+	}
+
+	if j.MerchantID != "" || len(groupIDsInt) > 0 {
+		updateDevResp, err := h.tmsClient.UpdateDeviceId(session, j.SerialNum, model, merchantIDInt, groupIDsInt, deviceID)
+		if err != nil {
+			if !isExisting {
+				_ = h.deleteTerminalOnError(session, j.SerialNum)
+			}
+			logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to update device details")
+			return false
+		}
+		if updateDevResp.ResultCode != 0 {
+			if !isExisting {
+				_ = h.deleteTerminalOnError(session, j.SerialNum)
+			}
+			logger.Warn().Int("row", j.RowNum).Int("code", updateDevResp.ResultCode).Str("desc", updateDevResp.Desc).Msg("failed to update device details")
+			return false
+		}
+	}
+
+	if isExisting {
+		logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("existing terminal updated successfully")
+	} else {
+		logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal imported successfully")
+	}
+	return true
+}
+
+// buildGroupMap fetches the TMS group list and returns a lowercase name → ID map.
+func (h *ImportTerminalHandler) buildGroupMap(session string) map[string]int {
+	groupMap := map[string]int{}
+	resp, err := h.tmsClient.GetGroupList(session)
+	if err != nil || resp.ResultCode != 0 || resp.Data == nil {
+		return groupMap
+	}
+	groups, _ := resp.Data["groups"].([]interface{})
+	for _, g := range groups {
+		gm, _ := g.(map[string]interface{})
+		if gm == nil {
+			continue
+		}
+		name := tms.ToString(gm["name"])
+		id := 0
+		switch v := gm["id"].(type) {
+		case int:
+			id = v
+		case float64:
+			id = int(v)
+		}
+		if name != "" && id != 0 {
+			groupMap[strings.ToLower(name)] = id
+		}
+	}
+	return groupMap
 }
 
 // deleteTerminalOnError attempts to delete a terminal that failed during import.

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -332,8 +333,9 @@ func paramToSignatureValue(v interface{}) string {
 	if v == nil {
 		return ""
 	}
-	switch v.(type) {
-	case map[string]interface{}, map[string]string, []interface{}, []string:
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
 		b, err := json.Marshal(v)
 		if err != nil {
 			return ""
@@ -814,7 +816,20 @@ func (c *Client) GetTerminalListWithSize(pageNum, pageSize int) (*TMSResponse, e
 //	0 = SN, 1 = merchantName, 2 = groupName, 3 = TID param,
 //	4 = deviceId, 5 = MID param
 func (c *Client) GetTerminalListSearch(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
-	// New API uses a simple "search" string parameter.
+	// queryType: 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
+	// For CSI (4) and SN (0), use the new signed API with generic "search".
+	// For Group (2), Merchant (1), TID (3), MID (5), use the old session-based
+	// API which supports structured filter fields (matching V2 behaviour).
+	switch queryType {
+	case 1, 2, 3, 5:
+		return c.getTerminalListSearchOld(session, pageNum, search, queryType)
+	default:
+		return c.getTerminalListSearchNew(pageNum, search, queryType)
+	}
+}
+
+// getTerminalListSearchNew uses the signed API for CSI/SN search.
+func (c *Client) getTerminalListSearchNew(pageNum int, search string, queryType int) (*TMSResponse, error) {
 	params := map[string]interface{}{
 		"page":   pageNum,
 		"search": search,
@@ -847,6 +862,69 @@ func (c *Client) GetTerminalListSearch(session string, pageNum int, search strin
 			}
 			resp.Data = map[string]interface{}{
 				"totalPage":    data["pages"],
+				"terminalList": list,
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+// getTerminalListSearchOld uses the old session-based API with structured
+// filter fields for Group, Merchant, TID, and MID search (matching V2).
+func (c *Client) getTerminalListSearchOld(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
+	body := map[string]interface{}{
+		"page":   pageNum,
+		"search": "",
+		"size":   10,
+	}
+
+	// Build the structured search field based on queryType (matching V2 TmsHelper.php).
+	filter := map[string]interface{}{
+		"type":  "=",
+		"value": search,
+	}
+	switch queryType {
+	case 1: // Merchant Name
+		body["merchantName"] = filter
+	case 2: // Group Name
+		body["groupName"] = filter
+	case 3: // TID
+		body["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
+		}
+	case 5: // MID
+		body["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
+		}
+	}
+
+	result, err := c.doPost(session, "/market/manage/terminal/page", body)
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+
+	resp := &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+	}
+
+	if rc == 0 {
+		data, _ := result["data"].(map[string]interface{})
+		if data != nil {
+			list, _ := data["list"].([]interface{})
+			for i, item := range list {
+				if m, ok := item.(map[string]interface{}); ok {
+					m["status"] = m["alertStatus"]
+					m["alertMsg"] = translateAlertMsg(toString(m["alertMsg"]))
+					list[i] = m
+				}
+			}
+			resp.Data = map[string]interface{}{
+				"totalPage":    data["totalPage"],
 				"terminalList": list,
 			}
 		}
@@ -1307,25 +1385,58 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 }
 
 // UpdateDeviceId updates a terminal's device ID, model, merchant, and groups.
+// Uses the old session-based API (same as V2): fetch full terminal detail,
+// modify fields, POST the full data back to /market/manage/terminal/update.
 func (c *Client) UpdateDeviceId(session, serialNum, model string, merchantId int, groupList []int, deviceId string) (*TMSResponse, error) {
-	// Resolve SN to internal terminal ID.
-	terminalId, err := c.getTerminalIdFromSN(serialNum)
+	if session == "" {
+		return nil, fmt.Errorf("tms: UpdateDeviceId requires a session")
+	}
+
+	// Step 1: Resolve SN to internal terminal ID via old API.
+	terminalId, err := c.getIdFromSN(session, serialNum)
 	if err != nil {
 		return nil, err
 	}
 
-	params := map[string]interface{}{
-		"id":         terminalId,
-		"deviceId":   deviceId,
-		"model":      model,
-		"merchantId": merchantId,
-		"groupIds":   groupList,
-		"status":     0,
+	// Step 2: Get full terminal detail from old session API.
+	detailResult, err := c.doPost(session, "/market/manage/terminal/detail", map[string]interface{}{
+		"terminalId": terminalId,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tms: UpdateDeviceId detail: %w", err)
+	}
+	detailCode, _ := toInt(detailResult["code"])
+	if detailCode != 200 {
+		return &TMSResponse{
+			ResultCode: mapResponseCode(detailCode),
+			Desc:       toString(detailResult["desc"]),
+		}, nil
 	}
 
-	updateResult, err := c.doSignedPost("/v1/tps/terminal/update", params)
+	data, _ := detailResult["data"].(map[string]interface{})
+	if data == nil {
+		return nil, fmt.Errorf("tms: UpdateDeviceId: no detail data returned")
+	}
+
+	// Step 3: Modify fields on the full data object (matching V2 logic).
+	if deviceId != "" {
+		data["sn"] = deviceId
+	}
+	if model != "" {
+		data["model"] = model
+	}
+	if merchantId != 0 {
+		data["merchantId"] = merchantId
+	}
+	if groupList != nil {
+		data["groupIds"] = groupList
+	}
+	data["deviceId"] = serialNum
+
+	// Step 4: POST full modified data to old session update endpoint.
+	updateResult, err := c.doPost(session, "/market/manage/terminal/update", data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tms: UpdateDeviceId update: %w", err)
 	}
 
 	updateCode, _ := toInt(updateResult["code"])
