@@ -78,7 +78,7 @@ templ VerificationPage(data layouts.PageData, result *TerminalResult, technician
 							</div>
 							<div class="form-group">
 								<label for="appVersion">Versi App</label>
-								<select id="appVersion" name="appVersion" class="form-control" style="max-width: 350px;">
+								<select id="appVersion" name="appVersion" class="form-control" style="max-width: 350px;" required="required">
 									<option value="">-- Pilih Versi App --</option>
 									for _, v := range appVersions {
 										<option value={ v }>{ v }</option>

@@ -93,16 +93,12 @@ func (h *Handler) Index(c echo.Context) error {
 func (h *Handler) handleSearch(c echo.Context, page layouts.PageData, csi string, appVersions []string) error {
 	appVersion := c.FormValue("appVersion")
 
-	var result *SearchResult
-	var err error
-
-	if appVersion != "" {
-		// Search with specific app version (matching v2 behaviour).
-		result, err = h.service.SearchTerminalWithVersion(csi, appVersion)
-	} else {
-		// Search by CSI only.
-		result, err = h.service.SearchTerminal(csi)
+	if appVersion == "" {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Versi App harus dipilih")
+		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
 	}
+
+	result, err := h.service.SearchTerminalWithVersion(csi, appVersion)
 
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Search failed: %v", err))
