@@ -102,11 +102,17 @@ func (h *Handler) Login(c echo.Context) error {
 		h.clearTmsSession(u.UserName)
 	}
 
+	// Log login activity (v2 parity).
+	mw.LogActivityFromContext(c, mw.LogLogin, "")
+
 	return c.Redirect(http.StatusFound, "/")
 }
 
 // Logout destroys the current session and redirects to the login page.
 func (h *Handler) Logout(c echo.Context) error {
+	// Log logout activity before clearing session (v2 parity).
+	mw.LogActivityFromContext(c, mw.LogLogout, "")
+
 	// Clear per-user TMS session on app logout (like v2).
 	currentUser := mw.GetCurrentUserName(c)
 	if currentUser != "" && h.clearTmsSession != nil {

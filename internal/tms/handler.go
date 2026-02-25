@@ -330,6 +330,7 @@ func (h *Handler) Add(c echo.Context) error {
 		}
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreAddCSI, "Add csi "+data.DeviceID)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal added successfully")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
@@ -794,6 +795,7 @@ func (h *Handler) Copy(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Copy failed: %s", resp.Desc)}, sourceSn))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreCopyCSI, "Copy csi "+sourceSn+" to "+destSn)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal copied successfully")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
@@ -830,6 +832,9 @@ func (h *Handler) Delete(c echo.Context) error {
 	if resp != nil && resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete failed: %s", resp.Desc))
 	} else {
+		for _, sn := range serialNos {
+			mw.LogActivityFromContext(c, mw.LogVeristoreDeleteCSI, "Delete csi "+sn)
+		}
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal(s) deleted successfully")
 	}
 
@@ -918,6 +923,7 @@ func (h *Handler) Replacement(c echo.Context) error {
 	if resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Replacement failed: %s", resp.Desc))
 	} else {
+		mw.LogActivityFromContext(c, mw.LogVeristoreReplace, "Replacement CSI "+oldSn+" to "+newSn)
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal replaced successfully")
 	}
 
@@ -1277,6 +1283,7 @@ func (h *Handler) Report(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/report")
 		}
 
+		mw.LogActivityFromContext(c, mw.LogVeristoreReport, "")
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update & Sync dimulai. Report akan tersedia dalam beberapa saat.")
 		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
@@ -1932,6 +1939,7 @@ func (h *Handler) AddMerchant(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/veristore/merchant/add")
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreAddMerch, "Add merchant "+data.MerchantName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant added successfully")
 	return c.Redirect(http.StatusFound, "/veristore/merchant")
 }
@@ -1990,6 +1998,7 @@ func (h *Handler) EditMerchant(c echo.Context) error {
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/merchant/edit?id=%s", data.ID))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreEditMerch, "Edit merchant "+data.MerchantName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant updated successfully")
 	return c.Redirect(http.StatusFound, "/veristore/merchant")
 }
@@ -2011,6 +2020,7 @@ func (h *Handler) DeleteMerchant(c echo.Context) error {
 	if resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete merchant failed: %s", resp.Desc))
 	} else {
+		mw.LogActivityFromContext(c, mw.LogVeristoreDelMerch, fmt.Sprintf("Delete merchant %d", merchantId))
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant deleted successfully")
 	}
 
@@ -2113,6 +2123,7 @@ func (h *Handler) AddGroup(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Add group failed: %s", resp.Desc)}, nil, false, 0))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreAddGroup, "Add group "+groupName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Group added successfully")
 	return c.Redirect(http.StatusFound, "/veristore/group")
 }
@@ -2197,6 +2208,7 @@ func (h *Handler) EditGroup(c echo.Context) error {
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/group/edit?id=%d", groupId))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreEditGroup, "Edit group "+groupName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Group updated successfully")
 	return c.Redirect(http.StatusFound, "/veristore/group")
 }
@@ -2218,6 +2230,7 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 	if resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete group failed: %s", resp.Desc))
 	} else {
+		mw.LogActivityFromContext(c, mw.LogVeristoreDelGroup, fmt.Sprintf("Delete group %d", groupId))
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Group deleted successfully")
 	}
 
@@ -2417,6 +2430,7 @@ func (h *Handler) Login(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, []string{fmt.Sprintf("Login failed: %s", resp.Desc)}, tmsUser, passwordMask))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreLogin, "Login TMS Veristore sebagai "+tmsUser)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login successful")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }

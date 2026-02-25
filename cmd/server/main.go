@@ -162,6 +162,7 @@ func main() {
 	// -----------------------------------------------------------------------
 	e.Use(mw.Recovery())
 	e.Use(mw.RequestLogger())
+	e.Use(mw.ActivityLogDBMiddleware(db))
 
 	// -----------------------------------------------------------------------
 	// 12. Serve static files

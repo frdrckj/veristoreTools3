@@ -232,6 +232,7 @@ func (h *Handler) handleReportSubmission(c echo.Context, page layouts.PageData, 
 		return c.Redirect(http.StatusFound, "/verification/index")
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVerifyTerminal, "Verifikasi CSI "+csi)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Verifikasi berhasil disimpan!")
 	return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, true, "", appVersions))
 }
