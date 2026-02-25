@@ -113,8 +113,13 @@ func (s *Service) GetTerminalList(page int) (*TMSResponse, error) {
 // SearchTerminals searches terminals with filters.
 // queryType 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
 // Group/Merchant/TID/MID use old session-based API; CSI/SN use new signed API.
-func (s *Service) SearchTerminals(page int, search string, queryType int) (*TMSResponse, error) {
-	session := s.GetSession()
+// Pass username so we can use the per-user TMS session for old API calls.
+func (s *Service) SearchTerminals(page int, search string, queryType int, username string) (*TMSResponse, error) {
+	// Prefer per-user session; fall back to global tms_login session.
+	session := s.GetUserSession(username)
+	if session == "" {
+		session = s.GetSession()
+	}
 	return s.client.GetTerminalListSearch(session, page, search, queryType)
 }
 

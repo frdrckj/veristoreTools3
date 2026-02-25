@@ -96,7 +96,7 @@ func (s *Service) SearchTerminal(csi string) (*SearchResult, error) {
 	}
 
 	// Step 2: Not found locally, try TMS API.
-	resp, err := s.tmsSvc.SearchTerminals(1, csi, 0)
+	resp, err := s.tmsSvc.SearchTerminals(1, csi, 0, "")
 	if err != nil {
 		return &SearchResult{Found: false, CSI: csi}, nil
 	}

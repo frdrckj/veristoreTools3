@@ -209,7 +209,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 	var err error
 
 	if serialNo != "" {
-		resp, err = h.service.SearchTerminals(pageNum, serialNo, searchType)
+		resp, err = h.service.SearchTerminals(pageNum, serialNo, searchType, currentUser)
 	} else {
 		resp, err = h.service.GetTerminalList(pageNum)
 	}
@@ -851,7 +851,7 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 		var resp *TMSResponse
 		var err error
 		if searchSerialNo != "" {
-			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType)
+			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
 		} else {
 			resp, err = h.service.GetTerminalList(page)
 		}

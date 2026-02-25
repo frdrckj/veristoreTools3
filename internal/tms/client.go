@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -879,16 +880,21 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 		"size":   10,
 	}
 
-	// Build the structured search field based on queryType (matching V2 TmsHelper.php).
-	filter := map[string]interface{}{
-		"type":  "=",
-		"value": search,
-	}
+	// Build the structured search field based on queryType.
 	switch queryType {
 	case 1: // Merchant Name
-		body["merchantName"] = filter
-	case 2: // Group Name
-		body["groupName"] = filter
+		body["merchantName"] = map[string]interface{}{"type": "=", "value": search}
+	case 2: // Group Name — TMS API's groupName filter expects the group ID, not name.
+		// Resolve group name to ID via group page endpoint.
+		groupID := c.resolveGroupNameToID(session, search)
+		if groupID != "" {
+			body["groupName"] = map[string]interface{}{"type": "=", "value": groupID}
+		} else {
+			log.Warn().Str("search", search).Msg("group name not found, returning empty results")
+			return &TMSResponse{ResultCode: 0, Desc: "Group not found", Data: map[string]interface{}{
+				"totalPage": 0, "terminalList": []interface{}{},
+			}}, nil
+		}
 	case 3: // TID
 		body["appParameterValueList"] = []map[string]interface{}{
 			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
@@ -899,6 +905,14 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 		}
 	}
 
+	bodyJSON, _ := json.Marshal(body)
+	log.Debug().
+		Int("queryType", queryType).
+		Str("search", search).
+		Bool("hasSession", session != "").
+		RawJSON("body", bodyJSON).
+		Msg("getTerminalListSearchOld request")
+
 	result, err := c.doPost(session, "/market/manage/terminal/page", body)
 	if err != nil {
 		return nil, err
@@ -906,6 +920,26 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 
 	code, _ := toInt(result["code"])
 	rc := mapResponseCode(code)
+
+	data0, _ := result["data"].(map[string]interface{})
+	listLen := 0
+	dataKeys := []string{}
+	if data0 != nil {
+		if l, ok := data0["list"].([]interface{}); ok {
+			listLen = len(l)
+		}
+		for k := range data0 {
+			dataKeys = append(dataKeys, k)
+		}
+	}
+	log.Debug().
+		Interface("code", code).
+		Int("rc", rc).
+		Int("listLen", listLen).
+		Strs("dataKeys", dataKeys).
+		Bool("dataIsNil", data0 == nil).
+		Str("desc", toString(result["desc"])).
+		Msg("getTerminalListSearchOld response")
 
 	resp := &TMSResponse{
 		ResultCode: rc,
@@ -924,7 +958,7 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 				}
 			}
 			resp.Data = map[string]interface{}{
-				"totalPage":    data["totalPage"],
+				"totalPage":    data["pages"],
 				"terminalList": list,
 			}
 		}
@@ -1989,6 +2023,51 @@ func (c *Client) DeleteMerchant(session string, merchantId int) (*TMSResponse, e
 // ---------------------------------------------------------------------------
 // Group Management
 // ---------------------------------------------------------------------------
+
+// resolveGroupNameToID fetches the group list and finds the group ID matching
+// the given name (case-insensitive). Returns the group ID as string, or "".
+func (c *Client) resolveGroupNameToID(session, groupName string) string {
+	result, err := c.doPost(session, "/market/manage/group/page", map[string]interface{}{
+		"page": 1,
+		"size": 100,
+	})
+	if err != nil {
+		return ""
+	}
+	code, _ := toInt(result["code"])
+	if code != 200 {
+		return ""
+	}
+	data, _ := result["data"].(map[string]interface{})
+	if data == nil {
+		return ""
+	}
+	list, _ := data["list"].([]interface{})
+	searchLower := strings.ToLower(groupName)
+	// Exact match first.
+	for _, item := range list {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := strings.ToLower(toString(m["groupName"]))
+		if name == searchLower {
+			return toString(m["id"])
+		}
+	}
+	// Partial match fallback.
+	for _, item := range list {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := strings.ToLower(toString(m["groupName"]))
+		if strings.Contains(name, searchLower) {
+			return toString(m["id"])
+		}
+	}
+	return ""
+}
 
 // GetGroupList retrieves the group selector list.
 func (c *Client) GetGroupList(session string) (*TMSResponse, error) {
