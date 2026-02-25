@@ -2168,6 +2168,41 @@ func (c *Client) DeleteMerchant(session string, merchantId int) (*TMSResponse, e
 // Group Management
 // ---------------------------------------------------------------------------
 
+// GetGroupPage fetches groups from the old session-based group/page API
+// and returns a lowercase groupName → int ID map.
+func (c *Client) GetGroupPage(session string, page, size int) (map[string]int, error) {
+	result, err := c.doPost(session, "/market/manage/group/page", map[string]interface{}{
+		"page": page,
+		"size": size,
+	})
+	if err != nil {
+		return nil, err
+	}
+	code, _ := toInt(result["code"])
+	if code != 200 {
+		return nil, fmt.Errorf("group/page returned code %d", code)
+	}
+	data, _ := result["data"].(map[string]interface{})
+	if data == nil {
+		return nil, fmt.Errorf("group/page returned nil data")
+	}
+	list, _ := data["list"].([]interface{})
+
+	groupMap := make(map[string]int, len(list))
+	for _, item := range list {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := strings.ToLower(toString(m["groupName"]))
+		id, _ := toInt(m["id"])
+		if name != "" && id != 0 {
+			groupMap[name] = id
+		}
+	}
+	return groupMap, nil
+}
+
 // resolveGroupNameToID resolves a group name to its TMS group ID.
 // Uses a 5-minute in-memory cache to avoid extra API calls on every search.
 func (c *Client) resolveGroupNameToID(session, groupName string) string {

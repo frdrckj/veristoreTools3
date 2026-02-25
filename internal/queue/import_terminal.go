@@ -237,9 +237,6 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// Build group name → ID map so users can use group names in the Excel.
 	groupMap := h.buildGroupMap(session)
-	if len(groupMap) > 0 {
-		logger.Info().Int("groups", len(groupMap)).Msg("loaded group name→ID map")
-	}
 
 	// Pre-resolve unique template SN → old-API int ID (shared across workers).
 	// Many rows share the same template, so this saves N-1 API calls per template.
@@ -513,30 +510,89 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 }
 
 // buildGroupMap fetches the TMS group list and returns a lowercase name → ID map.
+// Uses the old session-based group/page API (which returns groupName) and falls
+// back to the signed API if the old API fails.
 func (h *ImportTerminalHandler) buildGroupMap(session string) map[string]int {
+	logger := log.With().Str("task", "import:terminal").Logger()
 	groupMap := map[string]int{}
-	resp, err := h.tmsClient.GetGroupList(session)
-	if err != nil || resp.ResultCode != 0 || resp.Data == nil {
-		return groupMap
+
+	// Use the group/page API which returns groupName (same as resolveGroupNameToID).
+	// Fetch up to 200 groups in a single call to cover most cases.
+	result, err := h.tmsClient.GetGroupPage(session, 1, 200)
+	if err == nil {
+		for name, id := range result {
+			groupMap[name] = id
+		}
+	} else {
+		logger.Warn().Err(err).Msg("old API group/page failed")
 	}
-	groups, _ := resp.Data["groups"].([]interface{})
-	for _, g := range groups {
-		gm, _ := g.(map[string]interface{})
-		if gm == nil {
-			continue
-		}
-		name := tms.ToString(gm["name"])
-		id := 0
-		switch v := gm["id"].(type) {
-		case int:
-			id = v
-		case float64:
-			id = int(v)
-		}
-		if name != "" && id != 0 {
-			groupMap[strings.ToLower(name)] = id
+
+	// If old API returned no groups, try the signed (new) API as fallback.
+	if len(groupMap) == 0 {
+		logger.Info().Msg("trying signed API for group list")
+		for page := 1; ; page++ {
+			resp, err := h.tmsClient.GetGroupManageList("", page)
+			if err != nil || resp.ResultCode != 0 || resp.Data == nil {
+				break
+			}
+			groups, _ := resp.Data["groupList"].([]interface{})
+			if len(groups) == 0 {
+				break
+			}
+			for _, g := range groups {
+				gm, _ := g.(map[string]interface{})
+				if gm == nil {
+					continue
+				}
+				// Try groupName first (signed API), then name, then label.
+				name := tms.ToString(gm["groupName"])
+				if name == "" {
+					name = tms.ToString(gm["name"])
+				}
+				if name == "" {
+					name = tms.ToString(gm["label"])
+				}
+				id := 0
+				if idVal, ok := gm["id"]; ok {
+					switch v := idVal.(type) {
+					case float64:
+						id = int(v)
+					case int:
+						id = v
+					case string:
+						id, _ = strconv.Atoi(v)
+					}
+				}
+				if name != "" && id != 0 {
+					groupMap[strings.ToLower(name)] = id
+				}
+			}
+			totalPage := 0
+			if tp, ok := resp.Data["totalPage"]; ok {
+				switch v := tp.(type) {
+				case float64:
+					totalPage = int(v)
+				case int:
+					totalPage = v
+				}
+			}
+			if page >= totalPage {
+				break
+			}
 		}
 	}
+
+	if len(groupMap) == 0 {
+		logger.Warn().Msg("no groups found from TMS API, group names in Excel will not be resolved")
+	} else {
+		// Log available group names for debugging.
+		names := make([]string, 0, len(groupMap))
+		for name := range groupMap {
+			names = append(names, name)
+		}
+		logger.Info().Strs("available_groups", names).Int("count", len(groupMap)).Msg("group name→ID map loaded")
+	}
+
 	return groupMap
 }
 
