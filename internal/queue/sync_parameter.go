@@ -386,9 +386,47 @@ func (h *SyncParameterHandler) syncProgress(userID, current, total int) {
 // nonPrintableRegexp matches non-printable characters (outside ASCII 0x20-0x7F).
 var nonPrintableRegexp = regexp.MustCompile(`[^\x20-\x7F]`)
 
+// isDeadlock returns true if the error is a MySQL deadlock (Error 1213).
+func isDeadlock(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "1213") || strings.Contains(err.Error(), "Deadlock")
+}
+
 // updateLocalTerminal creates or updates the local terminal and its parameters.
 // This closely follows the v2 SyncTerminalParameter.php process == 2 logic.
+//
+// Uses deadlock retry (up to 3 attempts) and batch parameter inserts to avoid
+// MySQL deadlocks when 10+ concurrent workers all write to terminal_parameter.
 func (h *SyncParameterHandler) updateLocalTerminal(
+	ctx context.Context,
+	serialNum, deviceID, productNum, model, appName, appVersion, user string,
+	paramResp *tms.TMSResponse,
+) error {
+	const maxRetries = 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := h.doUpdateLocalTerminal(ctx, serialNum, deviceID, productNum, model, appName, appVersion, user, paramResp)
+		if err == nil {
+			return nil
+		}
+
+		// Retry on deadlock.
+		if isDeadlock(err) && attempt < maxRetries {
+			log.Debug().Int("attempt", attempt).Str("serial", serialNum).Msg("deadlock, retrying")
+			time.Sleep(time.Duration(50*attempt) * time.Millisecond)
+			continue
+		}
+
+		return err
+	}
+	return nil
+}
+
+// doUpdateLocalTerminal is the actual transaction logic, called by
+// updateLocalTerminal with retry wrapper.
+func (h *SyncParameterHandler) doUpdateLocalTerminal(
 	ctx context.Context,
 	serialNum, deviceID, productNum, model, appName, appVersion, user string,
 	paramResp *tms.TMSResponse,
@@ -448,7 +486,10 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 		}
 
 		// Delete existing parameters before inserting fresh ones.
-		tx.Where("param_term_id = ?", term.TermID).Delete(&terminal.TerminalParameter{})
+		// IMPORTANT: check error — if this deadlocks, the tx is dead.
+		if err := tx.Where("param_term_id = ?", term.TermID).Delete(&terminal.TerminalParameter{}).Error; err != nil {
+			return fmt.Errorf("delete parameters: %w", err)
+		}
 
 		paraList, ok := paramResp.Data["paraList"].([]interface{})
 		if !ok || len(paraList) == 0 {
@@ -523,7 +564,7 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 			}
 		}
 
-		// Create terminal parameter records for enabled merchants.
+		// Build parameter records for enabled merchants.
 		// Sort merchant keys ascending to ensure deterministic insertion order
 		// matching V2 (PHP iterates arrays in insertion order) and the terminal
 		// device (which uses merchant index 0/1 for activation code calculation).
@@ -535,6 +576,9 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 		}
 		sort.Ints(merchantKeys)
 
+		// Collect all params into a batch slice for a single INSERT.
+		// This is much faster and avoids lock contention vs one-by-one inserts.
+		var paramBatch []terminal.TerminalParameter
 		for _, key := range merchantKeys {
 			mid, hasMID := merchantID[key]
 			tid, hasTID := terminalID[key]
@@ -546,7 +590,7 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 			hn := hostName[hostValue]
 			mn := merchantName[key]
 
-			param := &terminal.TerminalParameter{
+			param := terminal.TerminalParameter{
 				ParamTermID:       term.TermID,
 				ParamHostName:     hn,
 				ParamMerchantName: mn,
@@ -566,8 +610,14 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 				}
 			}
 
-			if err := termRepo.CreateParameter(param); err != nil {
-				log.Warn().Err(err).Str("serial", serialNum).Msg("failed to create terminal parameter")
+			paramBatch = append(paramBatch, param)
+		}
+
+		// Batch insert all parameters in a single INSERT (1 lock acquisition
+		// instead of N, dramatically reduces deadlock probability).
+		if len(paramBatch) > 0 {
+			if err := termRepo.CreateParameterBatch(paramBatch); err != nil {
+				return fmt.Errorf("batch create parameters: %w", err)
 			}
 		}
 

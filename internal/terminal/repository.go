@@ -126,6 +126,16 @@ func (r *Repository) CreateParameter(p *TerminalParameter) error {
 	return r.db.Create(p).Error
 }
 
+// CreateParameterBatch inserts multiple terminal parameter records in a single
+// INSERT statement. This is much faster and reduces lock contention vs
+// inserting one-by-one, preventing MySQL deadlocks during concurrent sync.
+func (r *Repository) CreateParameterBatch(params []TerminalParameter) error {
+	if len(params) == 0 {
+		return nil
+	}
+	return r.db.Create(&params).Error
+}
+
 // UpdateParameter saves changes to an existing terminal parameter.
 func (r *Repository) UpdateParameter(p *TerminalParameter) error {
 	return r.db.Save(p).Error

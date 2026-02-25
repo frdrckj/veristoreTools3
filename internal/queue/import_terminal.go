@@ -21,15 +21,17 @@ import (
 )
 
 // Number of concurrent workers for importing terminals via the TMS API.
-// Each worker processes one row at a time (5-6 API calls per row):
-//   - CopyTerminal (1 call)
-//   - GetTerminalDetail (1 call)
-//   - GetTerminalParameterMultiTab (1 call, fetches all tabs)
-//   - UpdateParameter (1 call)
-//   - UpdateDeviceId (1 call)
+// Each worker processes one row at a time using the optimized pipeline
+// (6 API calls per row, with 8 param tabs fetched concurrently):
+//   - CopyTerminalById (1 call, source ID pre-cached)
+//   - getIdFromSN to resolve dest SN (1 call)
+//   - GetImportTerminalInfo: old-API detail + app list (2 calls)
+//   - GetParameterTabsConcurrent: 8 tabs in parallel (≈1 RTT)
+//   - UpdateParameterById (1 call, ID pre-resolved)
+//   - UpdateDeviceIdDirect (1 call, detail pre-fetched)
 //
-// Total concurrent connections ≈ importWorkerCount × 1-2 (pipelined).
-const importWorkerCount = 10
+// Total concurrent connections ≈ importWorkerCount × ~8-10 (burst during tab fetch).
+const importWorkerCount = 20
 
 // importJob represents a single row from the Excel file to be imported.
 type importJob struct {
@@ -219,16 +221,30 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// ------------------------------------------------------------------
 	// Phase 2: Process rows concurrently using a worker pool.
+	// Optimized pipeline: resolve IDs once, fetch tabs concurrently,
+	// reuse pre-fetched data across steps. Reduces API calls from
+	// ~20 per terminal to ~6 per terminal.
 	// ------------------------------------------------------------------
 
 	// Cache tab names once (shared across all workers).
 	tabNames := tms.GetAllTabNames(h.db)
+
+	// Cache operationMark once for the entire import (saves 1 call/terminal).
+	operationMark, err := h.tmsClient.GetOperationMark(session)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to get operationMark, params may fail")
+	}
 
 	// Build group name → ID map so users can use group names in the Excel.
 	groupMap := h.buildGroupMap(session)
 	if len(groupMap) > 0 {
 		logger.Info().Int("groups", len(groupMap)).Msg("loaded group name→ID map")
 	}
+
+	// Pre-resolve unique template SN → old-API int ID (shared across workers).
+	// Many rows share the same template, so this saves N-1 API calls per template.
+	templateCache := h.buildTemplateCache(session, jobs, &logger)
+	logger.Info().Int("templates", len(templateCache)).Msg("pre-resolved template IDs")
 
 	// Create a cancellable context so we can stop workers when the user
 	// clicks "Reset" (which deletes the import record from the DB).
@@ -275,7 +291,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				default:
 				}
 
-				ok := h.importSingleTerminal(importCtx, session, j, tabNames, groupMap, &logger)
+				ok := h.importSingleTerminalFast(importCtx, session, j, tabNames, operationMark, groupMap, templateCache, &logger)
 				if ok {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -330,14 +346,55 @@ sendLoop:
 	return nil
 }
 
-// importSingleTerminal processes one row: copy from template, get detail,
-// fetch params, update params, update device/merchant/group. Returns true
-// on success, false on failure. Called from worker goroutines.
-func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, session string, j importJob, tabNames []string, groupMap map[string]int, logger *zerolog.Logger) bool {
-	// Step 1: Copy terminal from template.
-	// If the terminal already exists ("Duplicate"), continue with update steps.
+// buildTemplateCache pre-resolves all unique template SNs to their old-API
+// int IDs. This is done once before the worker pool starts, so all workers
+// can use cached IDs instead of each resolving the same template SN.
+func (h *ImportTerminalHandler) buildTemplateCache(session string, jobs []importJob, logger *zerolog.Logger) map[string]int {
+	// Collect unique template SNs.
+	unique := map[string]bool{}
+	for _, j := range jobs {
+		unique[j.TemplateSN] = true
+	}
+
+	cache := map[string]int{}
+	for sn := range unique {
+		id, err := h.tmsClient.GetIdFromSN(session, sn)
+		if err != nil {
+			logger.Warn().Str("templateSN", sn).Err(err).Msg("failed to resolve template SN")
+			continue
+		}
+		cache[sn] = id
+	}
+	return cache
+}
+
+// importSingleTerminalFast is the optimized import pipeline for a single row.
+// It resolves each SN only once and reuses the ID across all steps, fetches
+// parameter tabs concurrently, and reuses pre-fetched detail data.
+//
+// API calls per terminal (vs 20 in the old pipeline):
+//   1. CopyTerminalById — 1 call (source ID pre-cached)
+//   2. getIdFromSN(destSN) — 1 call (resolve once, reuse everywhere)
+//   3. GetImportTerminalInfo — 2 calls (old-API detail + app list)
+//   4. GetParameterTabsConcurrent — 8 tabs in parallel ≈ 1 RTT
+//   5. UpdateParameterById — 1 call (ID pre-resolved)
+//   6. UpdateDeviceIdDirect — 1 call (detail pre-fetched)
+// Total: ~7 calls + ~1 RTT for parallel tabs ≈ 60-70% fewer round-trips.
+func (h *ImportTerminalHandler) importSingleTerminalFast(
+	ctx context.Context, session string, j importJob,
+	tabNames []string, operationMark string,
+	groupMap map[string]int, templateCache map[string]int,
+	logger *zerolog.Logger,
+) bool {
+	// Step 1: Copy terminal from template using pre-cached source ID.
 	isExisting := false
-	copyResp, err := h.tmsClient.CopyTerminal(session, j.TemplateSN, j.SerialNum)
+	sourceId, ok := templateCache[j.TemplateSN]
+	if !ok {
+		logger.Warn().Int("row", j.RowNum).Str("template", j.TemplateSN).Msg("template SN not in cache, skipping")
+		return false
+	}
+
+	copyResp, err := h.tmsClient.CopyTerminalById(session, sourceId, j.SerialNum)
 	if err != nil {
 		logger.Error().Err(err).Int("row", j.RowNum).Msg("copy terminal API call failed")
 		return false
@@ -352,18 +409,25 @@ func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, sessio
 		}
 	}
 
-	// Step 2: Get terminal detail.
-	detailResp, err := h.tmsClient.GetTerminalDetail(session, j.SerialNum)
-	if err != nil || detailResp.ResultCode != 0 {
+	// Step 2: Resolve dest SN → old-API int ID (one call, reused for all steps).
+	destId, err := h.tmsClient.GetIdFromSN(session, j.SerialNum)
+	if err != nil {
 		if !isExisting {
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
-		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal detail")
+		logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to resolve dest SN to ID")
 		return false
 	}
 
-	// Step 3: Find the target app.
-	appID := h.findAppID(detailResp)
+	// Step 3: Get terminal detail (old API) + app list — 2 calls total.
+	detailData, appID, err := h.tmsClient.GetImportTerminalInfo(session, destId)
+	if err != nil {
+		if !isExisting {
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
+		}
+		logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to get terminal info")
+		return false
+	}
 	if appID == "" {
 		if !isExisting {
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
@@ -372,8 +436,8 @@ func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, sessio
 		return false
 	}
 
-	// Step 4: Get terminal parameters (batch multi-tab).
-	paramResp, err := h.tmsClient.GetTerminalParameterMultiTab(session, j.SerialNum, appID, tabNames)
+	// Step 4: Fetch parameter tabs concurrently (8 tabs in parallel ≈ 1 RTT).
+	paramResp, err := h.tmsClient.GetParameterTabsConcurrent(session, destId, operationMark, appID, tabNames)
 	if err != nil || paramResp.Data == nil {
 		if !isExisting {
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
@@ -386,14 +450,15 @@ func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, sessio
 		if !isExisting {
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
-		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal parameters")
+		logger.Warn().Int("row", j.RowNum).Msg("no parameters returned")
 		return false
 	}
 
-	// Step 5: Update parameters from Excel columns F onwards.
+	// Step 5: Update parameters using pre-resolved string ID (1 call).
 	paraList := h.buildParaList(paramResp, j.Row)
 	if len(paraList) > 0 {
-		updateResp, err := h.tmsClient.UpdateParameter(session, j.SerialNum, paraList, appID)
+		destIdStr := strconv.Itoa(destId)
+		updateResp, err := h.tmsClient.UpdateParameterById(destIdStr, paraList, appID)
 		if err != nil || updateResp.ResultCode != 0 {
 			if !isExisting {
 				_ = h.deleteTerminalOnError(session, j.SerialNum)
@@ -407,14 +472,9 @@ func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, sessio
 		}
 	}
 
-	// Step 6: Update device ID, merchant, and groups.
-	model := ""
-	if detailResp.Data != nil {
-		model = tms.ToString(detailResp.Data["model"])
-	}
+	// Step 6: Update device ID, merchant, and groups using pre-fetched detail (1 call).
 	merchantIDInt, _ := strconv.Atoi(j.MerchantID)
 
-	// Resolve group IDs: accept both numeric IDs and group names.
 	groupIDsInt := make([]int, 0, len(j.GroupIDs))
 	for _, g := range j.GroupIDs {
 		if gInt, err := strconv.Atoi(g); err == nil {
@@ -426,13 +486,8 @@ func (h *ImportTerminalHandler) importSingleTerminal(ctx context.Context, sessio
 		}
 	}
 
-	deviceID := ""
-	if detailResp.Data != nil {
-		deviceID = tms.ToString(detailResp.Data["deviceId"])
-	}
-
 	if j.MerchantID != "" || len(groupIDsInt) > 0 {
-		updateDevResp, err := h.tmsClient.UpdateDeviceId(session, j.SerialNum, model, merchantIDInt, groupIDsInt, deviceID)
+		updateDevResp, err := h.tmsClient.UpdateDeviceIdDirect(session, detailData, merchantIDInt, groupIDsInt, j.SerialNum)
 		if err != nil {
 			if !isExisting {
 				_ = h.deleteTerminalOnError(session, j.SerialNum)
@@ -489,28 +544,6 @@ func (h *ImportTerminalHandler) buildGroupMap(session string) map[string]int {
 func (h *ImportTerminalHandler) deleteTerminalOnError(session, serialNum string) error {
 	_, err := h.tmsClient.DeleteTerminal(session, serialNum)
 	return err
-}
-
-// findAppID looks for the target app in a terminal detail response and returns
-// its ID as a string.
-func (h *ImportTerminalHandler) findAppID(resp *tms.TMSResponse) string {
-	if resp.Data == nil {
-		return ""
-	}
-	apps, ok := resp.Data["terminalShowApps"].([]interface{})
-	if !ok {
-		return ""
-	}
-	for _, a := range apps {
-		appMap, ok := a.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if id := appMap["id"]; id != nil {
-			return fmt.Sprintf("%v", id)
-		}
-	}
-	return ""
 }
 
 // getFieldName maps Excel column letters to TMS parameter field names.

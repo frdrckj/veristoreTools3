@@ -108,6 +108,11 @@ type Client struct {
 	accessSecret string
 	httpClient   *http.Client
 	db           *gorm.DB
+
+	// Cached group name→ID map for fast group search resolution.
+	groupMapCache   map[string]string // lowercase name → ID
+	groupMapExpiry  time.Time
+	groupMapMu      sync.RWMutex
 }
 
 // NewClient creates a new TMS API client.
@@ -470,6 +475,12 @@ func (c *Client) getIdFromSN(session, deviceId string) (int, error) {
 	return 0, fmt.Errorf("tms: could not resolve SN %q to terminal ID", deviceId)
 }
 
+// GetIdFromSN is the public wrapper for getIdFromSN, resolving a device ID
+// (SN) to an internal terminal ID via the old session-based API.
+func (c *Client) GetIdFromSN(session, deviceId string) (int, error) {
+	return c.getIdFromSN(session, deviceId)
+}
+
 // getTerminalIdFromSN resolves a serial number or device ID (CSI) to the
 // internal terminal ID using the new signed terminal list API.
 func (c *Client) getTerminalIdFromSN(serialNum string) (string, error) {
@@ -818,15 +829,12 @@ func (c *Client) GetTerminalListWithSize(pageNum, pageSize int) (*TMSResponse, e
 //	4 = deviceId, 5 = MID param
 func (c *Client) GetTerminalListSearch(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
 	// queryType: 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
-	// For CSI (4) and SN (0), use the new signed API with generic "search".
-	// For Group (2), Merchant (1), TID (3), MID (5), use the old session-based
-	// API which supports structured filter fields (matching V2 behaviour).
-	switch queryType {
-	case 1, 2, 3, 5:
-		return c.getTerminalListSearchOld(session, pageNum, search, queryType)
-	default:
+	// CSI (4) uses the faster signed API (no session overhead).
+	// All other types use the old session-based API with structured filters.
+	if queryType == 4 {
 		return c.getTerminalListSearchNew(pageNum, search, queryType)
 	}
+	return c.getTerminalListSearchOld(session, pageNum, search, queryType)
 }
 
 // getTerminalListSearchNew uses the signed API for CSI/SN search.
@@ -880,12 +888,13 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 		"size":   10,
 	}
 
-	// Build the structured search field based on queryType.
+	// Build the structured search field based on queryType (matching V2).
 	switch queryType {
+	case 0: // SN
+		body["sn"] = map[string]interface{}{"type": "=", "value": search}
 	case 1: // Merchant Name
 		body["merchantName"] = map[string]interface{}{"type": "=", "value": search}
 	case 2: // Group Name — TMS API's groupName filter expects the group ID, not name.
-		// Resolve group name to ID via group page endpoint.
 		groupID := c.resolveGroupNameToID(session, search)
 		if groupID != "" {
 			body["groupName"] = map[string]interface{}{"type": "=", "value": groupID}
@@ -899,19 +908,13 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 		body["appParameterValueList"] = []map[string]interface{}{
 			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
 		}
+	case 4: // CSI (deviceId)
+		body["deviceId"] = map[string]interface{}{"type": "=", "value": search}
 	case 5: // MID
 		body["appParameterValueList"] = []map[string]interface{}{
 			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
 		}
 	}
-
-	bodyJSON, _ := json.Marshal(body)
-	log.Debug().
-		Int("queryType", queryType).
-		Str("search", search).
-		Bool("hasSession", session != "").
-		RawJSON("body", bodyJSON).
-		Msg("getTerminalListSearchOld request")
 
 	result, err := c.doPost(session, "/market/manage/terminal/page", body)
 	if err != nil {
@@ -920,26 +923,6 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 
 	code, _ := toInt(result["code"])
 	rc := mapResponseCode(code)
-
-	data0, _ := result["data"].(map[string]interface{})
-	listLen := 0
-	dataKeys := []string{}
-	if data0 != nil {
-		if l, ok := data0["list"].([]interface{}); ok {
-			listLen = len(l)
-		}
-		for k := range data0 {
-			dataKeys = append(dataKeys, k)
-		}
-	}
-	log.Debug().
-		Interface("code", code).
-		Int("rc", rc).
-		Int("listLen", listLen).
-		Strs("dataKeys", dataKeys).
-		Bool("dataIsNil", data0 == nil).
-		Str("desc", toString(result["desc"])).
-		Msg("getTerminalListSearchOld response")
 
 	resp := &TMSResponse{
 		ResultCode: rc,
@@ -1515,6 +1498,167 @@ func (c *Client) CopyTerminal(session, sourceSn, destSn string) (*TMSResponse, e
 	}, nil
 }
 
+// ---------------------------------------------------------------------------
+// Fast Import Methods — optimized to minimize redundant API calls.
+// The standard methods each resolve SN→ID independently, causing 20 API calls
+// per terminal. These "ById" variants accept pre-resolved IDs so the import
+// pipeline resolves each SN only once and reuses the ID everywhere.
+// ---------------------------------------------------------------------------
+
+// CopyTerminalById copies config from a template terminal (pre-resolved ID)
+// to a new destination SN. Saves 1 API call vs CopyTerminal.
+func (c *Client) CopyTerminalById(session string, sourceId int, destSn string) (*TMSResponse, error) {
+	body := map[string]interface{}{
+		"newDeviceId":       destSn,
+		"newSn":             "",
+		"oldTerminalId":     sourceId,
+		"oldTerminalStatus": 0,
+	}
+
+	result, err := c.doPost(session, "/market/manage/terminal/copy", body)
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+	if code == 800 {
+		rc = 1
+	}
+
+	return &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+		RawData:    result,
+	}, nil
+}
+
+// GetImportTerminalInfo fetches the old-API detail (needed for UpdateDeviceId)
+// and app list (needed for parameter updates) in just 2 API calls.
+// Returns the full detail data and the appID string.
+func (c *Client) GetImportTerminalInfo(session string, terminalIdInt int) (detailData map[string]interface{}, appID string, err error) {
+	// Get full detail from old session API (needed for UpdateDeviceIdDirect).
+	detailResult, err := c.doPost(session, "/market/manage/terminal/detail", map[string]interface{}{
+		"terminalId": terminalIdInt,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("tms: GetImportTerminalInfo detail: %w", err)
+	}
+	detailCode, _ := toInt(detailResult["code"])
+	if detailCode != 200 {
+		return nil, "", fmt.Errorf("tms: GetImportTerminalInfo detail code %d: %s", detailCode, toString(detailResult["desc"]))
+	}
+
+	detailData, _ = detailResult["data"].(map[string]interface{})
+	if detailData == nil {
+		return nil, "", fmt.Errorf("tms: GetImportTerminalInfo: no detail data")
+	}
+
+	// Get app list from signed API using the same terminal ID.
+	terminalIdStr := strconv.Itoa(terminalIdInt)
+	appResult, err := c.doSignedPost("/v2/tps/terminalApp/list", map[string]interface{}{
+		"terminalId": terminalIdStr,
+	})
+	if err != nil {
+		return detailData, "", fmt.Errorf("tms: GetImportTerminalInfo apps: %w", err)
+	}
+
+	appCode, _ := toInt(appResult["code"])
+	if appCode == 200 {
+		if appData, ok := appResult["data"].([]interface{}); ok {
+			for _, a := range appData {
+				am, _ := a.(map[string]interface{})
+				if am == nil {
+					continue
+				}
+				if items, ok := am["itemList"].([]interface{}); ok {
+					for _, item := range items {
+						im, _ := item.(map[string]interface{})
+						if im != nil {
+							// Return first app ID found.
+							id := toIntDefault(im["appId"], 0)
+							if id != 0 {
+								return detailData, fmt.Sprintf("%d", id), nil
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return detailData, "", nil
+}
+
+// UpdateDeviceIdDirect updates terminal merchant/group/deviceId using
+// pre-fetched detail data. Saves 2 API calls vs UpdateDeviceId (skips
+// getIdFromSN and detail fetch).
+func (c *Client) UpdateDeviceIdDirect(session string, detailData map[string]interface{}, merchantId int, groupList []int, serialNum string) (*TMSResponse, error) {
+	if session == "" {
+		return nil, fmt.Errorf("tms: UpdateDeviceIdDirect requires a session")
+	}
+
+	// Modify fields on the pre-fetched data (matching V2 logic).
+	if merchantId != 0 {
+		detailData["merchantId"] = merchantId
+	}
+	if groupList != nil {
+		detailData["groupIds"] = groupList
+	}
+	detailData["deviceId"] = serialNum
+
+	// POST full modified data to old session update endpoint.
+	updateResult, err := c.doPost(session, "/market/manage/terminal/update", detailData)
+	if err != nil {
+		return nil, fmt.Errorf("tms: UpdateDeviceIdDirect update: %w", err)
+	}
+
+	updateCode, _ := toInt(updateResult["code"])
+	rc := mapResponseCode(updateCode)
+
+	return &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(updateResult["desc"]),
+	}, nil
+}
+
+// UpdateParameterById updates terminal parameters using a pre-resolved
+// terminal ID string. Saves 1 API call vs UpdateParameter (skips SN→ID).
+func (c *Client) UpdateParameterById(terminalId string, paraList []map[string]interface{}, appId string) (*TMSResponse, error) {
+	updParamMap := map[string]string{}
+	for _, p := range paraList {
+		key := toString(p["dataName"])
+		val := toString(p["value"])
+		if key != "" {
+			updParamMap[key] = val
+		}
+	}
+
+	result, err := c.doSignedPost("/v2/tps/terminalAppParameter/update", map[string]interface{}{
+		"terminalId":  terminalId,
+		"appId":       appId,
+		"updParamMap": updParamMap,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+
+	return &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+	}, nil
+}
+
+// GetParameterTabsConcurrent fetches parameters for all tabs concurrently
+// using pre-resolved terminal ID and cached operationMark. This is the
+// fastest parameter fetch method: 8 tabs in parallel ≈ 1 round-trip.
+func (c *Client) GetParameterTabsConcurrent(session string, terminalIdInt int, operationMark, appId string, tabNames []string) (*TMSResponse, error) {
+	return c.fetchParameterTabsConcurrent(session, terminalIdInt, operationMark, appId, tabNames)
+}
+
 // DeleteTerminal removes a terminal by its device ID (SN).
 func (c *Client) DeleteTerminal(session, serialNum string) (*TMSResponse, error) {
 	// Resolve SN to internal terminal ID.
@@ -2024,9 +2168,32 @@ func (c *Client) DeleteMerchant(session string, merchantId int) (*TMSResponse, e
 // Group Management
 // ---------------------------------------------------------------------------
 
-// resolveGroupNameToID fetches the group list and finds the group ID matching
-// the given name (case-insensitive). Returns the group ID as string, or "".
+// resolveGroupNameToID resolves a group name to its TMS group ID.
+// Uses a 5-minute in-memory cache to avoid extra API calls on every search.
 func (c *Client) resolveGroupNameToID(session, groupName string) string {
+	searchLower := strings.ToLower(groupName)
+
+	// Check cache first.
+	c.groupMapMu.RLock()
+	if c.groupMapCache != nil && time.Now().Before(c.groupMapExpiry) {
+		// Exact match.
+		if id, ok := c.groupMapCache[searchLower]; ok {
+			c.groupMapMu.RUnlock()
+			return id
+		}
+		// Partial match.
+		for name, id := range c.groupMapCache {
+			if strings.Contains(name, searchLower) {
+				c.groupMapMu.RUnlock()
+				return id
+			}
+		}
+		c.groupMapMu.RUnlock()
+		return ""
+	}
+	c.groupMapMu.RUnlock()
+
+	// Cache miss — fetch group list from TMS.
 	result, err := c.doPost(session, "/market/manage/group/page", map[string]interface{}{
 		"page": 1,
 		"size": 100,
@@ -2043,27 +2210,30 @@ func (c *Client) resolveGroupNameToID(session, groupName string) string {
 		return ""
 	}
 	list, _ := data["list"].([]interface{})
-	searchLower := strings.ToLower(groupName)
-	// Exact match first.
+
+	// Build and cache the map.
+	newMap := make(map[string]string, len(list))
 	for _, item := range list {
 		m, _ := item.(map[string]interface{})
 		if m == nil {
 			continue
 		}
 		name := strings.ToLower(toString(m["groupName"]))
-		if name == searchLower {
-			return toString(m["id"])
-		}
+		newMap[name] = toString(m["id"])
 	}
-	// Partial match fallback.
-	for _, item := range list {
-		m, _ := item.(map[string]interface{})
-		if m == nil {
-			continue
-		}
-		name := strings.ToLower(toString(m["groupName"]))
+	c.groupMapMu.Lock()
+	c.groupMapCache = newMap
+	c.groupMapExpiry = time.Now().Add(5 * time.Minute)
+	c.groupMapMu.Unlock()
+
+	// Exact match.
+	if id, ok := newMap[searchLower]; ok {
+		return id
+	}
+	// Partial match.
+	for name, id := range newMap {
 		if strings.Contains(name, searchLower) {
-			return toString(m["id"])
+			return id
 		}
 	}
 	return ""
