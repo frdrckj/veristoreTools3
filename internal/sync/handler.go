@@ -176,35 +176,18 @@ type syncReportPayload struct {
 
 // Create triggers a new sync by creating a DB record and enqueuing the
 // report:terminal background job to scan terminals and generate a report.
-// Uses the latest app version for the configured package name.
+// Uses the app version from the last Update button press (stored in the
+// most recent report's Excel sheet name), matching V2 behaviour.
 func (h *Handler) Create(c echo.Context) error {
 	userID := mw.GetCurrentUserID(c)
 	userName := mw.GetCurrentUserFullname(c)
 
-	// Find the latest version for the configured package from TMS.
+	// Use the app version from the last generated report (last Update press).
 	session := h.tmsService.GetSession()
-	appVersion := ""
-	appResp, err := h.tmsService.GetAppList()
-	if err == nil && appResp != nil && appResp.Data != nil {
-		if allApps, ok := appResp.Data["allApps"].([]interface{}); ok {
-			for _, a := range allApps {
-				am, ok := a.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				pkgName := fmt.Sprintf("%v", am["packageName"])
-				if h.packageName != "" && pkgName != h.packageName {
-					continue
-				}
-				// Take the first matching app's version (latest in list).
-				appVersion = fmt.Sprintf("%v", am["version"])
-				break
-			}
-		}
-	}
+	appVersion := h.service.GetLatestReportAppVersion()
 
 	if appVersion == "" {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Failed to find app version from TMS. Please use the Update page instead.")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Tidak ada report sebelumnya. Silakan gunakan halaman Update terlebih dahulu.")
 		return c.Redirect(http.StatusFound, "/sync-terminal/index")
 	}
 

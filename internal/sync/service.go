@@ -1,10 +1,13 @@
 package sync
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/verifone/veristoretools3/internal/admin"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -85,6 +88,40 @@ func (s *Service) GetLastSyncTime() (*time.Time, error) {
 		return nil, err
 	}
 	return &sync.SyncTermCreatedTime, nil
+}
+
+// GetLatestReportAppVersion retrieves the app version from the most recently
+// generated tms_report. It opens the Excel file and reads the sheet name,
+// which follows the format "{appName}_{version}" (e.g., "CIMB BRIS_4.3.0.0").
+// Returns empty string if no report exists or version cannot be extracted.
+func (s *Service) GetLatestReportAppVersion() string {
+	var rpt admin.TmsReport
+	if err := s.db.Order("tms_rpt_id DESC").First(&rpt).Error; err != nil {
+		return ""
+	}
+	if len(rpt.TmsRptFile) == 0 {
+		return ""
+	}
+
+	f, err := excelize.OpenReader(bytes.NewReader(rpt.TmsRptFile))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return ""
+	}
+
+	// Sheet name format: "{appName}_{version}" e.g., "CIMB BRIS_4.3.0.0"
+	sheetName := sheets[0]
+	lastUnderscore := strings.LastIndex(sheetName, "_")
+	if lastUnderscore < 0 || lastUnderscore >= len(sheetName)-1 {
+		return ""
+	}
+
+	return sheetName[lastUnderscore+1:]
 }
 
 // GetReportFileForSync finds the tms_report XLSX file associated with a sync record.
