@@ -99,9 +99,12 @@ func (r *Repository) Count() (int64, error) {
 // --- TerminalParameter methods ---
 
 // FindParametersByTermID retrieves all parameters for a given terminal.
+// Ordered by param_id ASC so the first row is the lowest-indexed merchant
+// (typically CIMB/primary host), matching V2 behaviour and the terminal
+// device's activation code calculation which uses the primary host's TID/MID.
 func (r *Repository) FindParametersByTermID(termID int) ([]TerminalParameter, error) {
 	var params []TerminalParameter
-	if err := r.db.Where("param_term_id = ?", termID).Find(&params).Error; err != nil {
+	if err := r.db.Where("param_term_id = ?", termID).Order("param_id ASC").Find(&params).Error; err != nil {
 		return nil, err
 	}
 	return params, nil

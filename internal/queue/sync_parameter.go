@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	gosync "sync"
@@ -510,10 +511,18 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 		}
 
 		// Create terminal parameter records for enabled merchants.
+		// Sort merchant keys ascending to ensure deterministic insertion order
+		// matching V2 (PHP iterates arrays in insertion order) and the terminal
+		// device (which uses merchant index 0/1 for activation code calculation).
+		var merchantKeys []int
 		for key, enable := range merchantEnable {
-			if enable != "1" {
-				continue
+			if enable == "1" {
+				merchantKeys = append(merchantKeys, key)
 			}
+		}
+		sort.Ints(merchantKeys)
+
+		for _, key := range merchantKeys {
 			mid, hasMID := merchantID[key]
 			tid, hasTID := terminalID[key]
 			if !hasMID || !hasTID {
