@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
@@ -332,25 +333,36 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	}
 
 	// ------------------------------------------------------------------
-	// Phase 3: Remove terminals that were previously synced but are no
-	// longer in the current report (e.g. deleted from TMS).
-	// Only targets terminals with last_synced_at set (from a previous
-	// sync) whose timestamp is older than this sync's start time.
-	// V2-copied terminals (last_synced_at IS NULL) are never touched.
+	// Phase 3: Ensure ALL TMS terminals exist in local DB (not just the
+	// ones matching the report's app version). This fetches the full
+	// terminal list from TMS and creates/updates local records.
+	// ------------------------------------------------------------------
+	allTMSCount, err := h.syncAllTMSTerminals(ctx, session, payload, syncStartTime, logger)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to sync all TMS terminals")
+	} else {
+		logger.Info().Int64("synced_all", allTMSCount).Msg("ensured all TMS terminals exist locally")
+	}
+
+	// ------------------------------------------------------------------
+	// Phase 4: Remove terminals that are no longer in TMS.
+	// Targets terminals with last_synced_at NULL (V2-imported, never
+	// synced) or older than this sync's start time.
 	// ------------------------------------------------------------------
 	deleted, err := h.termRepo.DeleteStaleSynced(syncStartTime)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to clean up stale terminals")
 	} else if deleted > 0 {
-		logger.Info().Int64("deleted", deleted).Msg("removed stale terminals no longer in TMS report")
+		logger.Info().Int64("deleted", deleted).Msg("removed stale terminals no longer in TMS")
 	}
 
 	// Mark sync as complete (status "3").
 	h.adminRepo.CompletePendingSyncs(payload.UserID)
 
 	logger.Info().
-		Int64("synced", successCount).
-		Int("total", totalTerminals).
+		Int64("synced_with_params", successCount).
+		Int("report_terminals", totalTerminals).
+		Int64("all_tms", allTMSCount).
 		Int64("removed", deleted).
 		Msg("parameter sync job completed")
 
@@ -384,8 +396,9 @@ func (h *SyncParameterHandler) updateLocalTerminal(
 	return h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		termRepo := terminal.NewRepository(tx)
 
-		// Find existing terminal or create a new one.
-		existing, _ := termRepo.FindByCSI(serialNum)
+		// Find existing terminal by term_serial_num only (CSI field) to avoid
+		// cross-field collisions where one terminal's CSI matches another's SN.
+		existing, _ := termRepo.FindBySerialNum(deviceID)
 
 		now := time.Now()
 		var term *terminal.Terminal
@@ -580,4 +593,150 @@ func safeAddrPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// syncAllTMSTerminals fetches ALL terminals from TMS (regardless of app version)
+// and ensures each one exists in the local database. Terminals already updated
+// by Phase 2 (last_synced_at >= syncStart) are skipped.
+func (h *SyncParameterHandler) syncAllTMSTerminals(
+	ctx context.Context,
+	session string,
+	payload SyncParameterPayload,
+	syncStart time.Time,
+	logger zerolog.Logger,
+) (int64, error) {
+	// Fetch page 1 to discover totalPage.
+	firstResp, err := h.tmsClient.GetTerminalListWithSize(1, 50)
+	if err != nil || firstResp == nil || firstResp.Data == nil {
+		return 0, fmt.Errorf("get terminal list page 1: %w", err)
+	}
+
+	totalPage := 1
+	if tp, ok := firstResp.Data["totalPage"]; ok {
+		if tpInt, e := strconv.Atoi(fmt.Sprintf("%v", tp)); e == nil && tpInt > 0 {
+			totalPage = tpInt
+		}
+	}
+
+	type tmsTerminal struct {
+		DeviceID string // CSI
+		SN       string
+		Model    string
+		Merchant string
+	}
+
+	extractFromPage := func(resp *tms.TMSResponse) []tmsTerminal {
+		termList, _ := resp.Data["terminalList"].([]interface{})
+		var out []tmsTerminal
+		for _, t := range termList {
+			tm, ok := t.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			deviceID := fmt.Sprintf("%v", tm["deviceId"])
+			if deviceID == "" || deviceID == "<nil>" {
+				continue
+			}
+			out = append(out, tmsTerminal{
+				DeviceID: deviceID,
+				SN:       fmt.Sprintf("%v", tm["sn"]),
+				Model:    fmt.Sprintf("%v", tm["model"]),
+				Merchant: fmt.Sprintf("%v", tm["merchantName"]),
+			})
+		}
+		return out
+	}
+
+	allTerminals := extractFromPage(firstResp)
+
+	// Fetch remaining pages concurrently.
+	if totalPage > 1 {
+		type pageResult struct {
+			Terminals []tmsTerminal
+			Err       error
+		}
+		results := make([]pageResult, totalPage-1)
+		var wg gosync.WaitGroup
+		for page := 2; page <= totalPage; page++ {
+			wg.Add(1)
+			go func(p int) {
+				defer wg.Done()
+				resp, err := h.tmsClient.GetTerminalListWithSize(p, 50)
+				idx := p - 2
+				if err != nil || resp == nil || resp.Data == nil {
+					results[idx] = pageResult{Err: err}
+					return
+				}
+				results[idx] = pageResult{Terminals: extractFromPage(resp)}
+			}(page)
+		}
+		wg.Wait()
+
+		for _, pr := range results {
+			if pr.Err == nil {
+				allTerminals = append(allTerminals, pr.Terminals...)
+			}
+		}
+	}
+
+	logger.Info().Int("tms_total", len(allTerminals)).Msg("fetched all TMS terminals for local sync")
+
+	// Upsert each terminal that wasn't already touched by Phase 2.
+	var count int64
+	now := time.Now()
+	for _, t := range allTerminals {
+		select {
+		case <-ctx.Done():
+			return count, ctx.Err()
+		default:
+		}
+
+		err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			termRepo := terminal.NewRepository(tx)
+
+			// Search by term_serial_num only (CSI field) to avoid collisions.
+			existing, _ := termRepo.FindBySerialNum(t.DeviceID)
+			if len(existing) > 0 {
+				term := &existing[0]
+				// Already up to date from Phase 2 — skip.
+				if term.LastSyncedAt != nil && !term.LastSyncedAt.Before(syncStart) {
+					return nil
+				}
+				if t.SN != "" && t.SN != "<nil>" {
+					term.TermDeviceID = t.SN
+				}
+				term.TermSerialNum = t.DeviceID
+				term.TermModel = t.Model
+				term.LastSyncedAt = &now
+				user := payload.UserName
+				term.UpdatedBy = &user
+				term.UpdatedDt = &now
+				return termRepo.Update(term)
+			}
+
+			// Create new terminal.
+			sn := t.SN
+			if sn == "<nil>" {
+				sn = ""
+			}
+			newTerm := &terminal.Terminal{
+				TermDeviceID:            sn,
+				TermSerialNum:           t.DeviceID,
+				TermModel:               t.Model,
+				TermTmsCreateOperator:   payload.UserName,
+				TermTmsCreateDtOperator: now,
+				CreatedBy:               payload.UserName,
+				CreatedDt:               now,
+				LastSyncedAt:            &now,
+			}
+			return termRepo.Create(newTerm)
+		})
+		if err != nil {
+			logger.Debug().Err(err).Str("csi", t.DeviceID).Msg("failed to sync TMS terminal")
+		} else {
+			count++
+		}
+	}
+
+	return count, nil
 }

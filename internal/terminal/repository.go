@@ -37,6 +37,17 @@ func (r *Repository) FindByCSI(csi string) ([]Terminal, error) {
 	return terminals, nil
 }
 
+// FindBySerialNum retrieves terminals by term_serial_num only (CSI name).
+// Unlike FindByCSI which also checks term_device_id, this avoids cross-field
+// collisions where one terminal's CSI matches another terminal's SN.
+func (r *Repository) FindBySerialNum(serialNum string) ([]Terminal, error) {
+	var terminals []Terminal
+	if err := r.db.Where("term_serial_num = ?", serialNum).Find(&terminals).Error; err != nil {
+		return nil, err
+	}
+	return terminals, nil
+}
+
 // FindByDeviceID retrieves terminals by device ID.
 func (r *Repository) FindByDeviceID(deviceID string) ([]Terminal, error) {
 	var terminals []Terminal
@@ -219,14 +230,15 @@ func (r *Repository) DistinctAppVersions() ([]string, error) {
 	return versions, nil
 }
 
-// DeleteStaleSynced deletes terminals that were previously synced (last_synced_at
-// is NOT NULL) but were not included in the current sync (last_synced_at is older
-// than syncStart). Also deletes their associated terminal_parameter records.
+// DeleteStaleSynced deletes terminals that were not included in the current
+// sync (last_synced_at is NULL or older than syncStart). This removes both
+// V2-imported terminals (NULL) and previously-synced terminals that are no
+// longer in TMS. Also deletes their associated terminal_parameter records.
 func (r *Repository) DeleteStaleSynced(syncStart time.Time) (int64, error) {
 	// Find stale terminal IDs.
 	var staleIDs []int
 	if err := r.db.Model(&Terminal{}).
-		Where("last_synced_at IS NOT NULL AND last_synced_at < ?", syncStart).
+		Where("last_synced_at IS NULL OR last_synced_at < ?", syncStart).
 		Pluck("term_id", &staleIDs).Error; err != nil {
 		return 0, err
 	}
