@@ -113,6 +113,7 @@ type Client struct {
 	groupMapCache   map[string]string // lowercase name → ID
 	groupMapExpiry  time.Time
 	groupMapMu      sync.RWMutex
+
 }
 
 // NewClient creates a new TMS API client.
@@ -123,7 +124,12 @@ type Client struct {
 // (matches v2 CURLOPT_SSL_VERIFYPEER: false when true).
 // accessKey and accessSecret are credentials for the new HMAC-SHA256 signed API.
 func NewClient(baseURL, apiBaseURL string, db *gorm.DB, skipTLSVerify bool, accessKey, accessSecret string) *Client {
-	transport := &http.Transport{}
+	transport := &http.Transport{
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 100,
+		MaxConnsPerHost:     100,
+		IdleConnTimeout:     90 * time.Second,
+	}
 	if skipTLSVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // configurable per deployment
 	}
@@ -133,7 +139,7 @@ func NewClient(baseURL, apiBaseURL string, db *gorm.DB, skipTLSVerify bool, acce
 		accessKey:    accessKey,
 		accessSecret: accessSecret,
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
+			Timeout:   60 * time.Second,
 			Transport: transport,
 		},
 		db: db,
@@ -1231,7 +1237,90 @@ func (c *Client) GetTerminalParameterMultiTabCached(session, serialNum, appId st
 	if err != nil {
 		return nil, err
 	}
+	// Use concurrent tab fetching (8 tabs in parallel instead of sequential).
+	return c.fetchParameterTabsConcurrent(session, terminalId, operationMark, appId, tabNames)
+}
+
+// FetchParameterTabsForId fetches parameters for a terminal using a
+// pre-resolved internal TMS terminal ID. This skips the getIdFromSN API call,
+// saving ~300ms per terminal when IDs are bulk-fetched upfront.
+// Uses sequential tab fetching so concurrency is controlled by worker count
+// (50 workers × 1 API call = 50 concurrent, matching the Update pattern).
+func (c *Client) FetchParameterTabsForId(session string, terminalId int, appId string, tabNames []string, operationMark string) (*TMSResponse, error) {
 	return c.fetchParameterTabs(session, terminalId, operationMark, appId, tabNames)
+}
+
+// BulkFetchTerminalIds fetches ALL terminal internal IDs from TMS using the
+// old session-based /market/manage/terminal/page endpoint. Returns a map of
+// deviceId (CSI) → internal terminal ID. Uses large page sizes (500 per page)
+// to minimize API calls (typically 2-3 calls for ~600 terminals).
+func (c *Client) BulkFetchTerminalIds(session string) (map[string]int, error) {
+	const pageSize = 500
+	idMap := make(map[string]int)
+
+	// Fetch first page to discover total.
+	firstPage, err := c.doPost(session, "/market/manage/terminal/page", map[string]interface{}{
+		"page":   1,
+		"search": "",
+		"size":   pageSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tms: bulk fetch page 1: %w", err)
+	}
+
+	code, _ := toInt(firstPage["code"])
+	if code != 200 {
+		return nil, fmt.Errorf("tms: bulk fetch page 1 code %d", code)
+	}
+
+	data, _ := firstPage["data"].(map[string]interface{})
+	if data == nil {
+		return idMap, nil
+	}
+
+	// Extract terminals from first page.
+	extractIDs := func(d map[string]interface{}) {
+		list, _ := d["list"].([]interface{})
+		for _, item := range list {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			deviceId, _ := m["deviceId"].(string)
+			id, _ := toInt(m["id"])
+			if deviceId != "" && id > 0 {
+				idMap[deviceId] = id
+			}
+		}
+	}
+	extractIDs(data)
+
+	// Determine total pages.
+	total, _ := toInt(data["total"])
+	totalPages := (total + pageSize - 1) / pageSize
+
+	// Fetch remaining pages sequentially (only 1-2 more calls typically).
+	for page := 2; page <= totalPages; page++ {
+		result, err := c.doPost(session, "/market/manage/terminal/page", map[string]interface{}{
+			"page":   page,
+			"search": "",
+			"size":   pageSize,
+		})
+		if err != nil {
+			log.Warn().Err(err).Int("page", page).Msg("bulk fetch terminal IDs: page failed")
+			continue
+		}
+		pageCode, _ := toInt(result["code"])
+		if pageCode != 200 {
+			continue
+		}
+		pageData, _ := result["data"].(map[string]interface{})
+		if pageData != nil {
+			extractIDs(pageData)
+		}
+	}
+
+	return idMap, nil
 }
 
 // fetchParameterTabs is the internal implementation that fetches parameters for

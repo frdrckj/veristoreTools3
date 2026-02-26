@@ -26,10 +26,10 @@ import (
 
 const (
 	// syncWorkerCount is the number of concurrent workers for fetching
-	// terminal parameters. Each worker makes 1 + N API calls per terminal
-	// (getIdFromSN + N tab calls, sequential). Keep moderate to avoid
-	// overwhelming TMS.
-	syncWorkerCount = 10
+	// terminal parameters. Each worker fetches 8 tabs sequentially (1 API
+	// call at a time), so 50 workers = ~50 concurrent TMS calls — matching
+	// the Update handler's proven concurrency level.
+	syncWorkerCount = 50
 )
 
 // SyncParameterPayload is the JSON payload for the sync:parameter task.
@@ -248,6 +248,18 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	}
 	logger.Info().Int("tabs", len(tabNames)).Msg("cached tab names and operation mark for sync")
 
+	// ---- Bulk-fetch all TMS terminal IDs in 2-3 API calls ----
+	// This replaces 559 individual getIdFromSN calls (~300ms each) with a
+	// single bulk operation (~1s total), saving ~17 seconds.
+	bulkStart := time.Now()
+	idMap, err := h.tmsClient.BulkFetchTerminalIds(session)
+	if err != nil {
+		logger.Warn().Err(err).Msg("bulk ID fetch failed, will fall back to per-terminal lookup")
+		idMap = nil
+	} else {
+		logger.Info().Int("fetched", len(idMap)).Str("elapsed", time.Since(bulkStart).Round(time.Millisecond).String()).Msg("bulk-fetched terminal IDs")
+	}
+
 	jobs := make(chan syncTerminalRow, totalTerminals)
 	var processedCount int64
 	var successCount int64
@@ -273,6 +285,8 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 			}
 		}
 	}()
+
+	phase2Start := time.Now()
 
 	for w := 0; w < syncWorkerCount; w++ {
 		wg.Add(1)
@@ -308,18 +322,33 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 
 				// Fetch terminal parameters from TMS using cached operationMark
 				// and concurrent tab fetching for speed.
-				// Use CSI (Column A = TMS deviceId) for the TMS lookup, not
-				// the hardware SN. getIdFromSN searches TMS's deviceId field,
-				// which stores the CSI name (e.g. "ErickProPlus"), not the
-				// hardware serial number (e.g. "VG20000005").
+				// Use CSI (Column A = TMS deviceId) for the TMS lookup.
 				tmsDeviceId := t.CSI
 				if tmsDeviceId == "" {
 					tmsDeviceId = serialNum
 				}
 				var paramResp *tms.TMSResponse
+				apiStart := time.Now()
+				usedBulk := false
 				if termAppID != "" && tmsDeviceId != "" && operationMark != "" {
-					resp, err := h.tmsClient.GetTerminalParameterMultiTabCached(session, tmsDeviceId, termAppID, tabNames, operationMark)
-					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+					// Try pre-resolved ID from bulk fetch (O(1) map lookup).
+					// Falls back to individual API call only if bulk fetch missed this terminal.
+					var resp *tms.TMSResponse
+					var fetchErr error
+					if idMap != nil {
+						if termId, ok := idMap[tmsDeviceId]; ok && termId > 0 {
+							usedBulk = true
+							resp, fetchErr = h.tmsClient.FetchParameterTabsForId(session, termId, termAppID, tabNames, operationMark)
+						} else {
+							// Not in bulk map — fall back to individual lookup.
+							resp, fetchErr = h.tmsClient.GetTerminalParameterMultiTabCached(session, tmsDeviceId, termAppID, tabNames, operationMark)
+						}
+					} else {
+						// Bulk fetch failed entirely — use original per-terminal lookup.
+						resp, fetchErr = h.tmsClient.GetTerminalParameterMultiTabCached(session, tmsDeviceId, termAppID, tabNames, operationMark)
+					}
+
+					if fetchErr == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
 						if pl, ok := resp.Data["paraList"].([]interface{}); ok && len(pl) > 0 {
 							paramResp = resp
 						}
@@ -328,8 +357,10 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 						logger.Debug().Str("serial", serialNum).Msg("no parameters found for terminal")
 					}
 				}
+				apiElapsed := time.Since(apiStart)
 
 				// Update local database in a transaction.
+				dbStart := time.Now()
 				if err := h.updateLocalTerminal(ctx, serialNum, t.CSI, t.PN, t.Model, payload.AppName, termAppVersion, payload.UserName, paramResp); err != nil {
 					logger.Warn().Err(err).Str("serial", serialNum).Str("csi", t.CSI).Msg("sync: failed to update local terminal")
 				} else {
@@ -340,7 +371,14 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 							paramCount = len(pl)
 						}
 					}
-					logger.Info().Str("serial", serialNum).Str("csi", t.CSI).Int("params", paramCount).Msg("sync: terminal synced successfully")
+					dbElapsed := time.Since(dbStart)
+					logger.Info().
+						Str("serial", serialNum).Str("csi", t.CSI).
+						Int("params", paramCount).
+						Str("api", apiElapsed.Round(time.Millisecond).String()).
+						Str("db", dbElapsed.Round(time.Millisecond).String()).
+						Bool("bulk", usedBulk).
+						Msg("sync: terminal synced successfully")
 				}
 
 				count := atomic.AddInt64(&processedCount, 1)
@@ -363,6 +401,12 @@ sendLoop:
 	// Wait for all workers to finish.
 	wg.Wait()
 
+	logger.Info().
+		Str("phase2_elapsed", time.Since(phase2Start).Round(time.Millisecond).String()).
+		Int64("synced", successCount).
+		Int("total", totalTerminals).
+		Msg("phase 2 complete: parameter fetch + DB update")
+
 	// Check if cancelled by user.
 	select {
 	case <-cancelCh:
@@ -381,11 +425,12 @@ sendLoop:
 	// ones matching the report's app version). This fetches the full
 	// terminal list from TMS and creates/updates local records.
 	// ------------------------------------------------------------------
+	phase3Start := time.Now()
 	allTMSCount, err := h.syncAllTMSTerminals(ctx, session, payload, syncStartTime, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to sync all TMS terminals")
 	} else {
-		logger.Info().Int64("synced_all", allTMSCount).Msg("ensured all TMS terminals exist locally")
+		logger.Info().Int64("synced_all", allTMSCount).Str("phase3_elapsed", time.Since(phase3Start).Round(time.Millisecond).String()).Msg("ensured all TMS terminals exist locally")
 	}
 
 	// ------------------------------------------------------------------
@@ -393,11 +438,12 @@ sendLoop:
 	// Targets terminals with last_synced_at NULL (V2-imported, never
 	// synced) or older than this sync's start time.
 	// ------------------------------------------------------------------
+	phase4Start := time.Now()
 	deleted, err := h.termRepo.DeleteStaleSynced(syncStartTime)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to clean up stale terminals")
 	} else if deleted > 0 {
-		logger.Info().Int64("deleted", deleted).Msg("removed stale terminals no longer in TMS")
+		logger.Info().Int64("deleted", deleted).Str("phase4_elapsed", time.Since(phase4Start).Round(time.Millisecond).String()).Msg("removed stale terminals no longer in TMS")
 	}
 
 	// Mark sync as complete (status "3").
@@ -777,61 +823,80 @@ func (h *SyncParameterHandler) syncAllTMSTerminals(
 	logger.Info().Int("tms_total", len(allTerminals)).Msg("fetched all TMS terminals for local sync")
 
 	// Upsert each terminal that wasn't already touched by Phase 2.
+	// Use a concurrent worker pool (20 workers) since these are DB-only
+	// operations (no API calls), much faster than the sequential loop.
+	const phase3Workers = 20
 	var count int64
 	now := time.Now()
-	for _, t := range allTerminals {
-		select {
-		case <-ctx.Done():
-			return count, ctx.Err()
-		default:
-		}
 
-		err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			termRepo := terminal.NewRepository(tx)
+	p3jobs := make(chan tmsTerminal, len(allTerminals))
+	var p3wg gosync.WaitGroup
 
-			// Search by term_serial_num only (CSI field) to avoid collisions.
-			existing, _ := termRepo.FindBySerialNum(t.DeviceID)
-			if len(existing) > 0 {
-				term := &existing[0]
-				// Already up to date from Phase 2 — skip.
-				if term.LastSyncedAt != nil && !term.LastSyncedAt.Before(syncStart) {
-					return nil
+	for w := 0; w < phase3Workers; w++ {
+		p3wg.Add(1)
+		go func() {
+			defer p3wg.Done()
+			for t := range p3jobs {
+				select {
+				case <-ctx.Done():
+					return
+				default:
 				}
-				if t.SN != "" && t.SN != "<nil>" {
-					term.TermDeviceID = t.SN
-				}
-				term.TermSerialNum = t.DeviceID
-				term.TermModel = t.Model
-				term.LastSyncedAt = &now
-				user := payload.UserName
-				term.UpdatedBy = &user
-				term.UpdatedDt = &now
-				return termRepo.Update(term)
-			}
 
-			// Create new terminal.
-			sn := t.SN
-			if sn == "<nil>" {
-				sn = ""
+				err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+					termRepo := terminal.NewRepository(tx)
+
+					// Search by term_serial_num only (CSI field) to avoid collisions.
+					existing, _ := termRepo.FindBySerialNum(t.DeviceID)
+					if len(existing) > 0 {
+						term := &existing[0]
+						// Already up to date from Phase 2 — skip.
+						if term.LastSyncedAt != nil && !term.LastSyncedAt.Before(syncStart) {
+							return nil
+						}
+						if t.SN != "" && t.SN != "<nil>" {
+							term.TermDeviceID = t.SN
+						}
+						term.TermSerialNum = t.DeviceID
+						term.TermModel = t.Model
+						term.LastSyncedAt = &now
+						user := payload.UserName
+						term.UpdatedBy = &user
+						term.UpdatedDt = &now
+						return termRepo.Update(term)
+					}
+
+					// Create new terminal.
+					sn := t.SN
+					if sn == "<nil>" {
+						sn = ""
+					}
+					newTerm := &terminal.Terminal{
+						TermDeviceID:            sn,
+						TermSerialNum:           t.DeviceID,
+						TermModel:               t.Model,
+						TermTmsCreateOperator:   payload.UserName,
+						TermTmsCreateDtOperator: now,
+						CreatedBy:               payload.UserName,
+						CreatedDt:               now,
+						LastSyncedAt:            &now,
+					}
+					return termRepo.Create(newTerm)
+				})
+				if err != nil {
+					logger.Debug().Err(err).Str("csi", t.DeviceID).Msg("failed to sync TMS terminal")
+				} else {
+					atomic.AddInt64(&count, 1)
+				}
 			}
-			newTerm := &terminal.Terminal{
-				TermDeviceID:            sn,
-				TermSerialNum:           t.DeviceID,
-				TermModel:               t.Model,
-				TermTmsCreateOperator:   payload.UserName,
-				TermTmsCreateDtOperator: now,
-				CreatedBy:               payload.UserName,
-				CreatedDt:               now,
-				LastSyncedAt:            &now,
-			}
-			return termRepo.Create(newTerm)
-		})
-		if err != nil {
-			logger.Debug().Err(err).Str("csi", t.DeviceID).Msg("failed to sync TMS terminal")
-		} else {
-			count++
-		}
+		}()
 	}
+
+	for _, t := range allTerminals {
+		p3jobs <- t
+	}
+	close(p3jobs)
+	p3wg.Wait()
 
 	return count, nil
 }
