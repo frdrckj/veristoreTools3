@@ -241,7 +241,8 @@ func (s *Service) DeleteTerminals(serialNos []string) (*TMSResponse, error) {
 					logger.Warn().Str("sn", sn).Str("desc", resp.Desc).Msg("delete failed")
 					continue
 				}
-				atomic.AddInt64(&successCount, 1)
+				count := atomic.AddInt64(&successCount, 1)
+				logger.Info().Str("sn", sn).Int64("progress", count).Int("total", len(serialNos)).Msg("deleted")
 			}
 		}()
 	}
@@ -258,6 +259,11 @@ func (s *Service) DeleteTerminals(serialNos []string) (*TMSResponse, error) {
 		return &TMSResponse{ResultCode: 1, Desc: fmt.Sprintf("all %d deletes failed", failCount)}, nil
 	}
 	return &TMSResponse{ResultCode: 0, Desc: fmt.Sprintf("%d deleted, %d failed", successCount, failCount)}, nil
+}
+
+// DeleteSingleTerminal deletes a single terminal using the signed API (no session).
+func (s *Service) DeleteSingleTerminal(serialNo string) (*TMSResponse, error) {
+	return s.client.DeleteTerminal("", serialNo)
 }
 
 // ReplaceTerminal replaces a terminal's SN with a new one.

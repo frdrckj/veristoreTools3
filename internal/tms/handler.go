@@ -11,10 +11,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-pdf/fpdf"
 	"github.com/gorilla/sessions"
+	"github.com/rs/zerolog/log"
 	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
 	"github.com/verifone/veristoretools3/internal/admin"
@@ -841,12 +843,47 @@ func (h *Handler) Delete(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
-// deleteAllTerminals fetches all terminal pages and deletes every terminal.
+// deleteAllTerminals fetches terminal pages and deletes them concurrently as
+// pages are collected (streaming), so deletion starts immediately with the
+// first page instead of waiting for all pages to be fetched.
 func (h *Handler) deleteAllTerminals(c echo.Context) error {
 	searchSerialNo := c.FormValue("searchSerialNo")
 	searchType, _ := strconv.Atoi(c.FormValue("searchType"))
 
+	logger := log.With().Str("task", "delete:all").Logger()
+	logger.Info().Str("search", searchSerialNo).Int("searchType", searchType).Msg("starting delete-all")
+
+	// Workers consume device IDs as they arrive from page collection.
+	const workerCount = 10
+	jobs := make(chan string, 100)
+	var wg sync.WaitGroup
+	var successCount, failCount int64
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sn := range jobs {
+				resp, err := h.service.DeleteSingleTerminal(sn)
+				if err != nil {
+					atomic.AddInt64(&failCount, 1)
+					logger.Warn().Err(err).Str("sn", sn).Msg("delete failed")
+					continue
+				}
+				if resp != nil && resp.ResultCode != 0 {
+					atomic.AddInt64(&failCount, 1)
+					logger.Warn().Str("sn", sn).Str("desc", resp.Desc).Msg("delete failed")
+					continue
+				}
+				count := atomic.AddInt64(&successCount, 1)
+				logger.Info().Str("sn", sn).Int64("progress", count).Msg("deleted")
+			}
+		}()
+	}
+
+	// Collect pages and feed device IDs to workers immediately.
 	var allDeviceIds []string
+	var collectErr error
 	for page := 1; ; page++ {
 		var resp *TMSResponse
 		var err error
@@ -856,8 +893,9 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 			resp, err = h.service.GetTerminalList(page)
 		}
 		if err != nil {
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load terminals for deletion: %v", err))
-			return c.Redirect(http.StatusFound, "/veristore/terminal")
+			logger.Error().Err(err).Int("page", page).Msg("failed to load terminals page")
+			collectErr = err
+			break
 		}
 		if resp == nil || resp.ResultCode != 0 || resp.Data == nil {
 			break
@@ -871,6 +909,7 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 			if m, ok := t.(map[string]interface{}); ok {
 				if devId, ok := m["deviceId"].(string); ok && devId != "" {
 					allDeviceIds = append(allDeviceIds, devId)
+					jobs <- devId // feed to workers immediately
 				}
 			}
 		}
@@ -879,26 +918,35 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 		if tp, ok := resp.Data["totalPage"]; ok {
 			totalPage, _ = toInt(tp)
 		}
+		logger.Info().Int("page", page).Int("totalPage", totalPage).Int("collected", len(allDeviceIds)).Msg("collected page")
 		if page >= totalPage {
 			break
 		}
 	}
 
+	close(jobs) // signal workers no more IDs
+	wg.Wait()   // wait for all deletions to finish
+
+	if collectErr != nil {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load terminals for deletion: %v", collectErr))
+		return c.Redirect(http.StatusFound, "/veristore/terminal")
+	}
+
 	if len(allDeviceIds) == 0 {
+		logger.Warn().Msg("no terminals found for deletion")
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "No terminals found for deletion")
 		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
-	resp, err := h.service.DeleteTerminals(allDeviceIds)
-	if err != nil {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to delete terminals: %v", err))
-		return c.Redirect(http.StatusFound, "/veristore/terminal")
-	}
+	logger.Info().Int64("success", successCount).Int64("failed", failCount).Int("total", len(allDeviceIds)).Msg("delete-all completed")
 
-	if resp != nil && resp.ResultCode != 0 {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete failed: %s", resp.Desc))
+	if failCount > 0 && successCount == 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("All %d deletes failed", failCount))
 	} else {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, fmt.Sprintf("%d terminal(s) deleted successfully", len(allDeviceIds)))
+		for _, sn := range allDeviceIds {
+			mw.LogActivityFromContext(c, mw.LogVeristoreDeleteCSI, "Delete csi "+sn)
+		}
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, fmt.Sprintf("%d deleted, %d failed", successCount, failCount))
 	}
 
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
