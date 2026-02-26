@@ -27,9 +27,10 @@ import (
 const (
 	// syncWorkerCount is the number of concurrent workers for fetching
 	// terminal parameters. Each worker fetches 8 tabs sequentially (1 API
-	// call at a time), so 50 workers = ~50 concurrent TMS calls — matching
-	// the Update handler's proven concurrency level.
-	syncWorkerCount = 50
+	// call at a time). 25 workers = ~25 concurrent TMS calls — avoids
+	// overwhelming the TMS server while keeping it busy.
+	// (50 workers caused 10-15s API responses; fewer workers get 2-3s each.)
+	syncWorkerCount = 25
 )
 
 // SyncParameterPayload is the JSON payload for the sync:parameter task.
