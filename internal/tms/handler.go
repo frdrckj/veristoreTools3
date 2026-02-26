@@ -1797,14 +1797,23 @@ func (h *Handler) ImportFormat(c echo.Context) error {
 		},
 	})
 
-	// Template reference sheet.
+	// Template reference sheet — populated from TMS terminals with CSI containing "xTMP" (like v2).
 	tplSheet := "Template"
 	f.NewSheet(tplSheet)
 	f.SetCellValue(tplSheet, "A1", "Id")
 	f.SetCellValue(tplSheet, "B1", "Template")
 	f.SetCellStyle(tplSheet, "A1", "B1", refHeaderStyle)
-	f.SetColWidth(tplSheet, "A", "A", 20)
-	f.SetColWidth(tplSheet, "B", "B", 20)
+	f.SetColWidth(tplSheet, "A", "A", 25)
+	f.SetColWidth(tplSheet, "B", "B", 25)
+
+	templates := h.loadTemplates(mw.GetCurrentUserName(c))
+	for i, tpl := range templates {
+		row := i + 2
+		cellA, _ := excelize.CoordinatesToCellName(1, row)
+		cellB, _ := excelize.CoordinatesToCellName(2, row)
+		f.SetCellValue(tplSheet, cellA, tpl)
+		f.SetCellValue(tplSheet, cellB, tpl)
+	}
 
 	// Merchant reference sheet.
 	merchSheet := "Profil Merchant"
@@ -2557,6 +2566,38 @@ func (h *Handler) loadGroups() []map[string]interface{} {
 		}
 	}
 	return groups
+}
+
+// loadTemplates loads template terminals (CSI containing "xTMP") from TMS
+// across all pages. V2 uses these as the reference list in the Template sheet
+// of the import format. Returns a list of deviceId strings.
+func (h *Handler) loadTemplates(username string) []string {
+	var templates []string
+	for page := 1; ; page++ {
+		resp, err := h.service.SearchTerminals(page, "xTMP", 4, username) // 4 = CSI search
+		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+			break
+		}
+		tl, ok := resp.Data["terminalList"].([]interface{})
+		if !ok || len(tl) == 0 {
+			break
+		}
+		for _, t := range tl {
+			if m, ok := t.(map[string]interface{}); ok {
+				if devId := toString(m["deviceId"]); devId != "" {
+					templates = append(templates, devId)
+				}
+			}
+		}
+		totalPage := 0
+		if tp, ok := resp.Data["totalPage"]; ok {
+			totalPage, _ = toInt(tp)
+		}
+		if page >= totalPage {
+			break
+		}
+	}
+	return templates
 }
 
 // loadCountries loads the country list from TMS. Returns nil on error.
