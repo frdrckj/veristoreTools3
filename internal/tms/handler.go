@@ -242,12 +242,19 @@ func (h *Handler) Terminal(c echo.Context) error {
 		SearchType: searchType,
 	}
 
+	// Include search params in pagination links so pages stay filtered.
+	paginationQuery := ""
+	if serialNo != "" {
+		paginationQuery = "&serialNo=" + serialNo + "&searchType=" + strconv.Itoa(searchType)
+	}
+
 	pagination := components.PaginationData{
 		CurrentPage: pageNum,
 		TotalPages:  totalPage,
 		Total:       int64(len(terminals)),
 		BaseURL:     "/veristore/terminal",
 		HTMXTarget:  "terminal-table-container",
+		QueryString: paginationQuery,
 	}
 
 	// Check if buttons should be disabled (pending sync or import in progress, like v2).
@@ -843,9 +850,17 @@ func (h *Handler) Delete(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
+// terminalDeleteJob holds the info needed to delete a terminal and log it.
+type terminalDeleteJob struct {
+	id       string // internal TMS ID — used for direct delete (no SN lookup)
+	deviceId string // CSI / serial — used for logging
+}
+
 // deleteAllTerminals fetches terminal pages and deletes them concurrently as
 // pages are collected (streaming), so deletion starts immediately with the
 // first page instead of waiting for all pages to be fetched.
+// It uses the internal TMS ID from the list response to delete directly,
+// avoiding the extra SN→ID lookup per terminal (2x faster).
 func (h *Handler) deleteAllTerminals(c echo.Context) error {
 	searchSerialNo := c.FormValue("searchSerialNo")
 	searchType, _ := strconv.Atoi(c.FormValue("searchType"))
@@ -853,9 +868,9 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 	logger := log.With().Str("task", "delete:all").Logger()
 	logger.Info().Str("search", searchSerialNo).Int("searchType", searchType).Msg("starting delete-all")
 
-	// Workers consume device IDs as they arrive from page collection.
+	// Workers consume jobs as they arrive from page collection.
 	const workerCount = 10
-	jobs := make(chan string, 100)
+	jobs := make(chan terminalDeleteJob, 100)
 	var wg sync.WaitGroup
 	var successCount, failCount int64
 
@@ -863,25 +878,25 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for sn := range jobs {
-				resp, err := h.service.DeleteSingleTerminal(sn)
+			for job := range jobs {
+				resp, err := h.service.DeleteTerminalByID(job.id)
 				if err != nil {
 					atomic.AddInt64(&failCount, 1)
-					logger.Warn().Err(err).Str("sn", sn).Msg("delete failed")
+					logger.Warn().Err(err).Str("sn", job.deviceId).Msg("delete failed")
 					continue
 				}
 				if resp != nil && resp.ResultCode != 0 {
 					atomic.AddInt64(&failCount, 1)
-					logger.Warn().Str("sn", sn).Str("desc", resp.Desc).Msg("delete failed")
+					logger.Warn().Str("sn", job.deviceId).Str("desc", resp.Desc).Msg("delete failed")
 					continue
 				}
 				count := atomic.AddInt64(&successCount, 1)
-				logger.Info().Str("sn", sn).Int64("progress", count).Msg("deleted")
+				logger.Info().Str("sn", job.deviceId).Int64("progress", count).Msg("deleted")
 			}
 		}()
 	}
 
-	// Collect pages and feed device IDs to workers immediately.
+	// Collect pages and feed terminals to workers immediately.
 	var allDeviceIds []string
 	var collectErr error
 	for page := 1; ; page++ {
@@ -907,9 +922,11 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 		}
 		for _, t := range tl {
 			if m, ok := t.(map[string]interface{}); ok {
-				if devId, ok := m["deviceId"].(string); ok && devId != "" {
+				devId := toString(m["deviceId"])
+				tmsId := toString(m["id"])
+				if devId != "" && tmsId != "" {
 					allDeviceIds = append(allDeviceIds, devId)
-					jobs <- devId // feed to workers immediately
+					jobs <- terminalDeleteJob{id: tmsId, deviceId: devId}
 				}
 			}
 		}
@@ -924,7 +941,7 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 		}
 	}
 
-	close(jobs) // signal workers no more IDs
+	close(jobs) // signal workers no more jobs
 	wg.Wait()   // wait for all deletions to finish
 
 	if collectErr != nil {

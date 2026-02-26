@@ -1772,6 +1772,25 @@ func (c *Client) DeleteTerminal(session, serialNum string) (*TMSResponse, error)
 	}, nil
 }
 
+// DeleteTerminalByID deletes a terminal using its internal TMS ID directly,
+// skipping the SN→ID lookup. Used by bulk delete where IDs are already known.
+func (c *Client) DeleteTerminalByID(terminalId string) (*TMSResponse, error) {
+	result, err := c.doSignedPost("/v1/tps/terminal/delete", map[string]interface{}{
+		"id": terminalId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+
+	return &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+	}, nil
+}
+
 // ReplaceTerminal replaces one terminal's SN with another.
 func (c *Client) ReplaceTerminal(session, oldSn, newSn string) (*TMSResponse, error) {
 	body := map[string]interface{}{

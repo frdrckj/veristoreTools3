@@ -266,6 +266,12 @@ func (s *Service) DeleteSingleTerminal(serialNo string) (*TMSResponse, error) {
 	return s.client.DeleteTerminal("", serialNo)
 }
 
+// DeleteTerminalByID deletes a terminal using its internal TMS ID directly,
+// skipping the SN→ID resolution. Much faster for bulk delete.
+func (s *Service) DeleteTerminalByID(terminalId string) (*TMSResponse, error) {
+	return s.client.DeleteTerminalByID(terminalId)
+}
+
 // ReplaceTerminal replaces a terminal's SN with a new one.
 func (s *Service) ReplaceTerminal(oldSn, newSn string) (*TMSResponse, error) {
 	session := s.GetSession()
