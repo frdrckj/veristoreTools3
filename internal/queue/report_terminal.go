@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -316,6 +317,10 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				if err != nil || detailResp == nil || detailResp.Data == nil {
 					logger.Debug().Str("terminal_id", j.TerminalID).Err(err).Msg("failed to get terminal detail")
 					count := atomic.AddInt64(&processedCount, 1)
+					// Throttle: sleep 100-200ms every 100 terminals to avoid overwhelming TMS.
+					if count%100 == 0 {
+						time.Sleep(time.Duration(100+rand.Intn(101)) * time.Millisecond)
+					}
 					h.reportProgress(payload.UserID, int(count), totalTerminals)
 					continue
 				}
@@ -411,6 +416,10 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				}
 
 				count := atomic.AddInt64(&processedCount, 1)
+				// Throttle: sleep 100-200ms every 100 terminals to avoid overwhelming TMS.
+				if count%100 == 0 {
+					time.Sleep(time.Duration(100+rand.Intn(101)) * time.Millisecond)
+				}
 				h.reportProgress(payload.UserID, int(count), totalTerminals)
 			}
 		}()

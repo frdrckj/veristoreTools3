@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"sort"
 	"strconv"
@@ -383,6 +384,10 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 				}
 
 				count := atomic.AddInt64(&processedCount, 1)
+				// Throttle: sleep 100-200ms every 100 terminals to avoid overwhelming TMS.
+				if count%100 == 0 {
+					time.Sleep(time.Duration(100+rand.Intn(101)) * time.Millisecond)
+				}
 				h.syncProgress(payload.UserID, int(count), totalTerminals)
 			}
 		}()

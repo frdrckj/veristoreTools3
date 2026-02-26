@@ -60,23 +60,30 @@ func NewService(client *Client, db *gorm.DB, resellerList []int64) *Service {
 	}
 }
 
-// GetTmsCredentials returns the active TMS login username and the current
-// user's decrypted TMS password (from the user table). This is used to
-// pre-fill the TMS login form with readonly fields, matching v2 behavior.
+// GetTmsCredentials returns the TMS username (from tms_login table) and
+// the current user's TMS password (from user table). The password is stored
+// either encrypted (V2) or as plain text — we try to decrypt first, and
+// fall back to using it as-is if decryption fails.
 func (s *Service) GetTmsCredentials(currentUsername string) (tmsUser, tmsPassword string) {
+	// TMS username comes from the shared tms_login record (the actual TMS account).
 	login, err := s.repo.GetActiveLogin()
 	if err == nil && login != nil && login.TmsLoginUser != nil {
 		tmsUser = *login.TmsLoginUser
 	}
 
+	// Password comes from the logged-in user's record.
 	var row struct {
 		TmsPassword *string `gorm:"column:tms_password"`
 	}
 	if err := s.db.Table("user").Where("user_name = ?", currentUsername).First(&row).Error; err == nil {
 		if row.TmsPassword != nil && *row.TmsPassword != "" {
+			// Try to decrypt (V2 stores encrypted). If decryption fails,
+			// use the stored value as-is (plain text).
 			decrypted, err := DecryptAES(*row.TmsPassword)
-			if err == nil {
+			if err == nil && decrypted != "" {
 				tmsPassword = decrypted
+			} else {
+				tmsPassword = *row.TmsPassword
 			}
 		}
 	}
