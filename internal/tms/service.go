@@ -127,6 +127,12 @@ func (s *Service) GetTerminalList(page int) (*TMSResponse, error) {
 	return s.client.GetTerminalList("", page)
 }
 
+// GetTerminalListBulk retrieves terminals with a large page size (100).
+// Used by bulk operations (export, delete-all) to reduce API calls.
+func (s *Service) GetTerminalListBulk(page int) (*TMSResponse, error) {
+	return s.client.GetTerminalListWithSize(page, 100)
+}
+
 // SearchTerminals searches terminals with filters.
 // queryType 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
 // Group/Merchant/TID/MID use old session-based API; CSI/SN use new signed API.
@@ -138,6 +144,16 @@ func (s *Service) SearchTerminals(page int, search string, queryType int, userna
 		session = s.GetSession()
 	}
 	return s.client.GetTerminalListSearch(session, page, search, queryType)
+}
+
+// SearchTerminalsBulk is like SearchTerminals but with page size 100.
+// Used by bulk operations (export, delete-all) to reduce API calls (10x fewer pages).
+func (s *Service) SearchTerminalsBulk(page int, search string, queryType int, username string) (*TMSResponse, error) {
+	session := s.GetUserSession(username)
+	if session == "" {
+		session = s.GetSession()
+	}
+	return s.client.GetTerminalListSearchBulk(session, page, search, queryType)
 }
 
 // GetTerminalDetail retrieves detailed information about a terminal.

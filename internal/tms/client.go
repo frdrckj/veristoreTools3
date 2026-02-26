@@ -843,6 +843,133 @@ func (c *Client) GetTerminalListSearch(session string, pageNum int, search strin
 	return c.getTerminalListSearchOld(session, pageNum, search, queryType)
 }
 
+// GetTerminalListSearchBulk is like GetTerminalListSearch but with a larger
+// page size (100) for bulk operations (export, delete-all).
+func (c *Client) GetTerminalListSearchBulk(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
+	if queryType == 4 {
+		return c.getTerminalListSearchNewBulk(pageNum, search, queryType)
+	}
+	return c.getTerminalListSearchOldBulk(session, pageNum, search, queryType)
+}
+
+// getTerminalListSearchNewBulk is like getTerminalListSearchNew but with
+// page size 100 for bulk operations (export, delete-all).
+func (c *Client) getTerminalListSearchNewBulk(pageNum int, search string, queryType int) (*TMSResponse, error) {
+	params := map[string]interface{}{
+		"page":   pageNum,
+		"search": search,
+		"size":   100,
+	}
+
+	result, err := c.doSignedPost("/v1/tps/terminal/list", params)
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+
+	resp := &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+	}
+
+	if rc == 0 {
+		data, _ := result["data"].(map[string]interface{})
+		if data != nil {
+			list, _ := data["list"].([]interface{})
+			for i, item := range list {
+				if m, ok := item.(map[string]interface{}); ok {
+					m["status"] = m["alertStatus"]
+					m["alertMsg"] = translateAlertMsg(toString(m["alertMsg"]))
+					list[i] = m
+				}
+			}
+			total, _ := toInt(data["total"])
+			resp.Data = map[string]interface{}{
+				"totalPage":    data["pages"],
+				"total":        total,
+				"terminalList": list,
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+// getTerminalListSearchOldBulk is like getTerminalListSearchOld but with
+// page size 100 for bulk operations (export, delete-all).
+func (c *Client) getTerminalListSearchOldBulk(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
+	body := map[string]interface{}{
+		"page":   pageNum,
+		"search": "",
+		"size":   100,
+	}
+
+	// Build the structured search field based on queryType (matching V2).
+	switch queryType {
+	case 0: // SN
+		body["sn"] = map[string]interface{}{"type": "=", "value": search}
+	case 1: // Merchant Name
+		body["merchantName"] = map[string]interface{}{"type": "=", "value": search}
+	case 2: // Group Name — TMS API's groupName filter expects the group ID, not name.
+		groupID := c.resolveGroupNameToID(session, search)
+		if groupID != "" {
+			body["groupName"] = map[string]interface{}{"type": "=", "value": groupID}
+		} else {
+			log.Warn().Str("search", search).Msg("group name not found, returning empty results")
+			return &TMSResponse{ResultCode: 0, Desc: "Group not found", Data: map[string]interface{}{
+				"totalPage": 0, "terminalList": []interface{}{},
+			}}, nil
+		}
+	case 3: // TID
+		body["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
+		}
+	case 4: // CSI (deviceId)
+		body["deviceId"] = map[string]interface{}{"type": "=", "value": search}
+	case 5: // MID
+		body["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
+		}
+	}
+
+	result, err := c.doPost(session, "/market/manage/terminal/page", body)
+	if err != nil {
+		return nil, err
+	}
+
+	code, _ := toInt(result["code"])
+	rc := mapResponseCode(code)
+
+	resp := &TMSResponse{
+		ResultCode: rc,
+		Desc:       toString(result["desc"]),
+	}
+
+	if rc == 0 {
+		data, _ := result["data"].(map[string]interface{})
+		if data != nil {
+			list, _ := data["list"].([]interface{})
+			for i, item := range list {
+				if m, ok := item.(map[string]interface{}); ok {
+					m["status"] = m["alertStatus"]
+					m["alertMsg"] = translateAlertMsg(toString(m["alertMsg"]))
+					list[i] = m
+				}
+			}
+			total, _ := toInt(data["total"])
+			resp.Data = map[string]interface{}{
+				"totalPage":    data["pages"],
+				"total":        total,
+				"terminalList": list,
+			}
+		}
+	}
+
+	return resp, nil
+}
+
 // getTerminalListSearchNew uses the signed API for CSI/SN search.
 func (c *Client) getTerminalListSearchNew(pageNum int, search string, queryType int) (*TMSResponse, error) {
 	params := map[string]interface{}{
@@ -2981,6 +3108,11 @@ func toString(v interface{}) string {
 // ToString is the exported version of toString for use by other packages.
 func ToString(v interface{}) string {
 	return toString(v)
+}
+
+// ToInt is the exported version of toInt for use by other packages.
+func ToInt(v interface{}) (int, bool) {
+	return toInt(v)
 }
 
 // intDiff returns elements that are in a but not in b.

@@ -136,10 +136,14 @@ func (h *Handler) getCachedParams(serialNum, appId string) map[string][2]string 
 
 // exportPayload mirrors queue.ExportTerminalPayload to avoid import cycle.
 type exportPayload struct {
-	SerialNos []string `json:"serial_nos"`
-	Session   string   `json:"session"`
-	User      string   `json:"user"`
-	ExportID  int      `json:"export_id"`
+	SerialNos      []string `json:"serial_nos"`
+	Session        string   `json:"session"`
+	User           string   `json:"user"`
+	ExportID       int      `json:"export_id"`
+	SelectAll      bool     `json:"select_all,omitempty"`
+	SearchSerialNo string   `json:"search_serial_no,omitempty"`
+	SearchType     int      `json:"search_type,omitempty"`
+	Username       string   `json:"username,omitempty"`
 }
 
 // SetBranding configures optional branding fields on the handler.
@@ -903,9 +907,9 @@ func (h *Handler) deleteAllTerminals(c echo.Context) error {
 		var resp *TMSResponse
 		var err error
 		if searchSerialNo != "" {
-			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+			resp, err = h.service.SearchTerminalsBulk(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
 		} else {
-			resp, err = h.service.GetTerminalList(page)
+			resp, err = h.service.GetTerminalListBulk(page)
 		}
 		if err != nil {
 			logger.Error().Err(err).Int("page", page).Msg("failed to load terminals page")
@@ -1445,7 +1449,8 @@ func (h *Handler) Export(c echo.Context) error {
 		// Initial POST from terminal page — collect serial numbers and show count.
 		selectAll := c.FormValue("selectAll")
 		if selectAll == "true" {
-			// Fetch all terminals across all pages.
+			// Fetch all terminal IDs across all pages using bulk page size
+			// (100/page instead of 10/page — 10x fewer API calls).
 			serialNos := h.collectAllTerminalIDs(c)
 			data.Count = len(serialNos)
 			serialNoJSON, _ := json.Marshal(serialNos)
@@ -1517,9 +1522,9 @@ func (h *Handler) collectAllTerminalIDs(c echo.Context) []string {
 		var resp *TMSResponse
 		var err error
 		if searchSerialNo != "" {
-			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+			resp, err = h.service.SearchTerminalsBulk(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
 		} else {
-			resp, err = h.service.GetTerminalList(page)
+			resp, err = h.service.GetTerminalListBulk(page)
 		}
 		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
 			break

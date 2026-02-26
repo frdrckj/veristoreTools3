@@ -36,6 +36,14 @@ type ExportTerminalPayload struct {
 	Session   string   `json:"session"`
 	User      string   `json:"user"`
 	ExportID  int      `json:"export_id"`
+
+	// SelectAll mode: the background job collects all terminal IDs itself
+	// instead of receiving them upfront. This avoids blocking the HTTP
+	// handler while fetching hundreds of pages from TMS.
+	SelectAll      bool   `json:"select_all,omitempty"`
+	SearchSerialNo string `json:"search_serial_no,omitempty"`
+	SearchType     int    `json:"search_type,omitempty"`
+	Username       string `json:"username,omitempty"`
 }
 
 // exportRow holds fetched data for a single terminal, keyed by its index.
@@ -78,7 +86,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 
 	logger := log.With().Str("task", TaskExportTerminal).Int("export_id", payload.ExportID).Logger()
-	logger.Info().Int("count", len(payload.SerialNos)).Int("workers", exportWorkerCount).Msg("starting terminal export job")
+	logger.Info().Int("count", len(payload.SerialNos)).Bool("selectAll", payload.SelectAll).Int("workers", exportWorkerCount).Msg("starting terminal export job")
 
 	// Log job start to queue_log.
 	createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -95,6 +103,57 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 	if session == "" {
 		return fmt.Errorf("export_terminal: no active TMS session")
+	}
+
+	// If SelectAll, collect all terminal IDs now (in the background job,
+	// not in the HTTP handler — avoids blocking the web response).
+	if payload.SelectAll {
+		logger.Info().Str("search", payload.SearchSerialNo).Int("searchType", payload.SearchType).Msg("selectAll: collecting terminal IDs from TMS")
+		var allIDs []string
+		for page := 1; ; page++ {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			var resp *tms.TMSResponse
+			var err error
+			if payload.SearchSerialNo != "" {
+				resp, err = h.tmsService.SearchTerminalsBulk(page, payload.SearchSerialNo, payload.SearchType, payload.Username)
+			} else {
+				resp, err = h.tmsService.GetTerminalListBulk(page)
+			}
+			if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+				break
+			}
+			tl, ok := resp.Data["terminalList"].([]interface{})
+			if !ok || len(tl) == 0 {
+				break
+			}
+			for _, t := range tl {
+				if m, ok := t.(map[string]interface{}); ok {
+					if devId, ok := m["deviceId"].(string); ok && devId != "" {
+						allIDs = append(allIDs, devId)
+					}
+				}
+			}
+			totalPage := 0
+			if tp, ok := resp.Data["totalPage"]; ok {
+				totalPage, _ = tms.ToInt(tp)
+			}
+			logger.Info().Int("page", page).Int("totalPage", totalPage).Int("collected", len(allIDs)).Msg("selectAll: collected page")
+			if page >= totalPage {
+				break
+			}
+		}
+		payload.SerialNos = allIDs
+		logger.Info().Int("total", len(allIDs)).Msg("selectAll: finished collecting terminal IDs")
+
+		// Update the export record total now that we know the actual count.
+		if payload.ExportID > 0 {
+			total := strconv.Itoa(len(allIDs))
+			_ = h.adminRepo.UpdateExportProgress(payload.ExportID, "0", total)
+		}
 	}
 
 	// Load the export record.
