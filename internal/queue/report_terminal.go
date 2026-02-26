@@ -96,6 +96,7 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	logger := log.With().Str("task", TaskReportTerminal).Str("app_version", payload.AppVersion).Logger()
 	logger.Info().Msg("starting terminal report job")
+	jobStartTime := time.Now()
 
 	// Log job start to queue_log.
 	createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -432,7 +433,7 @@ sendLoop:
 	// Check if cancelled by user.
 	select {
 	case <-cancelCh:
-		logger.Info().Int("processed", int(processedCount)).Int("total", len(allJobs)).Msg("update stopped: cancelled by user")
+		logger.Info().Int("processed", int(processedCount)).Int("total", len(allJobs)).Str("elapsed", time.Since(jobStartTime).Round(time.Millisecond).String()).Msg("update stopped: cancelled by user")
 		return nil
 	default:
 	}
@@ -442,7 +443,7 @@ sendLoop:
 		return ctx.Err()
 	}
 
-	logger.Info().Int("matched", len(rows)).Int("total_terminals", len(allJobs)).Msg("terminal scan complete")
+	logger.Info().Int("matched", len(rows)).Int("total_terminals", len(allJobs)).Str("elapsed", time.Since(jobStartTime).Round(time.Millisecond).String()).Msg("terminal scan complete")
 
 	if len(rows) == 0 {
 		logger.Warn().Msg("no terminals matched the app version")
@@ -512,7 +513,7 @@ sendLoop:
 		return fmt.Errorf("report_terminal: save report: %w", err)
 	}
 
-	logger.Info().Str("file", reportName).Int("rows", len(rows)).Msg("report generated successfully")
+	logger.Info().Str("file", reportName).Int("rows", len(rows)).Str("elapsed", time.Since(jobStartTime).Round(time.Millisecond).String()).Msg("report generated successfully")
 
 	// If TriggerSync is set (Sekarang button), chain to sync:parameter
 	// to read the Excel and update local terminal/terminal_parameter tables.

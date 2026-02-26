@@ -102,6 +102,7 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 
 	logger := log.With().Str("task", TaskSyncParameter).Str("report", payload.ReportName).Logger()
 	logger.Info().Msg("starting parameter sync job")
+	jobStartTime := time.Now()
 
 	// Log job start to queue_log.
 	createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -365,7 +366,7 @@ sendLoop:
 	// Check if cancelled by user.
 	select {
 	case <-cancelCh:
-		logger.Info().Int64("synced", successCount).Int("total", totalTerminals).Msg("sync stopped: cancelled by user")
+		logger.Info().Int64("synced", successCount).Int("total", totalTerminals).Str("elapsed", time.Since(jobStartTime).Round(time.Millisecond).String()).Msg("sync stopped: cancelled by user")
 		return nil
 	default:
 	}
@@ -407,6 +408,7 @@ sendLoop:
 		Int("report_terminals", totalTerminals).
 		Int64("all_tms", allTMSCount).
 		Int64("removed", deleted).
+		Str("elapsed", time.Since(jobStartTime).Round(time.Millisecond).String()).
 		Msg("parameter sync job completed")
 
 	return nil
