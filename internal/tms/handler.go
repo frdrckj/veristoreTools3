@@ -1343,7 +1343,7 @@ func (h *Handler) Report(c echo.Context) error {
 		}
 		payloadBytes, _ := json.Marshal(payload)
 		task := asynq.NewTask("report:terminal", payloadBytes)
-		if _, err := h.queueClient.Enqueue(task); err != nil {
+		if _, err := h.queueClient.Enqueue(task, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
 			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to enqueue report job: %v", err))
 			return c.Redirect(http.StatusFound, "/veristore/report")
 		}
@@ -1432,7 +1432,7 @@ func (h *Handler) Export(c echo.Context) error {
 			}
 			payloadBytes, _ := json.Marshal(payload)
 			task := asynq.NewTask("export:terminal", payloadBytes)
-			if _, err := h.queueClient.Enqueue(task); err != nil {
+			if _, err := h.queueClient.Enqueue(task, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
 				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to enqueue export job: %v", err))
 				return c.Redirect(http.StatusFound, "/veristore/terminal")
 			}
@@ -1717,7 +1717,7 @@ func (h *Handler) Import(c echo.Context) error {
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	task := asynq.NewTask("import:terminal", payloadBytes)
-	if _, err := h.queueClient.Enqueue(task); err != nil {
+	if _, err := h.queueClient.Enqueue(task, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
 		_ = os.Remove(destPath)
 		data.Errors = []string{fmt.Sprintf("Failed to enqueue import job: %v", err)}
 		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))

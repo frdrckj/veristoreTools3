@@ -219,7 +219,7 @@ func (h *Handler) Create(c echo.Context) error {
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	task := asynq.NewTask("report:terminal", payloadBytes)
-	if _, err := h.queueClient.Enqueue(task); err != nil {
+	if _, err := h.queueClient.Enqueue(task, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to enqueue report job: %v", err))
 		return c.Redirect(http.StatusFound, "/sync-terminal/index")
 	}

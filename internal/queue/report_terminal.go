@@ -538,7 +538,7 @@ sendLoop:
 		}
 		syncPayloadBytes, _ := json.Marshal(syncPayload)
 		syncTask := asynq.NewTask(TaskSyncParameter, syncPayloadBytes)
-		if _, err := h.queueClient.Enqueue(syncTask); err != nil {
+		if _, err := h.queueClient.Enqueue(syncTask, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
 			logger.Error().Err(err).Msg("failed to enqueue sync:parameter job")
 			h.adminRepo.FailPendingSyncs(payload.UserID)
 			return fmt.Errorf("report_terminal: enqueue sync: %w", err)

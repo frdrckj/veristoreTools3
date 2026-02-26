@@ -92,8 +92,9 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	logger := log.With().Str("task", TaskImportTerminal).Str("file", payload.FilePath).Logger()
 	logger.Info().Msg("starting terminal import job")
 
-	// Ensure the import record is always marked as complete when the job ends,
-	// even if it fails. This prevents the UI from being stuck on "loading".
+	// Log if the import ends with incomplete progress (e.g., panic recovery).
+	// With MaxRetry(0) and 4h timeout, incomplete progress means something
+	// unexpected happened. Don't force-complete — the user can use Reset.
 	defer func() {
 		if payload.ImportID > 0 {
 			imp, err := h.adminRepo.FindLatestImport()
@@ -107,9 +108,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					tot = *imp.ImpTotal
 				}
 				if cur != tot {
-					// Force mark as complete so UI doesn't stay stuck.
-					logger.Warn().Str("cur", cur).Str("tot", tot).Msg("import job ended with incomplete progress, forcing completion")
-					h.adminRepo.UpdateImportProgress(payload.ImportID, tot, tot)
+					logger.Warn().Str("cur", cur).Str("tot", tot).Msg("import job ended with incomplete progress — user can click Reset")
 				}
 			}
 		}
@@ -319,19 +318,35 @@ sendLoop:
 	// Wait for all workers to finish.
 	wg.Wait()
 
-	cancelled := importCtx.Err() != nil && ctx.Err() == nil // cancelled by reset, not by asynq
+	cancelledByReset := importCtx.Err() != nil && ctx.Err() == nil
+	cancelledByTimeout := ctx.Err() != nil
+	actualProcessed := skipCount + int(atomic.LoadInt64(&processedCount))
 
-	// Mark import as complete (only if not cancelled by reset).
-	if payload.ImportID > 0 && !cancelled {
-		h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+	// Only mark as complete if ALL rows were actually processed (not cancelled).
+	if payload.ImportID > 0 {
+		if !cancelledByReset && !cancelledByTimeout {
+			// Normal completion — set to totalRows/totalRows.
+			h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+		} else {
+			// Cancelled — update with actual progress so UI shows correct state.
+			h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(actualProcessed), strconv.Itoa(totalRows))
+		}
 	}
 
-	if cancelled {
+	if cancelledByReset {
 		logger.Info().
 			Int64("success", atomic.LoadInt64(&successCount)).
 			Int64("failed", atomic.LoadInt64(&failCount)).
 			Int("skipped", skipCount).
 			Msg("terminal import job cancelled (reset)")
+	} else if cancelledByTimeout {
+		logger.Warn().
+			Int64("success", atomic.LoadInt64(&successCount)).
+			Int64("failed", atomic.LoadInt64(&failCount)).
+			Int("skipped", skipCount).
+			Int("processed", actualProcessed).
+			Int("total", totalRows).
+			Msg("terminal import job timed out by asynq — increase task timeout")
 	} else {
 		logger.Info().
 			Int64("success", atomic.LoadInt64(&successCount)).
