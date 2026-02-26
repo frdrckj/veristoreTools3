@@ -21,6 +21,13 @@ type ExportData struct {
 	LastExportDate string
 	// ShowCreate is true when the Create button should be shown.
 	ShowCreate bool
+	// SelectAll is true when the user selected all terminals (background job
+	// will collect IDs instead of passing them explicitly).
+	SelectAll bool
+	// SearchSerialNo and SearchType are the search filter params to pass
+	// through to the background job when SelectAll is true.
+	SearchSerialNo string
+	SearchType     int
 }
 
 // ExportPage renders the terminal export page.
@@ -57,6 +64,11 @@ templ ExportPage(page layouts.PageData, data ExportData) {
 					<form method="POST" action="/veristore/export">
 						<input type="hidden" name="serialNoList" value={ data.SerialNoList }/>
 						<input type="hidden" name="buttonCreate" value="1"/>
+						if data.SelectAll {
+							<input type="hidden" name="selectAll" value="true"/>
+							<input type="hidden" name="searchSerialNo" value={ data.SearchSerialNo }/>
+							<input type="hidden" name="searchType" value={ fmt.Sprintf("%d", data.SearchType) }/>
+						}
 						<a href="/veristore/terminal" class="btn btn-danger">
 							<i class="fas fa-arrow-circle-left"></i> Back
 						</a>

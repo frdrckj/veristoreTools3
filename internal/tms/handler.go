@@ -1404,18 +1404,26 @@ func (h *Handler) Export(c echo.Context) error {
 	if c.Request().Method == http.MethodPost {
 		// Check if this is a "Create" action (start the export job).
 		if c.FormValue("buttonCreate") != "" {
+			isSelectAll := c.FormValue("selectAll") == "true"
+			searchSerialNo := c.FormValue("searchSerialNo")
+			searchType, _ := strconv.Atoi(c.FormValue("searchType"))
+
 			serialNoList := c.FormValue("serialNoList")
 			var serialNos []string
-			_ = json.Unmarshal([]byte(serialNoList), &serialNos)
-
-			if len(serialNos) == 0 {
-				data.Count = 0
-				return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+			if !isSelectAll {
+				_ = json.Unmarshal([]byte(serialNoList), &serialNos)
+				if len(serialNos) == 0 {
+					data.Count = 0
+					return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
+				}
 			}
 
 			// Create export record.
 			filename := fmt.Sprintf("csi_%s.xlsx", time.Now().Format("20060102_1504"))
-			total := strconv.Itoa(len(serialNos))
+			total := "0"
+			if !isSelectAll {
+				total = strconv.Itoa(len(serialNos))
+			}
 			current := "0"
 			export := &admin.Export{
 				ExpFilename: filename,
@@ -1430,9 +1438,13 @@ func (h *Handler) Export(c echo.Context) error {
 			// Enqueue the background job.
 			session := h.service.GetSession()
 			payload := exportPayload{
-				SerialNos: serialNos,
-				Session:   session,
-				ExportID:  export.ExpID,
+				SerialNos:      serialNos,
+				Session:        session,
+				ExportID:       export.ExpID,
+				SelectAll:      isSelectAll,
+				SearchSerialNo: searchSerialNo,
+				SearchType:     searchType,
+				Username:       mw.GetCurrentUserName(c),
 			}
 			payloadBytes, _ := json.Marshal(payload)
 			task := asynq.NewTask("export:terminal", payloadBytes)
@@ -1449,13 +1461,30 @@ func (h *Handler) Export(c echo.Context) error {
 		// Initial POST from terminal page — collect serial numbers and show count.
 		selectAll := c.FormValue("selectAll")
 		if selectAll == "true" {
-			// Fetch all terminal IDs across all pages using bulk page size
-			// (100/page instead of 10/page — 10x fewer API calls).
-			serialNos := h.collectAllTerminalIDs(c)
-			data.Count = len(serialNos)
-			serialNoJSON, _ := json.Marshal(serialNos)
-			data.SerialNoList = string(serialNoJSON)
-			data.ShowCreate = data.Count > 0
+			// Get exact total from 1 API call — the TMS API returns a "total"
+			// field in the response, so no need to fetch all pages.
+			searchSerialNo := c.FormValue("searchSerialNo")
+			searchType, _ := strconv.Atoi(c.FormValue("searchType"))
+
+			exactCount := 0
+			var resp *TMSResponse
+			var err error
+			if searchSerialNo != "" {
+				resp, err = h.service.SearchTerminalsBulk(1, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+			} else {
+				resp, err = h.service.GetTerminalListBulk(1)
+			}
+			if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+				if t, ok := resp.Data["total"]; ok {
+					exactCount, _ = toInt(t)
+				}
+			}
+
+			data.Count = exactCount
+			data.ShowCreate = exactCount > 0
+			data.SelectAll = true
+			data.SearchSerialNo = searchSerialNo
+			data.SearchType = searchType
 			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
 		}
 
