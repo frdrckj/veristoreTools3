@@ -491,3 +491,14 @@ func (r *Repository) FailPendingSyncs(userID int) {
 		Where("sync_term_creator_id = ? AND sync_term_status IN ?", userID, []string{"0", "1", "2"}).
 		Update("sync_term_status", "4")
 }
+
+// IsSyncCancelled returns true when no pending sync records exist for the user
+// (i.e. all records have been reset to status "3" or completed). Background
+// workers poll this every few seconds to detect user-initiated reset.
+func (r *Repository) IsSyncCancelled(userID int) bool {
+	var count int64
+	r.db.Model(&SyncTerminal{}).
+		Where("sync_term_creator_id = ? AND sync_term_status IN ?", userID, []string{"0", "1", "2"}).
+		Count(&count)
+	return count == 0
+}

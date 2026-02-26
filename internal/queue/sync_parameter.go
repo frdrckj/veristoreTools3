@@ -252,6 +252,27 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	var successCount int64
 	var wg gosync.WaitGroup
 
+	// Cancellation channel: closed when sync is reset/cancelled by user.
+	cancelCh := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-cancelCh:
+				return
+			case <-ticker.C:
+				if h.adminRepo.IsSyncCancelled(payload.UserID) {
+					logger.Info().Msg("sync cancelled by user (sync reset)")
+					close(cancelCh)
+					return
+				}
+			}
+		}
+	}()
+
 	for w := 0; w < syncWorkerCount; w++ {
 		wg.Add(1)
 		go func() {
@@ -259,6 +280,8 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 			for t := range jobs {
 				select {
 				case <-ctx.Done():
+					return
+				case <-cancelCh:
 					return
 				default:
 				}
@@ -307,9 +330,16 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 
 				// Update local database in a transaction.
 				if err := h.updateLocalTerminal(ctx, serialNum, t.CSI, t.PN, t.Model, payload.AppName, termAppVersion, payload.UserName, paramResp); err != nil {
-					logger.Warn().Err(err).Str("serial", serialNum).Msg("failed to update local terminal")
+					logger.Warn().Err(err).Str("serial", serialNum).Str("csi", t.CSI).Msg("sync: failed to update local terminal")
 				} else {
 					atomic.AddInt64(&successCount, 1)
+					paramCount := 0
+					if paramResp != nil && paramResp.Data != nil {
+						if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
+							paramCount = len(pl)
+						}
+					}
+					logger.Info().Str("serial", serialNum).Str("csi", t.CSI).Int("params", paramCount).Msg("sync: terminal synced successfully")
 				}
 
 				count := atomic.AddInt64(&processedCount, 1)
@@ -318,14 +348,27 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 		}()
 	}
 
-	// Send all jobs.
+	// Send all jobs (stop early if cancelled).
+sendLoop:
 	for _, t := range terminals {
-		jobs <- t
+		select {
+		case <-cancelCh:
+			break sendLoop
+		case jobs <- t:
+		}
 	}
 	close(jobs)
 
 	// Wait for all workers to finish.
 	wg.Wait()
+
+	// Check if cancelled by user.
+	select {
+	case <-cancelCh:
+		logger.Info().Int64("synced", successCount).Int("total", totalTerminals).Msg("sync stopped: cancelled by user")
+		return nil
+	default:
+	}
 
 	if ctx.Err() != nil {
 		h.adminRepo.FailPendingSyncs(payload.UserID)

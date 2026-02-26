@@ -276,6 +276,27 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	var processedCount int64
 	var wg sync.WaitGroup
 
+	// Cancellation channel: closed when sync is reset/cancelled by user.
+	cancelCh := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-cancelCh:
+				return
+			case <-ticker.C:
+				if h.adminRepo.IsSyncCancelled(payload.UserID) {
+					logger.Info().Msg("update cancelled by user (sync reset)")
+					close(cancelCh)
+					return
+				}
+			}
+		}
+	}()
+
 	for w := 0; w < reportWorkerCount; w++ {
 		wg.Add(1)
 		go func() {
@@ -283,6 +304,8 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			for j := range jobs {
 				select {
 				case <-ctx.Done():
+					return
+				case <-cancelCh:
 					return
 				default:
 				}
@@ -392,14 +415,27 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		}()
 	}
 
-	// Send all jobs.
+	// Send all jobs (stop early if cancelled).
+sendLoop:
 	for _, j := range allJobs {
-		jobs <- j
+		select {
+		case <-cancelCh:
+			break sendLoop
+		case jobs <- j:
+		}
 	}
 	close(jobs)
 
 	// Wait for all workers to finish.
 	wg.Wait()
+
+	// Check if cancelled by user.
+	select {
+	case <-cancelCh:
+		logger.Info().Int("processed", int(processedCount)).Int("total", len(allJobs)).Msg("update stopped: cancelled by user")
+		return nil
+	default:
+	}
 
 	if ctx.Err() != nil {
 		h.adminRepo.FailPendingSyncs(payload.UserID)
