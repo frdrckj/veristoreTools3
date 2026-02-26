@@ -1441,39 +1441,43 @@ func (h *Handler) Export(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
-// collectAllTerminalIDs fetches all terminal deviceIds across all pages.
+// collectAllTerminalIDs fetches all terminal deviceIds across all pages,
+// respecting the current search filter (searchSerialNo + searchType).
 func (h *Handler) collectAllTerminalIDs(c echo.Context) []string {
 	searchSerialNo := c.FormValue("searchSerialNo")
-
-	// Use a large page size to fetch all terminals in one API call.
-	params := map[string]interface{}{
-		"page": 1,
-		"size": 9999,
-	}
-	if searchSerialNo != "" {
-		params["search"] = searchSerialNo
-	}
-
-	result, err := h.service.client.doSignedPost("/v1/tps/terminal/list", params)
-	if err != nil {
-		return nil
-	}
-	code, _ := toInt(result["code"])
-	if mapResponseCode(code) != 0 {
-		return nil
-	}
-	data, _ := result["data"].(map[string]interface{})
-	if data == nil {
-		return nil
-	}
-	list, _ := data["list"].([]interface{})
+	searchType, _ := strconv.Atoi(c.FormValue("searchType"))
 
 	var allIDs []string
-	for _, t := range list {
-		if m, ok := t.(map[string]interface{}); ok {
-			if devId, ok := m["deviceId"].(string); ok && devId != "" {
-				allIDs = append(allIDs, devId)
+	for page := 1; ; page++ {
+		var resp *TMSResponse
+		var err error
+		if searchSerialNo != "" {
+			resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+		} else {
+			resp, err = h.service.GetTerminalList(page)
+		}
+		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+			break
+		}
+
+		tl, ok := resp.Data["terminalList"].([]interface{})
+		if !ok || len(tl) == 0 {
+			break
+		}
+		for _, t := range tl {
+			if m, ok := t.(map[string]interface{}); ok {
+				if devId, ok := m["deviceId"].(string); ok && devId != "" {
+					allIDs = append(allIDs, devId)
+				}
 			}
+		}
+
+		totalPage := 0
+		if tp, ok := resp.Data["totalPage"]; ok {
+			totalPage, _ = toInt(tp)
+		}
+		if page >= totalPage {
+			break
 		}
 	}
 	return allIDs
@@ -2403,11 +2407,11 @@ func (h *Handler) GetDistrict(c echo.Context) error {
 // ---------------------------------------------------------------------------
 
 // Login handles GET/POST /veristore/login - TMS login form with captcha.
-// Username and password are pre-filled from the database (readonly), matching v2 behavior.
+// Like V2: username = app username, password = saved during app login.
+// Both fields are readonly. Password is sent as plain text to TMS.
 func (h *Handler) Login(c echo.Context) error {
 	page := h.pageData(c, "TMS Login")
 
-	// Get stored TMS credentials (username from tms_login, password from user table).
 	currentUser := mw.GetCurrentUserName(c)
 	tmsUser, tmsPassword := h.service.GetTmsCredentials(currentUser)
 	passwordMask := strings.Repeat("*", len(tmsPassword))
@@ -2416,7 +2420,7 @@ func (h *Handler) Login(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, vsTmpl.LoginPage(page, nil, tmsUser, passwordMask))
 	}
 
-	// Use stored credentials (not from form — fields are readonly).
+	// Use stored credentials (fields are readonly, like V2).
 	token := c.FormValue("token")
 	code := c.FormValue("code")
 	resellerId, _ := strconv.Atoi(c.FormValue("resellerId"))

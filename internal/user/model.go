@@ -21,6 +21,7 @@ type User struct {
 	UpdatedAt             *int       `gorm:"column:updated_at" json:"updated_at"`
 	TmsSession            *string    `gorm:"column:tms_session;type:varchar(5120)" json:"-"`
 	TmsPassword           *string    `gorm:"column:tms_password;type:varchar(256)" json:"-"`
+	TmsUsername           *string    `gorm:"column:tms_username;type:varchar(200)" json:"-"`
 }
 
 func (User) TableName() string {

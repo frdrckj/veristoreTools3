@@ -60,25 +60,18 @@ func NewService(client *Client, db *gorm.DB, resellerList []int64) *Service {
 	}
 }
 
-// GetTmsCredentials returns the TMS username (from tms_login table) and
-// the current user's TMS password (from user table). The password is stored
-// either encrypted (V2) or as plain text — we try to decrypt first, and
-// fall back to using it as-is if decryption fails.
+// GetTmsCredentials returns the TMS credentials for the current user.
+// Like V2: username = app username, password = decrypted from user.tms_password
+// (saved during app login).
 func (s *Service) GetTmsCredentials(currentUsername string) (tmsUser, tmsPassword string) {
-	// TMS username comes from the shared tms_login record (the actual TMS account).
-	login, err := s.repo.GetActiveLogin()
-	if err == nil && login != nil && login.TmsLoginUser != nil {
-		tmsUser = *login.TmsLoginUser
-	}
+	// TMS username = app username (like V2: Yii::$app->user->identity->user_name).
+	tmsUser = currentUsername
 
-	// Password comes from the logged-in user's record.
 	var row struct {
 		TmsPassword *string `gorm:"column:tms_password"`
 	}
 	if err := s.db.Table("user").Where("user_name = ?", currentUsername).First(&row).Error; err == nil {
 		if row.TmsPassword != nil && *row.TmsPassword != "" {
-			// Try to decrypt (V2 stores encrypted). If decryption fails,
-			// use the stored value as-is (plain text).
 			decrypted, err := DecryptAES(*row.TmsPassword)
 			if err == nil && decrypted != "" {
 				tmsPassword = decrypted
@@ -89,6 +82,23 @@ func (s *Service) GetTmsCredentials(currentUsername string) (tmsUser, tmsPasswor
 	}
 
 	return
+}
+
+// SaveTmsPassword encrypts and saves the plain-text password to user.tms_password.
+// Called on app login (like V2: TmsHelper::encrypt_decrypt($model->password)).
+// Pass empty string to clear (called on logout).
+func (s *Service) SaveTmsPassword(currentUsername, plainPassword string) {
+	if plainPassword == "" {
+		s.db.Table("user").Where("user_name = ?", currentUsername).
+			Update("tms_password", nil)
+		return
+	}
+	encrypted, err := EncryptAES(plainPassword)
+	if err != nil {
+		encrypted = plainPassword
+	}
+	s.db.Table("user").Where("user_name = ?", currentUsername).
+		Update("tms_password", encrypted)
 }
 
 // GetSession returns the active TMS session token from the tms_login table.

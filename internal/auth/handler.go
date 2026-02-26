@@ -21,7 +21,8 @@ type Handler struct {
 	appVersion        string
 	appIcon           string
 	appLogo           string
-	clearTmsSession   func(username string) error // called on login/logout to clear per-user TMS session
+	clearTmsSession   func(username string) error          // called on login/logout to clear per-user TMS session
+	saveTmsPassword   func(username, plainPassword string)  // called on login to save encrypted TMS password (like v2)
 }
 
 // NewHandler creates a new auth handler.
@@ -40,6 +41,11 @@ func NewHandler(service *Service, store sessions.Store, sessionName, appName, ap
 // SetTmsSessionClearer sets the callback to clear a user's TMS session (like v2).
 func (h *Handler) SetTmsSessionClearer(fn func(username string) error) {
 	h.clearTmsSession = fn
+}
+
+// SetTmsPasswordSaver sets the callback to save the user's TMS password on app login (like v2).
+func (h *Handler) SetTmsPasswordSaver(fn func(username, plainPassword string)) {
+	h.saveTmsPassword = fn
 }
 
 // Render is a helper to render templ components as Echo responses.
@@ -97,6 +103,11 @@ func (h *Handler) Login(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/user/login")
 	}
 
+	// Save encrypted TMS password on app login (like v2: same password for app and TMS).
+	if h.saveTmsPassword != nil {
+		h.saveTmsPassword(u.UserName, password)
+	}
+
 	// Clear per-user TMS session on app login so user must re-login to TMS (like v2).
 	if h.clearTmsSession != nil {
 		h.clearTmsSession(u.UserName)
@@ -113,10 +124,16 @@ func (h *Handler) Logout(c echo.Context) error {
 	// Log logout activity before clearing session (v2 parity).
 	mw.LogActivityFromContext(c, mw.LogLogout, "")
 
-	// Clear per-user TMS session on app logout (like v2).
+	// Clear per-user TMS session and password on app logout (like v2).
 	currentUser := mw.GetCurrentUserName(c)
-	if currentUser != "" && h.clearTmsSession != nil {
-		h.clearTmsSession(currentUser)
+	if currentUser != "" {
+		if h.clearTmsSession != nil {
+			h.clearTmsSession(currentUser)
+		}
+		// Clear TMS password like V2: Yii::$app->user->identity->tms_password = null
+		if h.saveTmsPassword != nil {
+			h.saveTmsPassword(currentUser, "")
+		}
 	}
 
 	session, err := h.store.Get(c.Request(), h.sessionName)

@@ -297,7 +297,9 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 			// Expose for the delete button
 			window.confirmBulkDelete = function() {
 				if (window._terminalSelectAll) {
-					if (!confirm('Delete ALL terminals across all pages?')) return false;
+					var sn = document.querySelector('#bulkDeleteForm input[name="searchSerialNo"]');
+					var msg = (sn && sn.value) ? 'Delete all filtered terminals matching "' + sn.value + '" across all pages?' : 'Delete ALL terminals across all pages?';
+					if (!confirm(msg)) return false;
 					var form = document.getElementById('bulkDeleteForm');
 					form.submit();
 					return false;

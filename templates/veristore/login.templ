@@ -3,7 +3,7 @@ package veristore
 import "github.com/verifone/veristoretools3/templates/layouts"
 
 // LoginPage renders the TMS login form with captcha.
-// Username and password are pre-filled and readonly (from DB), matching v2 behavior.
+// Like V2: username and password are pre-filled (readonly) from the app login credentials.
 templ LoginPage(page layouts.PageData, errors []string, tmsUser string, passwordMask string) {
 	@layouts.Base(page) {
 		<div class="row">
