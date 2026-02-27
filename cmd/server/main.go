@@ -125,6 +125,8 @@ func main() {
 	}
 	asynqClient := queue.NewClient(redisCfg)
 	defer asynqClient.Close()
+	asynqInspector := queue.NewInspector(redisCfg)
+	defer asynqInspector.Close()
 
 	// -----------------------------------------------------------------------
 	// 10. Create all handlers
@@ -144,7 +146,7 @@ func main() {
 	termHandler := terminal.NewHandler(terminalService, sessionStore, sessionName, appName, appVersion)
 	paramHandler := terminal.NewParamHandler(terminalRepo, sessionStore, sessionName, appName, appVersion)
 	tplParamHandler := admin.NewTemplateParamHandler(adminRepo, sessionStore, sessionName, appName, appVersion)
-	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient, cfg.PackageName)
+	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient, asynqInspector, cfg.PackageName)
 	tmsLoginHandler := tms.NewLoginHandler(tmsRepo, tmsService, sessionStore, sessionName, appName, appVersion)
 	verifyHandler := csi.NewHandler(csiService, sessionStore, sessionName, appName, appVersion)
 	reportHandler := csi.NewReportHandler(csiRepo, sessionStore, sessionName, appName, appVersion)

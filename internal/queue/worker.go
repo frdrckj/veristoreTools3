@@ -51,3 +51,12 @@ func NewClient(redisCfg RedisConfig) *asynq.Client {
 		DB:       redisCfg.DB,
 	})
 }
+
+// NewInspector creates a new Asynq inspector for queue management (purge, cancel, etc.).
+func NewInspector(redisCfg RedisConfig) *asynq.Inspector {
+	return asynq.NewInspector(asynq.RedisClientOpt{
+		Addr:     redisCfg.Addr,
+		Password: redisCfg.Password,
+		DB:       redisCfg.DB,
+	})
+}

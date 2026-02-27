@@ -52,11 +52,12 @@ type Handler struct {
 	packageName      string // filter apps by package name (v2 appTmsPackageName)
 	adminRepo        *admin.Repository
 	queueClient      *asynq.Client
+	queueInspector   *asynq.Inspector
 	paramCache       sync.Map // key: "serialNum|appId" → *paramCacheEntry
 }
 
 // NewHandler creates a new veristore handler.
-func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client, packageName string) *Handler {
+func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client, queueInspector *asynq.Inspector, packageName string) *Handler {
 	return &Handler{
 		service:          service,
 		store:            store,
@@ -74,6 +75,7 @@ func NewHandler(service *Service, store sessions.Store, sessionName string, appN
 		packageName:      packageName,
 		adminRepo:        adminRepo,
 		queueClient:      queueClient,
+		queueInspector:   queueInspector,
 	}
 }
 
@@ -1453,6 +1455,17 @@ func (h *Handler) Export(c echo.Context) error {
 				return c.Redirect(http.StatusFound, "/veristore/terminal")
 			}
 
+			// Log export activity.
+			if isSelectAll {
+				detail := "Export all CSI"
+				if searchSerialNo != "" {
+					detail = fmt.Sprintf("Export all CSI (search: %s)", searchSerialNo)
+				}
+				mw.LogActivityFromContext(c, mw.LogVeristoreExport, detail)
+			} else {
+				mw.LogActivityFromContext(c, mw.LogVeristoreExport, fmt.Sprintf("Export %d CSI", len(serialNos)))
+			}
+
 			data.InProgress = true
 			data.RequestDate = time.Now().Format("2006-01-02 15:04")
 			return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
@@ -1611,6 +1624,37 @@ func (h *Handler) ExportResult(c echo.Context) error {
 // ExportReset handles GET /veristore/exportreset - Remove stuck/incomplete exports.
 func (h *Handler) ExportReset(c echo.Context) error {
 	_ = h.adminRepo.DeleteIncompleteExports()
+
+	// Also purge any pending/active export tasks from the Redis queue.
+	if h.queueInspector != nil {
+		for _, qname := range []string{"default", "critical", "low"} {
+			// Cancel active tasks.
+			if active, err := h.queueInspector.ListActiveTasks(qname); err == nil {
+				for _, t := range active {
+					if t.Type == "export:terminal" || t.Type == "export:all" {
+						_ = h.queueInspector.CancelProcessing(t.ID)
+					}
+				}
+			}
+			// Delete pending tasks.
+			if pending, err := h.queueInspector.ListPendingTasks(qname); err == nil {
+				for _, t := range pending {
+					if t.Type == "export:terminal" || t.Type == "export:all" {
+						_ = h.queueInspector.DeleteTask(qname, t.ID)
+					}
+				}
+			}
+			// Delete retry tasks.
+			if retries, err := h.queueInspector.ListRetryTasks(qname); err == nil {
+				for _, t := range retries {
+					if t.Type == "export:terminal" || t.Type == "export:all" {
+						_ = h.queueInspector.DeleteTask(qname, t.ID)
+					}
+				}
+			}
+		}
+	}
+
 	return c.Redirect(http.StatusFound, "/veristore/export?refresh=true")
 }
 
