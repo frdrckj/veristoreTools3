@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -257,9 +258,15 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// ------------------------------------------------------------------
 	// Phase 3: Check apps concurrently using worker pool.
-	// Each worker: 1 API call per terminal (GetTerminalAppsById to check
-	// the pushed app list). For matched terminals: +1 call (detail for PN).
-	// This matches V2 logic: match packageName + version from itemList.
+	//
+	// Version resolution uses the same hybrid logic as the edit page
+	// (handler.go Edit):
+	//   1. GetTerminalAppsById → check if requested version is in the
+	//      pushed list. If not → skip (1 API call).
+	//   2. GetTerminalDetailById → check appInstalls for the package.
+	//      If found → that's the actual installed version (ground truth).
+	//   3. If appInstalls empty → use highest pushed version as fallback.
+	//   4. Match if resolved version == requested version.
 	// ------------------------------------------------------------------
 	jobs := make(chan reportJob, len(allJobs))
 	var mu sync.Mutex
@@ -302,7 +309,7 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				default:
 				}
 
-				// Lightweight call: check pushed app list (1 API call).
+				// Step 1: Get pushed app list (1 API call).
 				apps, fetchErr := h.tmsClient.GetTerminalAppsById(j.TerminalID)
 				if fetchErr != nil {
 					logger.Debug().Str("terminal_id", j.TerminalID).Err(fetchErr).Msg("failed to get terminal apps")
@@ -314,32 +321,88 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					continue
 				}
 
-				// Check for target app version match in the pushed app list.
-				matched := false
-				matchedAppID := ""
+				// Check if the requested version exists in the pushed list,
+				// and find the highest version for fallback.
+				requestedFound := false
+				requestedAppID := ""
+				highestVer := ""
+				highestAppID := ""
 				for _, app := range apps {
 					aPkg := fmt.Sprintf("%v", app["packageName"])
-					aVer := fmt.Sprintf("%v", app["version"])
 					if payload.PackageName != "" && aPkg != payload.PackageName {
 						continue
 					}
+					aVer := fmt.Sprintf("%v", app["version"])
+					aID := fmt.Sprintf("%v", app["id"])
 					if aVer == payload.AppVersion {
+						requestedFound = true
+						requestedAppID = aID
+					}
+					if highestVer == "" || compareVersions(aVer, highestVer) > 0 {
+						highestVer = aVer
+						highestAppID = aID
+					}
+				}
+
+				// If the requested version isn't even in the pushed list, skip.
+				if !requestedFound {
+					count := atomic.AddInt64(&processedCount, 1)
+					if count%100 == 0 || int(count) == totalTerminals {
+						logger.Info().Int64("scanned", count).Int("total", totalTerminals).Int64("matched", atomic.LoadInt64(&matchedCount)).Msg("report: scan progress")
+					}
+					h.reportProgress(payload.UserID, int(count), totalTerminals)
+					continue
+				}
+
+				// Step 2: Get terminal detail for appInstalls + PN (1 API call).
+				detailResp, detailErr := h.tmsClient.GetTerminalDetailById(j.TerminalID)
+				pn := ""
+				matched := false
+				matchedAppID := ""
+
+				if detailErr == nil && detailResp != nil && detailResp.Data != nil {
+					if v, ok := detailResp.Data["pn"]; ok && v != nil {
+						pn = fmt.Sprintf("%v", v)
+					}
+
+					// Step 3: Check appInstalls for ground truth version.
+					installedVersion := ""
+					if installs, ok := detailResp.Data["appInstalls"].([]interface{}); ok {
+						for _, inst := range installs {
+							im, _ := inst.(map[string]interface{})
+							if im == nil {
+								continue
+							}
+							iPkg := fmt.Sprintf("%v", im["packageName"])
+							if iPkg == payload.PackageName {
+								installedVersion = fmt.Sprintf("%v", im["version"])
+								break
+							}
+						}
+					}
+
+					if installedVersion != "" {
+						// appInstalls has ground truth → match only if it equals requested.
+						if installedVersion == payload.AppVersion {
+							matched = true
+							matchedAppID = requestedAppID
+						}
+					} else {
+						// appInstalls empty → use highest pushed version as fallback.
+						if highestVer == payload.AppVersion {
+							matched = true
+							matchedAppID = highestAppID
+						}
+					}
+				} else {
+					// Detail call failed → fall back to highest version.
+					if highestVer == payload.AppVersion {
 						matched = true
-						matchedAppID = fmt.Sprintf("%v", app["id"])
-						break
+						matchedAppID = highestAppID
 					}
 				}
 
 				if matched {
-					// Only fetch full detail for matched terminals (to get PN).
-					pn := ""
-					detailResp, detailErr := h.tmsClient.GetTerminalDetailById(j.TerminalID)
-					if detailErr == nil && detailResp != nil && detailResp.Data != nil {
-						if v, ok := detailResp.Data["pn"]; ok && v != nil {
-							pn = fmt.Sprintf("%v", v)
-						}
-					}
-
 					atomic.AddInt64(&matchedCount, 1)
 					mu.Lock()
 					rows = append(rows, reportRow{
@@ -549,5 +612,29 @@ func (h *ReportTerminalHandler) reportProgress(userID, current, total int) {
 		process := strconv.Itoa(pct)
 		h.adminRepo.UpdateSyncProcess(userID, process, "1")
 	}
+}
+
+// compareVersions compares two dot-separated version strings (e.g. "4.3.0.0").
+// Returns >0 if a > b, <0 if a < b, 0 if equal.
+func compareVersions(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	maxLen := len(aParts)
+	if len(bParts) > maxLen {
+		maxLen = len(bParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		var av, bv int
+		if i < len(aParts) {
+			av, _ = strconv.Atoi(aParts[i])
+		}
+		if i < len(bParts) {
+			bv, _ = strconv.Atoi(bParts[i])
+		}
+		if av != bv {
+			return av - bv
+		}
+	}
+	return 0
 }
 
