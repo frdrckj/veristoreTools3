@@ -206,14 +206,16 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					SerialNo: j.SerialNo,
 				}
 
+				total := len(payload.SerialNos)
+
 				// Fetch terminal detail.
 				detailResp, err := h.tmsClient.GetTerminalDetail(session, j.SerialNo)
 				if err != nil || detailResp.ResultCode != 0 {
-					logger.Warn().Str("serial", j.SerialNo).Msg("failed to get terminal detail")
+					logger.Warn().Str("csi", j.SerialNo).Int("index", j.Index+1).Int("total", total).Msg("export: failed to get terminal detail")
 					row.Error = true
 					results[j.Index] = row
 					count := atomic.AddInt64(&processedCount, 1)
-					h.updateProgress(export, int(count), len(payload.SerialNos))
+					h.updateProgress(export, int(count), total)
 					continue
 				}
 
@@ -236,6 +238,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					}
 				}
 
+				paramCount := 0
 				if appID != "" && operationMark != "" {
 					// Use the resolved terminal ID from GetTerminalDetail to
 					// skip the redundant getIdFromSN call, and fetch all tabs
@@ -245,15 +248,24 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					if err == nil && paramResp.ResultCode == 0 && paramResp.Data != nil {
 						if pl, ok := paramResp.Data["paraList"].([]interface{}); ok {
 							row.Params = pl
+							paramCount = len(pl)
 						}
 					}
 				}
 
 				results[j.Index] = row
 				count := atomic.AddInt64(&processedCount, 1)
+
+				logger.Info().
+					Str("csi", j.SerialNo).
+					Int64("progress", count).
+					Int("total", total).
+					Int("params", paramCount).
+					Msg("export: fetched terminal")
+
 				// Update progress every 5 terminals to reduce DB writes.
-				if count%5 == 0 || int(count) == len(payload.SerialNos) {
-					h.updateProgress(export, int(count), len(payload.SerialNos))
+				if count%5 == 0 || int(count) == total {
+					h.updateProgress(export, int(count), total)
 				}
 			}
 		}()
