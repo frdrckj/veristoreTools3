@@ -1354,7 +1354,7 @@ func (h *Handler) Report(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/report")
 		}
 
-		mw.LogActivityFromContext(c, mw.LogVeristoreReport, "")
+		mw.LogActivityFromContext(c, mw.LogVeristoreReport, "Update & Sync version "+appVersion)
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update & Sync dimulai. Report akan tersedia dalam beberapa saat.")
 		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
@@ -1801,6 +1801,8 @@ func (h *Handler) Import(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreImportCSI, "Import CSI from "+file.Filename)
+
 	// Redirect to GET so the browser doesn't re-submit the form on refresh.
 	return c.Redirect(http.StatusFound, "/veristore/import")
 }
@@ -1993,6 +1995,10 @@ func (h *Handler) ChangeMerchant(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"code": 1, "desc": err.Error(),
 		})
+	}
+
+	if resp.ResultCode == 0 {
+		mw.LogActivityFromContext(c, mw.LogVeristoreEditMerchTerm, "Edit merchant csi "+serialNum)
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{

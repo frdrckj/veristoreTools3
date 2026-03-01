@@ -188,6 +188,7 @@ func (h *ParamHandler) Update(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, tpTmpl.FormPage(page, toTPData(*existing), true, []string{err.Error()}))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreEditParam, "Edit parameter "+existing.ParamMerchantName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal parameter updated successfully")
 	return c.Redirect(http.StatusFound, "/terminalparameter/index")
 }

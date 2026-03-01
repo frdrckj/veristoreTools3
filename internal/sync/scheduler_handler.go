@@ -159,6 +159,7 @@ func (h *SchedulerHandler) Update(c echo.Context) error {
 	if err := h.tmsRepo.UpdateScheduled(loginID, scheduled); err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Simpan gagal dilakukan! %v", err))
 	} else {
+		mw.LogActivityFromContext(c, mw.LogSchedulerSyncEdit, "")
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Simpan berhasil dilakukan!")
 	}
 

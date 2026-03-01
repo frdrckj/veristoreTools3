@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/verifone/veristoretools3/internal/admin"
+	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/tms"
 )
 
@@ -203,6 +204,8 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		Int("success", successCount).
 		Int("failed", failCount).
 		Msg("merchant import job completed")
+
+	mw.LogActivity(h.db, mw.LogVeristoreImportMerch, fmt.Sprintf("Import data merchant: %d success, %d failed", successCount, failCount), payload.User)
 
 	return nil
 }

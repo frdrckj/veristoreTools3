@@ -237,6 +237,7 @@ func (h *Handler) Create(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, userTmpl.CreatePage(page, privilegeOptions(), "", []string{err.Error()}))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogCreateUser, "Penambahan user "+username+" sebagai "+privileges)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "User created successfully")
 	return c.Redirect(http.StatusFound, "/user/index")
 }

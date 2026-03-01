@@ -6,6 +6,8 @@ import (
 	"github.com/a-h/templ"
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
+
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
 	"github.com/verifone/veristoretools3/templates/layouts"
@@ -113,8 +115,12 @@ func (h *Handler) Login(c echo.Context) error {
 		h.clearTmsSession(u.UserName)
 	}
 
-	// Log login activity (v2 parity).
-	mw.LogActivityFromContext(c, mw.LogLogin, "")
+	// Log login activity (v2 parity). Use LogActivity directly because the
+	// session cookie hasn't been sent back yet, so LogActivityFromContext
+	// can't read the user from the session.
+	if db, ok := c.Get("actlog_db").(*gorm.DB); ok && db != nil {
+		mw.LogActivity(db, mw.LogLogin, "", u.UserFullname)
+	}
 
 	return c.Redirect(http.StatusFound, "/")
 }

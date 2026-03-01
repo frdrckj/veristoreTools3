@@ -372,7 +372,7 @@ func main() {
 	importMerchHandler := queue.NewImportMerchantHandler(tmsService, tmsClient, adminRepo, db)
 	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.TMS.SyncBatchSize)
 	tmsPingHandler := queue.NewTMSPingHandler(tmsService, tmsRepo)
-	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient, cfg.PackageName)
+	schedulerCheckHandler := queue.NewSchedulerCheckHandler(tmsRepo, asynqClient, cfg.PackageName, db)
 	reportTermHandler := queue.NewReportTerminalHandler(tmsService, tmsClient, adminRepo, db, asynqClient)
 
 	// -----------------------------------------------------------------------

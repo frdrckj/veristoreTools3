@@ -225,7 +225,7 @@ func (h *Handler) Create(c echo.Context) error {
 	}
 
 	// Log sync activity (v2 parity).
-	mw.LogActivityFromContext(c, mw.LogSyncData, "")
+	mw.LogActivityFromContext(c, mw.LogSyncData, "Update & Sync version "+appVersion)
 
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Sinkronisasi dimulai. Report akan tersedia dalam beberapa saat.")
 	return c.Redirect(http.StatusFound, "/sync-terminal/index")

@@ -10,7 +10,9 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 
+	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/tms"
 )
 
@@ -26,14 +28,16 @@ type SchedulerCheckHandler struct {
 	tmsRepo     *tms.Repository
 	queueClient *asynq.Client
 	packageName string
+	db          *gorm.DB
 }
 
 // NewSchedulerCheckHandler creates a new handler for the tms:scheduler_check task.
-func NewSchedulerCheckHandler(tmsRepo *tms.Repository, queueClient *asynq.Client, packageName string) *SchedulerCheckHandler {
+func NewSchedulerCheckHandler(tmsRepo *tms.Repository, queueClient *asynq.Client, packageName string, db *gorm.DB) *SchedulerCheckHandler {
 	return &SchedulerCheckHandler{
 		tmsRepo:     tmsRepo,
 		queueClient: queueClient,
 		packageName: packageName,
+		db:          db,
 	}
 }
 
@@ -169,6 +173,8 @@ func (h *SchedulerCheckHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		Str("task_id", info.ID).
 		Str("queue", info.Queue).
 		Msg("scheduler check: report+sync task enqueued successfully")
+
+	mw.LogActivity(h.db, mw.LogSchedulerSync, "", userName)
 
 	return nil
 }
