@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -113,6 +114,12 @@ func runMigrations(db *sql.DB, dir string) error {
 				continue
 			}
 			if _, err := db.Exec(stmt); err != nil {
+				// MySQL error 1060 = "Duplicate column name" — safe to ignore
+				// for idempotent ALTER TABLE ADD COLUMN migrations.
+				if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1060 {
+					log.Warn().Str("file", file).Msg("column already exists, skipping")
+					continue
+				}
 				return fmt.Errorf("execute migration %s: %w\nStatement: %s", file, err, stmt)
 			}
 		}
