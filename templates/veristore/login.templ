@@ -12,7 +12,11 @@ templ LoginPage(page layouts.PageData, errors []string, tmsUser string, password
 					<div class="card-header">
 						<h3 class="card-title">TMS Login</h3>
 					</div>
-					<form method="POST" action="/veristore/login" id="tmsLoginForm">
+					<form method="POST" id="tmsLoginForm">
+						<script>
+							// Preserve redirect param in form action so POST returns to the right page.
+							document.getElementById('tmsLoginForm').action = '/veristore/login' + window.location.search;
+						</script>
 						<div class="card-body">
 							if len(errors) > 0 {
 								<div class="alert alert-danger alert-dismissible fade show" role="alert">

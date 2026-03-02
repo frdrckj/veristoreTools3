@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -198,12 +199,11 @@ func (h *Handler) pageData(c echo.Context, title string) layouts.PageData {
 
 // Terminal handles GET /veristore/ - List terminals with pagination and search.
 func (h *Handler) Terminal(c echo.Context) error {
-	// Require per-user TMS session; redirect to login if none (like v2).
-	currentUser := mw.GetCurrentUserName(c)
-	if h.service.GetUserSession(currentUser) == "" {
-		return c.Redirect(http.StatusFound, "/veristore/login")
+	if err := h.requireTmsSession(c); err != nil {
+		return err
 	}
 
+	currentUser := mw.GetCurrentUserName(c)
 	page := h.pageData(c, "Terminal Management")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
@@ -2012,6 +2012,10 @@ func (h *Handler) ChangeMerchant(c echo.Context) error {
 
 // Merchant handles GET /veristore/merchant - List merchants with pagination.
 func (h *Handler) Merchant(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	page := h.pageData(c, "Merchant Management")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
@@ -2067,6 +2071,10 @@ func (h *Handler) Merchant(c echo.Context) error {
 
 // AddMerchant handles GET/POST /veristore/merchant/add - Add merchant form.
 func (h *Handler) AddMerchant(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	page := h.pageData(c, "Add Merchant")
 
 	if c.Request().Method == http.MethodGet {
@@ -2108,6 +2116,10 @@ func (h *Handler) AddMerchant(c echo.Context) error {
 
 // EditMerchant handles GET/POST /veristore/merchant/edit - Edit merchant form.
 func (h *Handler) EditMerchant(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	merchantIdStr := c.QueryParam("id")
 	if merchantIdStr == "" {
 		merchantIdStr = c.FormValue("id")
@@ -2167,6 +2179,10 @@ func (h *Handler) EditMerchant(c echo.Context) error {
 
 // DeleteMerchant handles POST /veristore/merchant/delete - Delete merchant.
 func (h *Handler) DeleteMerchant(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	merchantId, _ := strconv.Atoi(c.FormValue("id"))
 	if merchantId == 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Merchant ID is required")
@@ -2195,6 +2211,10 @@ func (h *Handler) DeleteMerchant(c echo.Context) error {
 
 // Group handles GET /veristore/group - List groups with pagination.
 func (h *Handler) Group(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	page := h.pageData(c, "Group Management")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
@@ -2250,6 +2270,10 @@ func (h *Handler) Group(c echo.Context) error {
 
 // AddGroup handles GET/POST /veristore/group/add - Add group form.
 func (h *Handler) AddGroup(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	page := h.pageData(c, "Add Group")
 
 	if c.Request().Method == http.MethodGet {
@@ -2292,6 +2316,10 @@ func (h *Handler) AddGroup(c echo.Context) error {
 
 // EditGroup handles GET/POST /veristore/group/edit - Edit group.
 func (h *Handler) EditGroup(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	groupIdStr := c.QueryParam("id")
 	if groupIdStr == "" {
 		groupIdStr = c.FormValue("id")
@@ -2377,6 +2405,10 @@ func (h *Handler) EditGroup(c echo.Context) error {
 
 // DeleteGroup handles POST /veristore/group/delete - Delete group.
 func (h *Handler) DeleteGroup(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	groupId, _ := strconv.Atoi(c.FormValue("id"))
 	if groupId == 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Group ID is required")
@@ -2401,6 +2433,10 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 
 // AddGroupTerminal handles GET/POST /veristore/group/terminal - HTMX search terminals for group.
 func (h *Handler) AddGroupTerminal(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
 	search := c.QueryParam("q")
 	if search == "" {
 		search = c.FormValue("q")
@@ -2594,12 +2630,31 @@ func (h *Handler) Login(c echo.Context) error {
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreLogin, "Login TMS Veristore sebagai "+tmsUser)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login successful")
-	return c.Redirect(http.StatusFound, "/veristore/terminal")
+
+	// Redirect back to the page the user originally tried to access.
+	redirectTo := c.QueryParam("redirect")
+	if redirectTo == "" {
+		redirectTo = "/veristore/terminal"
+	}
+	return c.Redirect(http.StatusFound, redirectTo)
 }
 
 // ---------------------------------------------------------------------------
 // Helper methods
 // ---------------------------------------------------------------------------
+
+// requireTmsSession checks if the user has an active TMS session.
+// Returns a redirect response to the TMS login page if not, preserving
+// the original URL so the user is sent back after login.
+// Returns nil if the session is valid and the handler can proceed.
+func (h *Handler) requireTmsSession(c echo.Context) error {
+	currentUser := mw.GetCurrentUserName(c)
+	if h.service.GetUserSession(currentUser) == "" {
+		redirect := c.Request().URL.String()
+		return c.Redirect(http.StatusFound, "/veristore/login?redirect="+url.QueryEscape(redirect))
+	}
+	return nil
+}
 
 // loadVendors loads the vendor list from TMS. Returns nil on error.
 func (h *Handler) loadVendors() []map[string]interface{} {
