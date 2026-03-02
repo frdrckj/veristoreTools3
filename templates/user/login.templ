@@ -15,6 +15,7 @@ templ LoginPage(data layouts.LoginData, errorMsg string) {
 							}
 							<strong>{ data.AppName }</strong>
 						</a>
+						<div id="app-type-label" style="font-size:14px;color:#666;margin-top:2px;"></div>
 					</div>
 					if errorMsg != "" {
 						<div class="alert alert-danger alert-dismissible fade show" role="alert">
@@ -69,6 +70,29 @@ templ LoginPage(data layouts.LoginData, errorMsg string) {
 					<p class="mt-3 mb-0 text-muted">
 						Version { data.AppVersion }
 					</p>
+					<script>
+						(function() {
+							var timer = null;
+							var input = document.querySelector('input[name="username"]');
+							var label = document.getElementById('app-type-label');
+							if (!input || !label) return;
+							input.addEventListener('input', function() {
+								clearTimeout(timer);
+								var val = input.value.trim();
+								if (!val) { label.innerHTML = ''; return; }
+								timer = setTimeout(function() {
+									var xhr = new XMLHttpRequest();
+									xhr.open('GET', '/user/apptype?username=' + encodeURIComponent(val));
+									xhr.onload = function() {
+										if (xhr.status === 200) {
+											label.innerHTML = '<strong>' + xhr.responseText + '</strong>';
+										}
+									};
+									xhr.send();
+								}, 300);
+							});
+						})();
+					</script>
 				</div>
 			</div>
 		</div>

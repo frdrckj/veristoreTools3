@@ -33,6 +33,16 @@ func NewService(userRepo *user.Repository, salt string) *Service {
 	}
 }
 
+// GetUserPrivileges returns the privileges string for a given username, or
+// empty string if the user does not exist.
+func (s *Service) GetUserPrivileges(username string) string {
+	u, err := s.userRepo.FindByUsername(username)
+	if err != nil || u == nil {
+		return ""
+	}
+	return u.UserPrivileges
+}
+
 // Authenticate looks up a user by username and verifies their password.
 // Returns the user on success or an error on failure.
 func (s *Service) Authenticate(username, password string) (*user.User, error) {

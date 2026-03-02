@@ -179,6 +179,7 @@ func main() {
 	// -----------------------------------------------------------------------
 	e.GET("/user/login", authHandler.LoginPage)
 	e.POST("/user/login", authHandler.Login)
+	e.GET("/user/apptype", authHandler.GetAppType)
 
 	// -----------------------------------------------------------------------
 	// 14. Protected routes (session auth + RBAC)

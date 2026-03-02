@@ -57,6 +57,24 @@ func Render(c echo.Context, statusCode int, component templ.Component) error {
 	return component.Render(c.Request().Context(), c.Response())
 }
 
+// GetAppType returns "(Verifikasi CSI)" or "(Profiling)" based on the
+// user's privileges — matching V2's actionGetapptype behaviour.
+func (h *Handler) GetAppType(c echo.Context) error {
+	username := c.QueryParam("username")
+	if username == "" {
+		return c.String(http.StatusOK, "")
+	}
+	priv := h.service.GetUserPrivileges(username)
+	switch priv {
+	case "ADMIN", "OPERATOR":
+		return c.String(http.StatusOK, "(Verifikasi CSI)")
+	case "TMS ADMIN", "TMS SUPERVISOR", "TMS OPERATOR":
+		return c.String(http.StatusOK, "(Profiling)")
+	default:
+		return c.String(http.StatusOK, "")
+	}
+}
+
 // LoginPage renders the login page using the Templ login template.
 func (h *Handler) LoginPage(c echo.Context) error {
 	// Get flash messages for error display.
