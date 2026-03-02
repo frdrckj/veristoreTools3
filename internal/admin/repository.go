@@ -383,6 +383,15 @@ func (r *Repository) AllFaqs() ([]Faq, error) {
 	return faqs, nil
 }
 
+// FaqsByPrivileges returns FAQ records filtered by user privileges, ordered by sequence.
+func (r *Repository) FaqsByPrivileges(privileges string) ([]Faq, error) {
+	var faqs []Faq
+	if err := r.db.Where("faq_privileges = ?", privileges).Order("faq_seq ASC").Find(&faqs).Error; err != nil {
+		return nil, err
+	}
+	return faqs, nil
+}
+
 // CreateFaq inserts a new FAQ record.
 func (r *Repository) CreateFaq(f *Faq) error {
 	return r.db.Create(f).Error

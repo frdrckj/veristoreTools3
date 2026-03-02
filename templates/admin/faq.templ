@@ -1,47 +1,97 @@
 package admin
 
 import (
+	"encoding/json"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
 
 // FaqData is a view-layer representation of a FAQ entry.
 type FaqData struct {
-	FaqID   int
-	FaqName string
-	FaqLink string
-	FaqSeq  int
+	FaqID    int
+	FaqName  string
+	FaqLink  string
+	FaqSeq   int
+	ParentID int
+	Children []FaqData
 }
 
-// FaqPage renders the FAQ / user guide page.
-templ FaqPage(page layouts.PageData, faqs []FaqData) {
+// treeNode is a Bootstrap TreeView–compatible JSON node.
+type treeNode struct {
+	Text  string     `json:"text"`
+	Href  string     `json:"href,omitempty"`
+	Nodes []treeNode `json:"nodes,omitempty"`
+}
+
+// toTreeNodes converts FaqData slices into treeNode slices.
+func toTreeNodes(items []FaqData) []treeNode {
+	var nodes []treeNode
+	for _, item := range items {
+		n := treeNode{Text: item.FaqName}
+		if item.FaqLink != "" {
+			n.Href = "/faq/index?title=" + item.FaqName + "&page=" + item.FaqLink
+		}
+		if len(item.Children) > 0 {
+			n.Nodes = toTreeNodes(item.Children)
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes
+}
+
+// TreeJSON returns the JSON string for the Bootstrap TreeView data.
+func TreeJSON(tree []FaqData) string {
+	nodes := toTreeNodes(tree)
+	b, _ := json.Marshal(nodes)
+	return string(b)
+}
+
+// FaqPage renders the FAQ / Bantuan page with a Bootstrap TreeView (matching V2).
+templ FaqPage(page layouts.PageData, tree []FaqData, faqTitle string, faqContent string) {
 	@layouts.Base(page) {
-		<div class="card">
-			<div class="card-header">
-				<h3 class="card-title">FAQ / User Guide</h3>
-				<div class="card-tools">
-					<a href="/faq/download" class="btn btn-sm btn-primary">
-						<i class="fas fa-download"></i> Download User Guide
-					</a>
-				</div>
-			</div>
-			<div class="card-body">
-				if len(faqs) == 0 {
-					<p class="text-muted">No FAQ entries available.</p>
-				} else {
-					<div class="list-group">
-						for _, f := range faqs {
-							<div class="list-group-item">
-								<h5 class="mb-1">{ f.FaqName }</h5>
-								if f.FaqLink != "" {
-									<a href={ templ.SafeURL(f.FaqLink) } target="_blank" class="text-primary">
-										<i class="fas fa-external-link-alt"></i> View
-									</a>
-								}
-							</div>
-						}
-					</div>
-				}
+		<div class="row">
+			<div class="col-lg-12 text-right mb-3">
+				<a href="/faq/download" class="btn btn-success">
+					Download User Guide English
+				</a>
 			</div>
 		</div>
+		<div class="row">
+			<div class="col-lg-12">
+				<h4><strong>Panduan Pengguna</strong></h4>
+				<div id="faqTree" data-tree={ TreeJSON(tree) }></div>
+			</div>
+		</div>
+		if faqContent != "" {
+			<div class="row mt-3">
+				<div class="col-lg-12">
+					<div class="card card-success">
+						<div class="card-header with-border">
+							<h3 class="card-title">{ faqTitle }</h3>
+						</div>
+						<div class="card-body">
+							@templ.Raw(faqContent)
+						</div>
+					</div>
+				</div>
+			</div>
+		}
+		<link rel="stylesheet" href="/static/plugins/bootstrap-treeview/bootstrap-treeview.min.css"/>
+		<script src="/static/plugins/bootstrap-treeview/bootstrap-treeview.min.js"></script>
+		<script>
+			$(function() {
+				var el = document.getElementById('faqTree');
+				var treeData = JSON.parse(el.getAttribute('data-tree'));
+				$(el).treeview({
+					data: treeData,
+					levels: 1,
+					borderColor: '#fff',
+					onNodeSelected: function(event, node) {
+						if (node.href) {
+							window.location.href = node.href;
+						}
+					}
+				});
+			});
+		</script>
 	}
 }

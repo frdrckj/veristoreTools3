@@ -46,6 +46,13 @@ p, TMS ADMIN, /user/get-app-type, GET
 p, TMS SUPERVISOR, /user/get-app-type, GET
 p, TMS OPERATOR, /user/get-app-type, GET
 
+# About (version page)
+p, ADMIN, /about/:action, GET
+p, OPERATOR, /about/:action, GET
+p, TMS ADMIN, /about/:action, GET
+p, TMS SUPERVISOR, /about/:action, GET
+p, TMS OPERATOR, /about/:action, GET
+
 # ---------------------------------------------------------------------------
 # ADMIN (CSI Admin) - full CSI access + user management + template params + scheduler
 # ---------------------------------------------------------------------------

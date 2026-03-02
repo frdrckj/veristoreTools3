@@ -296,10 +296,19 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 
 			// Expose for the delete button
 			window.confirmBulkDelete = function() {
+				// Date password: yyyy/mm/dd of today
+				var now = new Date();
+				var y = now.getFullYear();
+				var m = ('0' + (now.getMonth() + 1)).slice(-2);
+				var d = ('0' + now.getDate()).slice(-2);
+				var datePassword = y + '/' + m + '/' + d;
+
 				if (window._terminalSelectAll) {
 					var sn = document.querySelector('#bulkDeleteForm input[name="searchSerialNo"]');
 					var msg = (sn && sn.value) ? 'Delete all filtered terminals matching "' + sn.value + '" across all pages?' : 'Delete ALL terminals across all pages?';
 					if (!confirm(msg)) return false;
+					var pwd = prompt('Enter password to confirm delete (yyyy/mm/dd):');
+					if (pwd !== datePassword) { alert('Incorrect password'); return false; }
 					var form = document.getElementById('bulkDeleteForm');
 					form.submit();
 					return false;
@@ -307,6 +316,8 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				var checked = document.querySelectorAll('.terminal-checkbox:checked');
 				if (checked.length === 0) { alert('Please select at least one terminal'); return false; }
 				if (!confirm('Delete ' + checked.length + ' terminal(s)?')) return false;
+				var pwd = prompt('Enter password to confirm delete (yyyy/mm/dd):');
+				if (pwd !== datePassword) { alert('Incorrect password'); return false; }
 				var form = document.getElementById('bulkDeleteForm');
 				checked.forEach(function(cb) {
 					var input = document.createElement('input');

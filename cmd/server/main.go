@@ -152,7 +152,7 @@ func main() {
 	reportHandler := csi.NewReportHandler(csiRepo, sessionStore, sessionName, appName, appVersion)
 	syncHandler := syncpkg.NewHandler(syncService, sessionStore, sessionName, appName, appVersion, tmsService, asynqClient, cfg.PackageName)
 	schedulerHandler := syncpkg.NewSchedulerHandler(tmsRepo, sessionStore, sessionName, appName, appVersion)
-	adminHandler := admin.NewHandler(adminRepo, sessionStore, sessionName, appName, appVersion)
+	adminHandler := admin.NewHandler(adminRepo, sessionStore, sessionName, appName, appVersion, "static/faq", "assets")
 	actHandler := activation.NewHandler(actRepo, sessionStore, sessionName, appName, appVersion)
 	apiHandler := activation.NewAPIHandler(actRepo, db)
 
@@ -322,7 +322,8 @@ func main() {
 	protected.POST("/technician/update", adminHandler.TechnicianUpdate)
 	protected.POST("/technician/delete", adminHandler.TechnicianDelete)
 
-	// FAQ
+	// About
+	protected.GET("/about/version", adminHandler.VersionPage)
 	protected.GET("/faq/index", adminHandler.FaqIndex)
 	protected.GET("/faq/download", adminHandler.FaqDownload)
 

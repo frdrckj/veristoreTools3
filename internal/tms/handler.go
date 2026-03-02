@@ -17,9 +17,9 @@ import (
 
 	"github.com/go-pdf/fpdf"
 	"github.com/gorilla/sessions"
-	"github.com/rs/zerolog/log"
 	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog/log"
 	"github.com/verifone/veristoretools3/internal/admin"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
@@ -850,7 +850,7 @@ func (h *Handler) Delete(c echo.Context) error {
 		for _, sn := range serialNos {
 			mw.LogActivityFromContext(c, mw.LogVeristoreDeleteCSI, "Delete csi "+sn)
 		}
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal(s) deleted successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "CSI deleted successfully")
 	}
 
 	return c.Redirect(http.StatusFound, "/veristore/terminal")

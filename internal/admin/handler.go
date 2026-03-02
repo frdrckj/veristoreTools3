@@ -3,6 +3,8 @@ package admin
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,16 +25,20 @@ type Handler struct {
 	sessionName string
 	appName     string
 	appVersion  string
+	faqDir      string // directory containing FAQ HTML content files
+	assetsDir   string // directory containing downloadable assets (user guides)
 }
 
 // NewHandler creates a new admin handler.
-func NewHandler(repo *Repository, store sessions.Store, sessionName, appName, appVersion string) *Handler {
+func NewHandler(repo *Repository, store sessions.Store, sessionName, appName, appVersion, faqDir, assetsDir string) *Handler {
 	return &Handler{
 		repo:        repo,
 		store:       store,
 		sessionName: sessionName,
 		appName:     appName,
 		appVersion:  appVersion,
+		faqDir:      faqDir,
+		assetsDir:   assetsDir,
 	}
 }
 
@@ -342,33 +348,97 @@ func (h *Handler) parseTechnicianForm(c echo.Context) (*Technician, []string) {
 
 // FaqIndex displays the FAQ list page.
 func (h *Handler) FaqIndex(c echo.Context) error {
-	faqs, err := h.repo.AllFaqs()
+	privileges := mw.GetCurrentUserPrivileges(c)
+	faqs, err := h.repo.FaqsByPrivileges(privileges)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load FAQs")
 	}
 
-	var faqData []adminTmpl.FaqData
+	// Build a flat list then assemble into a tree.
+	type flatFaq struct {
+		id       int
+		parentID int
+		name     string
+		link     string
+		seq      int
+	}
+	var flat []flatFaq
 	for _, f := range faqs {
 		link := ""
 		if f.FaqLink != nil {
 			link = *f.FaqLink
 		}
-		faqData = append(faqData, adminTmpl.FaqData{
-			FaqID:   f.FaqID,
-			FaqName: f.FaqName,
-			FaqLink: link,
-			FaqSeq:  f.FaqSeq,
-		})
+		pid := 0
+		if f.FaqParent != nil {
+			pid = *f.FaqParent
+		}
+		flat = append(flat, flatFaq{id: f.FaqID, parentID: pid, name: f.FaqName, link: link, seq: f.FaqSeq})
 	}
 
-	page := h.pageData(c, "FAQ / User Guide")
-	return shared.Render(c, http.StatusOK, adminTmpl.FaqPage(page, faqData))
+	// Build tree recursively.
+	var buildTree func(parentID int) []adminTmpl.FaqData
+	buildTree = func(parentID int) []adminTmpl.FaqData {
+		var nodes []adminTmpl.FaqData
+		for _, f := range flat {
+			if f.parentID == parentID {
+				nodes = append(nodes, adminTmpl.FaqData{
+					FaqID:    f.id,
+					FaqName:  f.name,
+					FaqLink:  f.link,
+					FaqSeq:   f.seq,
+					ParentID: f.parentID,
+					Children: buildTree(f.id),
+				})
+			}
+		}
+		return nodes
+	}
+	tree := buildTree(0)
+
+	// If a page param is present, load the HTML content file.
+	var faqTitle, faqContent string
+	if pageName := c.QueryParam("page"); pageName != "" {
+		faqTitle = c.QueryParam("title")
+		contentFile := filepath.Join(h.faqDir, pageName+".html")
+		if data, err := os.ReadFile(contentFile); err == nil {
+			faqContent = string(data)
+		}
+	}
+
+	page := h.pageData(c, "Bantuan")
+	return shared.Render(c, http.StatusOK, adminTmpl.FaqPage(page, tree, faqTitle, faqContent))
 }
 
-// FaqDownload serves a FAQ/user-guide file download.
+// FaqDownload serves the role-specific user guide PDF (matching V2).
 func (h *Handler) FaqDownload(c echo.Context) error {
-	// Return the user guide file. The file path can be configured in the future.
-	return echo.NewHTTPError(http.StatusNotImplemented, "user guide download not yet available")
+	privileges := mw.GetCurrentUserPrivileges(c)
+	var filename string
+	switch privileges {
+	case "ADMIN":
+		filename = "User Guide Veristore Tools Verifikasi CSI (Administrator) English.pdf"
+	case "OPERATOR":
+		filename = "User Guide Veristore Tools Verifikasi CSI (Operator) English.pdf"
+	case "TMS ADMIN":
+		filename = "User Guide Veristore Tools Profiling (Administrator) English.pdf"
+	case "TMS SUPERVISOR":
+		filename = "User Guide Veristore Tools Profiling (Supervisor) English.pdf"
+	case "TMS OPERATOR":
+		filename = "User Guide Veristore Tools Profiling (Operator) English.pdf"
+	default:
+		return echo.NewHTTPError(http.StatusNotFound, "no user guide available for your role")
+	}
+
+	filePath := filepath.Join(h.assetsDir, filename)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return echo.NewHTTPError(http.StatusNotFound, "user guide file not found")
+	}
+	return c.Attachment(filePath, filename)
+}
+
+// VersionPage renders the About > Versi page.
+func (h *Handler) VersionPage(c echo.Context) error {
+	page := h.pageData(c, "Versi")
+	return shared.Render(c, http.StatusOK, adminTmpl.VersionPage(page))
 }
 
 // ---------------------------------------------------------------------------

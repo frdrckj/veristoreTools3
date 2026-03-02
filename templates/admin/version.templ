@@ -1,0 +1,38 @@
+package admin
+
+import (
+	"fmt"
+	"time"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// VersionPage renders the About > Versi page (matching V2's site/about).
+templ VersionPage(page layouts.PageData) {
+	@layouts.Base(page) {
+		<div class="site-about">
+			<div class="row text-center">
+				<div class="col-12">
+					<br/><br/><br/>
+					<p style="font-size:400%;">
+						if page.AppLogo != "" {
+							<a href="/" class="logo" style="color:black;text-decoration:none;">
+								<img style="width:100px;" alt="" src={ "/static/img/" + page.AppLogo }/>
+								<b>{ page.AppName }</b>
+							</a>
+						} else {
+							<a href="/" class="logo" style="color:black;text-decoration:none;">
+								<b>{ page.AppName }</b>
+							</a>
+						}
+					</p>
+					<h2>
+						Version { page.AppVersion }
+					</h2>
+					<h4>
+						<strong>Copyright &copy; { fmt.Sprintf("%d", time.Now().Year()) } { page.CopyrightTitle }.</strong> All rights reserved.
+					</h4>
+				</div>
+			</div>
+		</div>
+	}
+}

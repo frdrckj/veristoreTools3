@@ -172,6 +172,7 @@ templ csiMenu(data PageData) {
 			<p>Laporan Verifikasi</p>
 		</a>
 	</li>
+	@aboutMenu()
 }
 
 // tmsMenu renders the TMS-specific sidebar menu items (role-filtered like V2).
@@ -220,5 +221,33 @@ templ tmsMenu(data PageData) {
 			<i class="far fa-circle nav-icon"></i>
 			<p>CSI</p>
 		</a>
+	</li>
+	@aboutMenu()
+}
+
+// aboutMenu renders the About submenu (shared by CSI and TMS menus).
+templ aboutMenu() {
+	<li class="nav-item has-treeview">
+		<a href="#" class="nav-link">
+			<i class="far fa-circle nav-icon"></i>
+			<p>
+				About
+				<i class="right fas fa-angle-left"></i>
+			</p>
+		</a>
+		<ul class="nav nav-treeview">
+			<li class="nav-item">
+				<a href="/about/version" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Versi</p>
+				</a>
+			</li>
+			<li class="nav-item">
+				<a href="/faq/index" class="nav-link">
+					<i class="far fa-circle nav-icon"></i>
+					<p>Bantuan</p>
+				</a>
+			</li>
+		</ul>
 	</li>
 }

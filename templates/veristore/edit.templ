@@ -107,6 +107,48 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 			</div>
 			<div id="checkResult"></div>
 			<script>
+				// Cache for edited form values so switching tabs preserves changes.
+				var _paramCache = {};   // key → { html: string, values: { name: value } }
+				var _currentKey = null; // currently active tab key
+
+				function _cacheKey(group, sub, idx) {
+					return group + '|' + sub + '|' + idx;
+				}
+
+				// Save current panel form values into the cache before switching away.
+				function _saveCurrentPanel() {
+					if (!_currentKey) return;
+					var panel = document.getElementById('paramPanel');
+					var inputs = panel.querySelectorAll('input, select, textarea');
+					if (inputs.length === 0) return;
+					var values = {};
+					inputs.forEach(function(el) {
+						if (!el.name) return;
+						if (el.type === 'checkbox') {
+							values[el.name] = el.checked;
+						} else {
+							values[el.name] = el.value;
+						}
+					});
+					_paramCache[_currentKey] = { html: panel.innerHTML, values: values };
+				}
+
+				// Restore cached form values into the panel after loading HTML.
+				function _restorePanelValues(key) {
+					var cached = _paramCache[key];
+					if (!cached || !cached.values) return;
+					var panel = document.getElementById('paramPanel');
+					var inputs = panel.querySelectorAll('input, select, textarea');
+					inputs.forEach(function(el) {
+						if (!el.name || !(el.name in cached.values)) return;
+						if (el.type === 'checkbox') {
+							el.checked = cached.values[el.name];
+						} else {
+							el.value = cached.values[el.name];
+						}
+					});
+				}
+
 				function toggleGroup(el) {
 					var groupItems = el.nextElementSibling;
 					if (!groupItems) return;
@@ -120,6 +162,9 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 					}
 				}
 				function selectParam(el) {
+					// Save current panel before switching.
+					_saveCurrentPanel();
+
 					var items = document.querySelectorAll('#paramTree .group-items .list-group-item');
 					items.forEach(function(a) { a.classList.remove('node-selected'); });
 					el.classList.add('node-selected');
@@ -128,29 +173,68 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 					var group = el.getAttribute('data-group');
 					var sub = el.getAttribute('data-sub');
 					var idx = el.getAttribute('data-index');
+					var key = _cacheKey(group, sub, idx);
 					var panel = document.getElementById('paramPanel');
+
+					// If we have a cached version with edits, restore it immediately.
+					if (_paramCache[key]) {
+						panel.innerHTML = _paramCache[key].html;
+						_restorePanelValues(key);
+						_currentKey = key;
+						return;
+					}
+
+					_currentKey = key;
 					panel.innerHTML = '<div class="text-center p-3"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
 					fetch('/veristore/edit/param?serialNum=' + encodeURIComponent(serialNum) + '&appId=' + encodeURIComponent(appId) + '&group=' + encodeURIComponent(group) + '&sub=' + encodeURIComponent(sub) + '&index=' + encodeURIComponent(idx))
 						.then(function(r) { return r.text(); })
-						.then(function(html) { panel.innerHTML = html; })
+						.then(function(html) {
+							panel.innerHTML = html;
+							// Store initial state in cache so subsequent visits are instant.
+							var inputs = panel.querySelectorAll('input, select, textarea');
+							var values = {};
+							inputs.forEach(function(el) {
+								if (!el.name) return;
+								if (el.type === 'checkbox') { values[el.name] = el.checked; }
+								else { values[el.name] = el.value; }
+							});
+							_paramCache[key] = { html: html, values: values };
+						})
 						.catch(function(err) { panel.innerHTML = '<div class="alert alert-danger">Failed to load parameters.</div>'; });
 				}
 				function submitParams() {
-					var form = document.getElementById('editParamForm');
-					if (!form) {
-						form = document.createElement('form');
-						form.method = 'POST';
-						form.action = '/veristore/edit';
-						var sn = document.createElement('input');
-						sn.type = 'hidden'; sn.name = 'serialNum';
-						sn.value = document.getElementById('editSerialNum').value;
-						form.appendChild(sn);
-						var ai = document.createElement('input');
-						ai.type = 'hidden'; ai.name = 'appId';
-						ai.value = document.getElementById('editAppId').value;
-						form.appendChild(ai);
-						document.body.appendChild(form);
-					}
+					// Save current panel edits first.
+					_saveCurrentPanel();
+
+					// Build a form containing ALL edited parameters across all tabs.
+					var form = document.createElement('form');
+					form.method = 'POST';
+					form.action = '/veristore/edit';
+					var sn = document.createElement('input');
+					sn.type = 'hidden'; sn.name = 'serialNum';
+					sn.value = document.getElementById('editSerialNum').value;
+					form.appendChild(sn);
+					var ai = document.createElement('input');
+					ai.type = 'hidden'; ai.name = 'appId';
+					ai.value = document.getElementById('editAppId').value;
+					form.appendChild(ai);
+
+					// Collect values from all cached tabs.
+					Object.keys(_paramCache).forEach(function(key) {
+						var cached = _paramCache[key];
+						if (!cached || !cached.values) return;
+						Object.keys(cached.values).forEach(function(name) {
+							// Skip serialNum/appId as they are already added.
+							if (name === 'serialNum' || name === 'appId') return;
+							var inp = document.createElement('input');
+							inp.type = 'hidden';
+							inp.name = name;
+							inp.value = cached.values[name];
+							form.appendChild(inp);
+						});
+					});
+
+					document.body.appendChild(form);
 					form.submit();
 				}
 				function doCheck() {
