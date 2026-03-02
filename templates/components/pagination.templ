@@ -21,59 +21,70 @@ func (d PaginationData) pageURL(page int) string {
 	return d.BaseURL + "?page=" + strconv.Itoa(page) + d.QueryString
 }
 
-// Pagination renders pagination controls with HTMX support.
+// clampPage ensures a page number stays within [1, total].
+func clampPage(page, total int) int {
+	if page < 1 {
+		return 1
+	}
+	if page > total {
+		return total
+	}
+	return page
+}
+
+// paginationEntry represents either a page number or an ellipsis in the pagination bar.
+type paginationEntry struct {
+	Page     int
+	Ellipsis bool
+}
+
+// Pagination renders pagination controls with -5/+5 jump, prev/next, and ellipsis.
+// Pattern: << < [1] ... [c-2] [c-1] [c] [c+1] [c+2] ... [last] > >>
+// << = 5 pages back, >> = 5 pages forward, < = prev, > = next
 templ Pagination(data PaginationData) {
 	if data.TotalPages > 1 {
 		<nav aria-label="Page navigation">
 			<ul class="pagination pagination-sm m-0 float-right">
-				<!-- Previous -->
+				<!-- 5 pages back (<<) -->
 				<li class={ "page-item", templ.KV("disabled", data.CurrentPage <= 1) }>
 					if data.CurrentPage > 1 {
-						<a
-							class="page-link"
-							href={ templ.SafeURL(data.pageURL(data.CurrentPage - 1)) }
-							if data.HTMXTarget != "" {
-								hx-get={ data.pageURL(data.CurrentPage - 1) }
-								hx-target={ "#" + data.HTMXTarget }
-								hx-push-url="true"
-							}
-						>
-							&laquo;
-						</a>
+						@pageLink(data, clampPage(data.CurrentPage - 5, data.TotalPages), "&laquo;")
 					} else {
 						<span class="page-link">&laquo;</span>
 					}
 				</li>
-				<!-- Page numbers -->
-				for _, page := range pageRange(data.CurrentPage, data.TotalPages) {
-					<li class={ "page-item", templ.KV("active", page == data.CurrentPage) }>
-						<a
-							class="page-link"
-							href={ templ.SafeURL(data.pageURL(page)) }
-							if data.HTMXTarget != "" {
-								hx-get={ data.pageURL(page) }
-								hx-target={ "#" + data.HTMXTarget }
-								hx-push-url="true"
-							}
-						>
-							{ strconv.Itoa(page) }
-						</a>
-					</li>
+				<!-- Previous page (<) -->
+				<li class={ "page-item", templ.KV("disabled", data.CurrentPage <= 1) }>
+					if data.CurrentPage > 1 {
+						@pageLink(data, data.CurrentPage - 1, "&lsaquo;")
+					} else {
+						<span class="page-link">&lsaquo;</span>
+					}
+				</li>
+				<!-- Page numbers with ellipsis -->
+				for _, entry := range buildPaginationEntries(data.CurrentPage, data.TotalPages) {
+					if entry.Ellipsis {
+						<li class="page-item disabled">
+							<span class="page-link">&hellip;</span>
+						</li>
+					} else {
+						<li class={ "page-item", templ.KV("active", entry.Page == data.CurrentPage) }>
+							@pageLink(data, entry.Page, strconv.Itoa(entry.Page))
+						</li>
+					}
 				}
-				<!-- Next -->
+				<!-- Next page (>) -->
 				<li class={ "page-item", templ.KV("disabled", data.CurrentPage >= data.TotalPages) }>
 					if data.CurrentPage < data.TotalPages {
-						<a
-							class="page-link"
-							href={ templ.SafeURL(data.pageURL(data.CurrentPage + 1)) }
-							if data.HTMXTarget != "" {
-								hx-get={ data.pageURL(data.CurrentPage + 1) }
-								hx-target={ "#" + data.HTMXTarget }
-								hx-push-url="true"
-							}
-						>
-							&raquo;
-						</a>
+						@pageLink(data, data.CurrentPage + 1, "&rsaquo;")
+					} else {
+						<span class="page-link">&rsaquo;</span>
+					}
+				</li>
+				<!-- 5 pages forward (>>) -->
+				<li class={ "page-item", templ.KV("disabled", data.CurrentPage >= data.TotalPages) }>
+					if data.CurrentPage < data.TotalPages {
+						@pageLink(data, clampPage(data.CurrentPage + 5, data.TotalPages), "&raquo;")
 					} else {
 						<span class="page-link">&raquo;</span>
 					}
@@ -86,32 +97,68 @@ templ Pagination(data PaginationData) {
 	}
 }
 
-// pageRange calculates which page numbers to show. Shows up to 7 pages around
-// the current page with ellipsis-like behavior at the boundaries.
-func pageRange(current, total int) []int {
-	if total <= 7 {
-		pages := make([]int, total)
-		for i := range pages {
-			pages[i] = i + 1
+// pageLink renders a single pagination link with optional HTMX attributes.
+templ pageLink(data PaginationData, page int, label string) {
+	<a
+		class="page-link"
+		href={ templ.SafeURL(data.pageURL(page)) }
+		if data.HTMXTarget != "" {
+			hx-get={ data.pageURL(page) }
+			hx-target={ "#" + data.HTMXTarget }
+			hx-push-url="true"
 		}
-		return pages
+	>
+		@templ.Raw(label)
+	</a>
+}
+
+// buildPaginationEntries generates the page entries with ellipsis.
+// Pattern: 1 ... (current-2) (current-1) current (current+1) (current+2) ... lastPage
+func buildPaginationEntries(current, total int) []paginationEntry {
+	if total <= 7 {
+		entries := make([]paginationEntry, total)
+		for i := range entries {
+			entries[i] = paginationEntry{Page: i + 1}
+		}
+		return entries
 	}
 
-	pages := make([]int, 0, 7)
-	start := current - 3
-	if start < 1 {
-		start = 1
-	}
-	end := start + 6
-	if end > total {
-		end = total
-		start = end - 6
-		if start < 1 {
-			start = 1
+	var entries []paginationEntry
+
+	// Always show page 1
+	entries = append(entries, paginationEntry{Page: 1})
+
+	// Window: 2 pages before and after current
+	windowStart := current - 2
+	windowEnd := current + 2
+
+	if windowStart <= 2 {
+		// No ellipsis needed before — show pages 2..windowEnd
+		for i := 2; i <= windowEnd && i < total; i++ {
+			entries = append(entries, paginationEntry{Page: i})
+		}
+	} else {
+		// Ellipsis after page 1
+		entries = append(entries, paginationEntry{Ellipsis: true})
+		for i := windowStart; i <= windowEnd && i < total; i++ {
+			if i > 1 {
+				entries = append(entries, paginationEntry{Page: i})
+			}
 		}
 	}
-	for i := start; i <= end; i++ {
-		pages = append(pages, i)
+
+	if windowEnd >= total-1 {
+		// No ellipsis needed after — fill remaining pages
+		for i := windowEnd + 1; i < total; i++ {
+			entries = append(entries, paginationEntry{Page: i})
+		}
+	} else {
+		// Ellipsis before last page
+		entries = append(entries, paginationEntry{Ellipsis: true})
 	}
-	return pages
+
+	// Always show last page
+	entries = append(entries, paginationEntry{Page: total})
+
+	return entries
 }

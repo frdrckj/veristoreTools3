@@ -35,6 +35,9 @@ templ CopyPage(page layouts.PageData, errors []string, sourceSn string) {
 									id="destSn"
 									name="destSn"
 									placeholder="New CSI"
+									maxlength="8"
+									style="text-transform: uppercase;"
+									oninput="this.value = this.value.toUpperCase().slice(0, 8)"
 									required
 								/>
 							</div>

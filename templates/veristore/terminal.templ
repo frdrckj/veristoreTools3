@@ -307,7 +307,7 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 					var sn = document.querySelector('#bulkDeleteForm input[name="searchSerialNo"]');
 					var msg = (sn && sn.value) ? 'Delete all filtered terminals matching "' + sn.value + '" across all pages?' : 'Delete ALL terminals across all pages?';
 					if (!confirm(msg)) return false;
-					var pwd = prompt('Enter password to confirm delete (yyyy/mm/dd):');
+					var pwd = prompt('Enter password to confirm delete:');
 					if (pwd !== datePassword) { alert('Incorrect password'); return false; }
 					var form = document.getElementById('bulkDeleteForm');
 					form.submit();
@@ -316,7 +316,7 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				var checked = document.querySelectorAll('.terminal-checkbox:checked');
 				if (checked.length === 0) { alert('Please select at least one terminal'); return false; }
 				if (!confirm('Delete ' + checked.length + ' terminal(s)?')) return false;
-				var pwd = prompt('Enter password to confirm delete (yyyy/mm/dd):');
+				var pwd = prompt('Enter password to confirm delete:');
 				if (pwd !== datePassword) { alert('Incorrect password'); return false; }
 				var form = document.getElementById('bulkDeleteForm');
 				checked.forEach(function(cb) {

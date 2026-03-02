@@ -5,13 +5,32 @@ package components
 templ Alert(flashes map[string][]string) {
 	for flashType, messages := range flashes {
 		for _, msg := range messages {
-			<div class={ "alert", alertClass(flashType), "alert-dismissible fade show" } role="alert">
+			<div class={ "alert", alertClass(flashType), "alert-dismissible fade show flash-alert" } role="alert">
 				{ msg }
 				<button type="button" class="close" data-dismiss="alert" aria-label="Close">
 					<span aria-hidden="true">&times;</span>
 				</button>
 			</div>
 		}
+	}
+	if len(flashes) > 0 {
+		<script>
+			(function() {
+				var alerts = document.querySelectorAll('.flash-alert');
+				if (alerts.length === 0) return;
+				setTimeout(function() {
+					alerts.forEach(function(el) {
+						if (typeof $ !== 'undefined' && $.fn.alert) {
+							$(el).alert('close');
+						} else {
+							el.style.transition = 'opacity 0.5s';
+							el.style.opacity = '0';
+							setTimeout(function() { el.remove(); }, 500);
+						}
+					});
+				}, 7000);
+			})();
+		</script>
 	}
 }
 

@@ -346,7 +346,7 @@ func (h *Handler) Add(c echo.Context) error {
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddCSI, "Add csi "+data.DeviceID)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal added successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Add CSI berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
@@ -850,7 +850,7 @@ func (h *Handler) Delete(c echo.Context) error {
 		for _, sn := range serialNos {
 			mw.LogActivityFromContext(c, mw.LogVeristoreDeleteCSI, "Delete csi "+sn)
 		}
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "CSI deleted successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, fmt.Sprintf("Delete %d CSI berhasil!", len(serialNos)))
 	}
 
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
@@ -1001,7 +1001,9 @@ func (h *Handler) Replacement(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
-// Check handles POST /veristore/check - Preview terminal parameters (HTMX partial).
+// Check handles GET/POST /veristore/check - Preview terminal parameters (HTMX partial).
+// When called via POST from the edit page, form values (param_{dataName}) are overlaid
+// on top of the cached server values so the preview reflects the user's edits.
 func (h *Handler) Check(c echo.Context) error {
 	serialNum := c.QueryParam("serialNum")
 	appId := c.QueryParam("appId")
@@ -1018,6 +1020,36 @@ func (h *Handler) Check(c echo.Context) error {
 
 	// Use cached parameters (pre-fetched when Edit page loaded).
 	paramLookup := h.getCachedParams(serialNum, appId)
+
+	// Overlay any form-submitted edits (from the edit page's doCheck).
+	// Form fields are named "param_{dataName}" with the edited value.
+	// Copy the map first to avoid corrupting the shared cache.
+	if c.Request().Method == http.MethodPost {
+		formParams, _ := c.FormParams()
+		hasEdits := false
+		for name := range formParams {
+			if strings.HasPrefix(name, "param_") {
+				hasEdits = true
+				break
+			}
+		}
+		if hasEdits {
+			overlay := make(map[string][2]string, len(paramLookup))
+			for k, v := range paramLookup {
+				overlay[k] = v
+			}
+			for name, vals := range formParams {
+				if !strings.HasPrefix(name, "param_") || len(vals) == 0 {
+					continue
+				}
+				dataName := strings.TrimPrefix(name, "param_")
+				if existing, ok := overlay[dataName]; ok {
+					overlay[dataName] = [2]string{existing[0], vals[0]}
+				}
+			}
+			paramLookup = overlay
+		}
+	}
 
 	// Get template_parameter groups.
 	type tplGroup struct {
