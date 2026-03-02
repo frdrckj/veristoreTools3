@@ -53,9 +53,9 @@ templ LoginPage(page layouts.PageData, errors []string, tmsUser string, password
 								/>
 							</div>
 							<div class="form-group">
-								<label for="resellerId">Reseller</label>
+								<label for="resellerId">Operator</label>
 								<select class="form-control select2" id="resellerId" name="resellerId">
-									<option value="">-- Select Reseller --</option>
+									<option value="">-- Select Operator --</option>
 								</select>
 							</div>
 							<div class="form-group">
@@ -106,32 +106,36 @@ templ LoginPage(page layouts.PageData, errors []string, tmsUser string, password
 					.catch(err => console.error('Failed to load captcha:', err));
 			}
 
-			function loadResellers() {
+			function loadOperators() {
 				var username = document.getElementById('username').value;
 				if (!username) return;
 				fetch('/veristore/operator?username=' + encodeURIComponent(username))
 					.then(r => r.json())
 					.then(data => {
-						var select = document.getElementById('resellerId');
-						select.innerHTML = '<option value="">-- Select Reseller --</option>';
+						var sel = document.getElementById('resellerId');
+						sel.innerHTML = '<option value="">-- Select Operator --</option>';
 						if (data.code === 0 && data.data) {
 							data.data.forEach(function(item) {
 								var opt = document.createElement('option');
 								opt.value = item.id;
 								opt.textContent = item.resellerName || item.marketName || item.name;
-								select.appendChild(opt);
+								sel.appendChild(opt);
 							});
+							// Auto-select if there is only one operator.
+							if (data.data.length === 1) {
+								sel.selectedIndex = 1;
+							}
 						}
 					})
-					.catch(err => console.error('Failed to load resellers:', err));
+					.catch(err => console.error('Failed to load operators:', err));
 			}
 
 			document.getElementById('refreshCaptcha')?.addEventListener('click', loadCaptcha);
 			document.getElementById('captchaImage')?.addEventListener('click', loadCaptcha);
 
-			// Auto-load captcha and resellers on page load.
+			// Auto-load captcha and operators on page load.
 			loadCaptcha();
-			loadResellers();
+			loadOperators();
 		</script>
 	}
 }
