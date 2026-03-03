@@ -232,6 +232,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 
 	var terminals []map[string]interface{}
 	totalPage := 0
+	var totalCount int64
 
 	if resp != nil && resp.ResultCode == 0 && resp.Data != nil {
 		if tl, ok := resp.Data["terminalList"].([]interface{}); ok {
@@ -244,7 +245,17 @@ func (h *Handler) Terminal(c echo.Context) error {
 		if tp, ok := resp.Data["totalPage"]; ok {
 			totalPage, _ = toInt(tp)
 		}
+		if tc, ok := resp.Data["total"]; ok {
+			n, _ := toInt(tc)
+			totalCount = int64(n)
+		}
 	}
+	if totalCount == 0 {
+		totalCount = int64(len(terminals))
+	}
+
+	// Enrich terminal results with TID/MID from local database.
+	h.service.EnrichTerminalsWithTIDMID(terminals)
 
 	searchParams := vsTmpl.SearchParams{
 		SerialNo:   serialNo,
@@ -260,7 +271,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 	pagination := components.PaginationData{
 		CurrentPage: pageNum,
 		TotalPages:  totalPage,
-		Total:       int64(len(terminals)),
+		Total:       totalCount,
 		BaseURL:     "/veristore/terminal",
 		HTMXTarget:  "terminal-table-container",
 		QueryString: paginationQuery,

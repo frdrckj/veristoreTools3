@@ -774,8 +774,10 @@ func (c *Client) GetTerminalList(session string, pageNum int) (*TMSResponse, err
 					list[i] = m
 				}
 			}
+			total, _ := toInt(data["total"])
 			resp.Data = map[string]interface{}{
 				"totalPage":    data["pages"],
+				"total":        total,
 				"terminalList": list,
 			}
 		}
@@ -835,30 +837,46 @@ func (c *Client) GetTerminalListWithSize(pageNum, pageSize int) (*TMSResponse, e
 //	4 = deviceId, 5 = MID param
 func (c *Client) GetTerminalListSearch(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
 	// queryType: 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
-	// CSI (4) uses the faster signed API (no session overhead).
-	// All other types use the old session-based API with structured filters.
-	if queryType == 4 {
+	// CSI (4), TID (3), MID (5) use the faster signed API.
+	// Merchant (1), Group (2), SN (0) use the old session-based API.
+	switch queryType {
+	case 3, 4, 5:
 		return c.getTerminalListSearchNew(pageNum, search, queryType)
+	default:
+		return c.getTerminalListSearchOld(session, pageNum, search, queryType)
 	}
-	return c.getTerminalListSearchOld(session, pageNum, search, queryType)
 }
 
 // GetTerminalListSearchBulk is like GetTerminalListSearch but with a larger
 // page size (100) for bulk operations (export, delete-all).
 func (c *Client) GetTerminalListSearchBulk(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
-	if queryType == 4 {
+	switch queryType {
+	case 3, 4, 5:
 		return c.getTerminalListSearchNewBulk(pageNum, search, queryType)
+	default:
+		return c.getTerminalListSearchOldBulk(session, pageNum, search, queryType)
 	}
-	return c.getTerminalListSearchOldBulk(session, pageNum, search, queryType)
 }
 
 // getTerminalListSearchNewBulk is like getTerminalListSearchNew but with
 // page size 100 for bulk operations (export, delete-all).
 func (c *Client) getTerminalListSearchNewBulk(pageNum int, search string, queryType int) (*TMSResponse, error) {
 	params := map[string]interface{}{
-		"page":   pageNum,
-		"search": search,
-		"size":   100,
+		"page": pageNum,
+		"size": 100,
+	}
+
+	switch queryType {
+	case 3: // TID
+		params["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
+		}
+	case 5: // MID
+		params["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
+		}
+	default:
+		params["search"] = search
 	}
 
 	result, err := c.doSignedPost("/v1/tps/terminal/list", params)
@@ -922,15 +940,15 @@ func (c *Client) getTerminalListSearchOldBulk(session string, pageNum int, searc
 				"totalPage": 0, "terminalList": []interface{}{},
 			}}, nil
 		}
-	case 3: // TID
-		body["appParameterValueList"] = []map[string]interface{}{
-			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
+	case 3: // TID — V2 uses "param" object, not "appParameterValueList"
+		body["param"] = map[string]interface{}{
+			"name": "TP-MERCHANT-TERMINAL_ID-1", "type": "=", "value": search,
 		}
 	case 4: // CSI (deviceId)
 		body["deviceId"] = map[string]interface{}{"type": "=", "value": search}
-	case 5: // MID
-		body["appParameterValueList"] = []map[string]interface{}{
-			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
+	case 5: // MID — V2 uses "param" object, not "appParameterValueList"
+		body["param"] = map[string]interface{}{
+			"name": "TP-MERCHANT-MERCHANT_ID-1", "type": "=", "value": search,
 		}
 	}
 
@@ -970,12 +988,29 @@ func (c *Client) getTerminalListSearchOldBulk(session string, pageNum int, searc
 	return resp, nil
 }
 
-// getTerminalListSearchNew uses the signed API for CSI/SN search.
+// getTerminalListSearchNew uses the signed API for CSI, TID, and MID search.
 func (c *Client) getTerminalListSearchNew(pageNum int, search string, queryType int) (*TMSResponse, error) {
 	params := map[string]interface{}{
-		"page":   pageNum,
-		"search": search,
-		"size":   10,
+		"page": pageNum,
+		"size": 10,
+	}
+
+	switch queryType {
+	case 3: // TID
+		params["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
+		}
+	case 5: // MID
+		params["appParameterValueList"] = []map[string]interface{}{
+			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
+		}
+	default: // CSI (4) and others
+		params["search"] = search
+	}
+
+	if queryType == 3 || queryType == 5 {
+		bodyJSON, _ := json.Marshal(params)
+		log.Info().RawJSON("requestBody", bodyJSON).Msg("TID/MID signed API search")
 	}
 
 	result, err := c.doSignedPost("/v1/tps/terminal/list", params)
@@ -985,6 +1020,10 @@ func (c *Client) getTerminalListSearchNew(pageNum int, search string, queryType 
 
 	code, _ := toInt(result["code"])
 	rc := mapResponseCode(code)
+
+	if queryType == 3 || queryType == 5 {
+		log.Info().Int("code", code).Int("rc", rc).Str("desc", toString(result["desc"])).Msg("TID/MID signed API response")
+	}
 
 	resp := &TMSResponse{
 		ResultCode: rc,
@@ -1002,8 +1041,10 @@ func (c *Client) getTerminalListSearchNew(pageNum int, search string, queryType 
 					list[i] = m
 				}
 			}
+			total, _ := toInt(data["total"])
 			resp.Data = map[string]interface{}{
 				"totalPage":    data["pages"],
+				"total":        total,
 				"terminalList": list,
 			}
 		}
@@ -1037,25 +1078,35 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 				"totalPage": 0, "terminalList": []interface{}{},
 			}}, nil
 		}
-	case 3: // TID
-		body["appParameterValueList"] = []map[string]interface{}{
-			{"dataName": "TP-MERCHANT-TERMINAL_ID-1", "value": search},
+	case 3: // TID — V2 uses "param" object, not "appParameterValueList"
+		body["param"] = map[string]interface{}{
+			"name": "TP-MERCHANT-TERMINAL_ID-1", "type": "=", "value": search,
 		}
 	case 4: // CSI (deviceId)
 		body["deviceId"] = map[string]interface{}{"type": "=", "value": search}
-	case 5: // MID
-		body["appParameterValueList"] = []map[string]interface{}{
-			{"dataName": "TP-MERCHANT-MERCHANT_ID-1", "value": search},
+	case 5: // MID — V2 uses "param" object, not "appParameterValueList"
+		body["param"] = map[string]interface{}{
+			"name": "TP-MERCHANT-MERCHANT_ID-1", "type": "=", "value": search,
 		}
+	}
+
+	if queryType == 3 || queryType == 5 {
+		bodyJSON, _ := json.Marshal(body)
+		log.Info().RawJSON("requestBody", bodyJSON).Str("session", session[:20]+"...").Msg("TID/MID search request")
 	}
 
 	result, err := c.doPost(session, "/market/manage/terminal/page", body)
 	if err != nil {
+		log.Error().Err(err).Int("queryType", queryType).Msg("terminal search failed")
 		return nil, err
 	}
 
 	code, _ := toInt(result["code"])
 	rc := mapResponseCode(code)
+
+	if queryType == 3 || queryType == 5 {
+		log.Info().Int("code", code).Int("rc", rc).Str("desc", toString(result["desc"])).Msg("TID/MID search response")
+	}
 
 	resp := &TMSResponse{
 		ResultCode: rc,
@@ -1073,8 +1124,10 @@ func (c *Client) getTerminalListSearchOld(session string, pageNum int, search st
 					list[i] = m
 				}
 			}
+			total, _ := toInt(data["total"])
 			resp.Data = map[string]interface{}{
 				"totalPage":    data["pages"],
+				"total":        total,
 				"terminalList": list,
 			}
 		}

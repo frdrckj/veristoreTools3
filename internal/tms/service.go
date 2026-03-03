@@ -135,25 +135,220 @@ func (s *Service) GetTerminalListBulk(page int) (*TMSResponse, error) {
 
 // SearchTerminals searches terminals with filters.
 // queryType 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
-// Group/Merchant/TID/MID use old session-based API; CSI/SN use new signed API.
+// TID/MID search local database; others use TMS API.
 // Pass username so we can use the per-user TMS session for old API calls.
 func (s *Service) SearchTerminals(page int, search string, queryType int, username string) (*TMSResponse, error) {
-	// Prefer per-user session; fall back to global tms_login session.
-	session := s.GetUserSession(username)
-	if session == "" {
-		session = s.GetSession()
+	switch queryType {
+	case 3, 5: // TID/MID — search local database
+		return s.searchTerminalsByParam(page, search, queryType)
+	default:
+		// Prefer per-user session; fall back to global tms_login session.
+		session := s.GetUserSession(username)
+		if session == "" {
+			session = s.GetSession()
+		}
+		return s.client.GetTerminalListSearch(session, page, search, queryType)
 	}
-	return s.client.GetTerminalListSearch(session, page, search, queryType)
+}
+
+// searchTerminalsByParam searches the local terminal_parameter table by TID or MID
+// and returns results in the same TMSResponse format as the API.
+func (s *Service) searchTerminalsByParam(page int, search string, queryType int) (*TMSResponse, error) {
+	const pageSize = 10
+
+	type paramResult struct {
+		TermDeviceID      string `gorm:"column:term_device_id"`
+		TermSerialNum     string `gorm:"column:term_serial_num"`
+		TermModel         string `gorm:"column:term_model"`
+		ParamMerchantName string `gorm:"column:param_merchant_name"`
+		ParamTID          string `gorm:"column:param_tid"`
+		ParamMID          string `gorm:"column:param_mid"`
+	}
+
+	tx := s.db.Table("terminal_parameter").
+		Select("terminal.term_device_id, terminal.term_serial_num, terminal.term_model, terminal_parameter.param_merchant_name, terminal_parameter.param_tid, terminal_parameter.param_mid").
+		Joins("JOIN terminal ON terminal.term_id = terminal_parameter.param_term_id")
+
+	switch queryType {
+	case 3: // TID
+		tx = tx.Where("terminal_parameter.param_tid = ?", search)
+	case 5: // MID
+		tx = tx.Where("terminal_parameter.param_mid = ?", search)
+	}
+
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("searchTerminalsByParam count: %w", err)
+	}
+
+	var results []paramResult
+	offset := (page - 1) * pageSize
+	if err := tx.Offset(offset).Limit(pageSize).Find(&results).Error; err != nil {
+		return nil, fmt.Errorf("searchTerminalsByParam query: %w", err)
+	}
+
+	var list []interface{}
+	for _, r := range results {
+		m := map[string]interface{}{
+			"deviceId":     r.TermDeviceID,
+			"sn":           r.TermSerialNum,
+			"model":        r.TermModel,
+			"merchantName": r.ParamMerchantName,
+			"tid":          r.ParamTID,
+			"mid":          r.ParamMID,
+			"alertStatus":  1,
+			"status":       1,
+			"alertMsg":     "",
+		}
+		list = append(list, m)
+	}
+
+	totalPages := int(total) / pageSize
+	if int(total)%pageSize != 0 {
+		totalPages++
+	}
+
+	return &TMSResponse{
+		ResultCode: 0,
+		Desc:       "OK",
+		Data: map[string]interface{}{
+			"totalPage":    totalPages,
+			"total":        int(total),
+			"terminalList": list,
+		},
+	}, nil
+}
+
+// EnrichTerminalsWithTIDMID looks up local terminal_parameter records by CSI (deviceId)
+// and adds tid/mid fields to each terminal map.
+func (s *Service) EnrichTerminalsWithTIDMID(terminals []map[string]interface{}) {
+	if len(terminals) == 0 {
+		return
+	}
+
+	// Collect all deviceIds (CSIs).
+	var deviceIDs []string
+	for _, t := range terminals {
+		csi := toString(t["deviceId"])
+		if csi != "" {
+			deviceIDs = append(deviceIDs, csi)
+		}
+	}
+	if len(deviceIDs) == 0 {
+		return
+	}
+
+	type paramRow struct {
+		TermDeviceID string `gorm:"column:term_device_id"`
+		ParamTID     string `gorm:"column:param_tid"`
+		ParamMID     string `gorm:"column:param_mid"`
+	}
+
+	var rows []paramRow
+	s.db.Table("terminal_parameter").
+		Select("terminal.term_device_id, terminal_parameter.param_tid, terminal_parameter.param_mid").
+		Joins("JOIN terminal ON terminal.term_id = terminal_parameter.param_term_id").
+		Where("terminal.term_device_id IN ?", deviceIDs).
+		Find(&rows)
+
+	// Build a lookup map: deviceId → {tid, mid}.
+	lookup := map[string]paramRow{}
+	for _, r := range rows {
+		if _, exists := lookup[r.TermDeviceID]; !exists {
+			lookup[r.TermDeviceID] = r
+		}
+	}
+
+	// Enrich terminal maps.
+	for _, t := range terminals {
+		csi := toString(t["deviceId"])
+		if row, ok := lookup[csi]; ok {
+			t["tid"] = row.ParamTID
+			t["mid"] = row.ParamMID
+		}
+	}
 }
 
 // SearchTerminalsBulk is like SearchTerminals but with page size 100.
 // Used by bulk operations (export, delete-all) to reduce API calls (10x fewer pages).
 func (s *Service) SearchTerminalsBulk(page int, search string, queryType int, username string) (*TMSResponse, error) {
-	session := s.GetUserSession(username)
-	if session == "" {
-		session = s.GetSession()
+	switch queryType {
+	case 3, 5: // TID/MID — search local database (bulk page size)
+		return s.searchTerminalsByParamBulk(page, search, queryType)
+	default:
+		session := s.GetUserSession(username)
+		if session == "" {
+			session = s.GetSession()
+		}
+		return s.client.GetTerminalListSearchBulk(session, page, search, queryType)
 	}
-	return s.client.GetTerminalListSearchBulk(session, page, search, queryType)
+}
+
+// searchTerminalsByParamBulk is like searchTerminalsByParam but with page size 100.
+func (s *Service) searchTerminalsByParamBulk(page int, search string, queryType int) (*TMSResponse, error) {
+	const pageSize = 100
+
+	type paramResult struct {
+		TermDeviceID      string `gorm:"column:term_device_id"`
+		TermSerialNum     string `gorm:"column:term_serial_num"`
+		TermModel         string `gorm:"column:term_model"`
+		ParamMerchantName string `gorm:"column:param_merchant_name"`
+		ParamTID          string `gorm:"column:param_tid"`
+		ParamMID          string `gorm:"column:param_mid"`
+	}
+
+	tx := s.db.Table("terminal_parameter").
+		Select("terminal.term_device_id, terminal.term_serial_num, terminal.term_model, terminal_parameter.param_merchant_name, terminal_parameter.param_tid, terminal_parameter.param_mid").
+		Joins("JOIN terminal ON terminal.term_id = terminal_parameter.param_term_id")
+
+	switch queryType {
+	case 3:
+		tx = tx.Where("terminal_parameter.param_tid = ?", search)
+	case 5:
+		tx = tx.Where("terminal_parameter.param_mid = ?", search)
+	}
+
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("searchTerminalsByParamBulk count: %w", err)
+	}
+
+	var results []paramResult
+	offset := (page - 1) * pageSize
+	if err := tx.Offset(offset).Limit(pageSize).Find(&results).Error; err != nil {
+		return nil, fmt.Errorf("searchTerminalsByParamBulk query: %w", err)
+	}
+
+	var list []interface{}
+	for _, r := range results {
+		m := map[string]interface{}{
+			"deviceId":     r.TermDeviceID,
+			"sn":           r.TermSerialNum,
+			"model":        r.TermModel,
+			"merchantName": r.ParamMerchantName,
+			"tid":          r.ParamTID,
+			"mid":          r.ParamMID,
+			"alertStatus":  1,
+			"status":       1,
+			"alertMsg":     "",
+		}
+		list = append(list, m)
+	}
+
+	totalPages := int(total) / pageSize
+	if int(total)%pageSize != 0 {
+		totalPages++
+	}
+
+	return &TMSResponse{
+		ResultCode: 0,
+		Desc:       "OK",
+		Data: map[string]interface{}{
+			"totalPage":    totalPages,
+			"total":        int(total),
+			"terminalList": list,
+		},
+	}, nil
 }
 
 // GetTerminalDetail retrieves detailed information about a terminal.

@@ -103,6 +103,7 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 						hx-get="/veristore/terminal"
 						hx-target="#terminal-table-container"
 						hx-push-url="true"
+						hx-indicator="#search-spinner"
 					>
 						<select name="searchType" class="form-control" style="width: 130px;">
 							<option value="4" selected?={ searchParams.SearchType == 4 || searchParams.SearchType == 0 && searchParams.SerialNo == "" }>CSI</option>
@@ -123,6 +124,9 @@ templ TerminalPage(page layouts.PageData, terminals []map[string]interface{}, to
 						<button type="submit" class="btn btn-default ml-1">
 							<i class="fas fa-search"></i>
 						</button>
+						<span id="search-spinner" class="htmx-indicator ml-2" style="line-height:38px;">
+							<i class="fas fa-spinner fa-spin"></i> Searching...
+						</span>
 					</form>
 				</div>
 			</div>
