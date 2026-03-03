@@ -233,8 +233,8 @@ func (c *Client) doPost(session, path string, body interface{}) (map[string]inte
 		return nil, fmt.Errorf("tms: read response body: %w", err)
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	result, err := decodeJSON(respBody)
+	if err != nil {
 		return nil, fmt.Errorf("tms: unmarshal response: %w", err)
 	}
 
@@ -259,8 +259,8 @@ func (c *Client) doPost(session, path string, body interface{}) (map[string]inte
 			return nil, fmt.Errorf("tms: read retry response: %w", err)
 		}
 
-		var retryResult map[string]interface{}
-		if err := json.Unmarshal(retryBody, &retryResult); err != nil {
+		retryResult, err := decodeJSON(retryBody)
+		if err != nil {
 			return nil, fmt.Errorf("tms: unmarshal retry response: %w", err)
 		}
 		return retryResult, nil
@@ -432,8 +432,8 @@ func (c *Client) doSignedPost(path string, params map[string]interface{}) (map[s
 		return nil, fmt.Errorf("tms: read signed response body: %w", err)
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	result, err := decodeJSON(respBody)
+	if err != nil {
 		// Include status code and body snippet for debugging.
 		snippet := string(respBody)
 		if len(snippet) > 200 {
@@ -1620,7 +1620,7 @@ func (c *Client) AddTerminal(session, deviceId, vendor, model, merchantId string
 // UpdateDeviceId updates a terminal's device ID, model, merchant, and groups.
 // Uses the old session-based API (same as V2): fetch full terminal detail,
 // modify fields, POST the full data back to /market/manage/terminal/update.
-func (c *Client) UpdateDeviceId(session, serialNum, model string, merchantId int, groupList []int, deviceId string) (*TMSResponse, error) {
+func (c *Client) UpdateDeviceId(session, serialNum, model string, merchantId string, groupList []int, deviceId string) (*TMSResponse, error) {
 	if session == "" {
 		return nil, fmt.Errorf("tms: UpdateDeviceId requires a session")
 	}
@@ -1652,17 +1652,29 @@ func (c *Client) UpdateDeviceId(session, serialNum, model string, merchantId int
 	}
 
 	// Step 3: Modify fields on the full data object (matching V2 logic).
+	// V2 passes merchantId as a raw string from the POST — no int conversion.
 	if deviceId != "" {
 		data["sn"] = deviceId
 	}
 	if model != "" {
 		data["model"] = model
 	}
-	if merchantId != 0 {
+	if merchantId != "" {
 		data["merchantId"] = merchantId
 	}
 	if groupList != nil {
 		data["groupIds"] = groupList
+	} else {
+		// Convert existing groupIds to []int (matching V2's intval conversion).
+		if gids, ok := data["groupIds"].([]interface{}); ok {
+			intGids := make([]int, 0, len(gids))
+			for _, g := range gids {
+				if gid, ok := toInt(g); ok {
+					intGids = append(intGids, gid)
+				}
+			}
+			data["groupIds"] = intGids
+		}
 	}
 	data["deviceId"] = serialNum
 
@@ -1809,13 +1821,14 @@ func (c *Client) GetImportTerminalInfo(session string, terminalIdInt int) (detai
 // UpdateDeviceIdDirect updates terminal merchant/group/deviceId using
 // pre-fetched detail data. Saves 2 API calls vs UpdateDeviceId (skips
 // getIdFromSN and detail fetch).
-func (c *Client) UpdateDeviceIdDirect(session string, detailData map[string]interface{}, merchantId int, groupList []int, serialNum string) (*TMSResponse, error) {
+func (c *Client) UpdateDeviceIdDirect(session string, detailData map[string]interface{}, merchantId string, groupList []int, serialNum string) (*TMSResponse, error) {
 	if session == "" {
 		return nil, fmt.Errorf("tms: UpdateDeviceIdDirect requires a session")
 	}
 
 	// Modify fields on the pre-fetched data (matching V2 logic).
-	if merchantId != 0 {
+	// V2 passes merchantId as a raw string — no int conversion.
+	if merchantId != "" {
 		detailData["merchantId"] = merchantId
 	}
 	if groupList != nil {
@@ -2199,7 +2212,9 @@ func (c *Client) GetMerchantList(session string) (*TMSResponse, error) {
 			for _, item := range data {
 				m, _ := item.(map[string]interface{})
 				if m != nil {
-					m["id"], _ = toInt(m["id"])
+					// Keep ID as string to avoid JavaScript precision loss
+					// on large snowflake IDs (> Number.MAX_SAFE_INTEGER).
+					m["id"] = toString(m["id"])
 					m["name"] = toString(m["label"])
 					merchants = append(merchants, m)
 				}
@@ -3046,12 +3061,34 @@ func (c *Client) GetModelList(session string, vendorId string) (*TMSResponse, er
 // Utility functions
 // ---------------------------------------------------------------------------
 
-// toInt converts an interface{} value to int, handling both float64 (JSON
-// numbers) and string representations.
+// decodeJSON parses JSON using UseNumber() to preserve full precision of large
+// integer IDs (snowflake IDs > 2^53) that would lose precision as float64.
+func decodeJSON(data []byte) (map[string]interface{}, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var result map[string]interface{}
+	if err := dec.Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// toInt converts an interface{} value to int, handling float64, json.Number,
+// and string representations.
 func toInt(v interface{}) (int, bool) {
 	switch val := v.(type) {
 	case float64:
 		return int(val), true
+	case json.Number:
+		n, err := strconv.Atoi(val.String())
+		if err != nil {
+			// Try parsing as float64 first (e.g. "200.0")
+			if f, err2 := val.Float64(); err2 == nil {
+				return int(f), true
+			}
+			return 0, false
+		}
+		return n, true
 	case int:
 		return val, true
 	case string:
@@ -3070,6 +3107,15 @@ func toInt64(v interface{}) (int64, bool) {
 	switch val := v.(type) {
 	case float64:
 		return int64(val), true
+	case json.Number:
+		n, err := strconv.ParseInt(val.String(), 10, 64)
+		if err != nil {
+			if f, err2 := val.Float64(); err2 == nil {
+				return int64(f), true
+			}
+			return 0, false
+		}
+		return n, true
 	case int:
 		return int64(val), true
 	case int64:
@@ -3099,10 +3145,25 @@ func toString(v interface{}) string {
 	if v == nil {
 		return ""
 	}
-	if s, ok := v.(string); ok {
-		return s
+	switch val := v.(type) {
+	case string:
+		return val
+	case json.Number:
+		return val.String()
+	case float64:
+		if val == float64(int64(val)) {
+			return strconv.FormatInt(int64(val), 10)
+		}
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(val), 'f', -1, 32)
+	case int:
+		return strconv.Itoa(val)
+	case int64:
+		return strconv.FormatInt(val, 10)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
-	return fmt.Sprintf("%v", v)
 }
 
 // ToString is the exported version of toString for use by other packages.

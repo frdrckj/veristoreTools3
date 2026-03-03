@@ -209,7 +209,7 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 						<td>{ mapGet(t, "sn") }</td>
 						<td>{ mapGet(t, "model") }</td>
 						<td>
-							<a href={ templ.SafeURL(fmt.Sprintf("/veristore/edit?serialNum=%s", mapGet(t, "deviceId"))) } title="View Merchant">
+							<a href="#" class="change-merchant-btn" data-device-id={ mapGet(t, "deviceId") } data-merchant-name={ mapGet(t, "merchantName") } data-model={ mapGet(t, "model") } title="Change Merchant">
 								<i class="fas fa-external-link-alt text-success"></i>
 							</a>
 							{ mapGet(t, "merchantName") }
@@ -255,6 +255,35 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 		<input type="hidden" name="searchSerialNo" value={ searchParams.SerialNo }/>
 		<input type="hidden" name="searchType" value={ intToStr(searchParams.SearchType) }/>
 	</form>
+	<!-- Change Merchant Modal -->
+	<div class="modal fade" id="changeMerchantModal" tabindex="-1" role="dialog">
+		<div class="modal-dialog" role="document">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h5 class="modal-title">Change Merchant</h5>
+					<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+						<span aria-hidden="true">&times;</span>
+					</button>
+				</div>
+				<div class="modal-body">
+					<div class="form-group">
+						<label><strong>CSI : <span id="changeMerchantCSI"></span></strong></label>
+					</div>
+					<div class="form-group">
+						<select class="form-control" id="changeMerchantSelect">
+							<option value="">Loading...</option>
+						</select>
+					</div>
+					<div id="changeMerchantError" class="text-danger" style="display:none;"></div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-success" id="changeMerchantSubmitBtn">Submit</button>
+				</div>
+				<input type="hidden" id="changeMerchantSerialNum"/>
+				<input type="hidden" id="changeMerchantModel"/>
+			</div>
+		</div>
+	</div>
 	<!-- Delete Password Modal -->
 	<div class="modal fade" id="deletePasswordModal" tabindex="-1" role="dialog">
 		<div class="modal-dialog" role="document">
@@ -397,6 +426,93 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				exportForm.submit();
 				return false;
 			};
+
+			// Change Merchant modal logic — use event delegation so it works after HTMX swaps.
+			var _select2Ready = false;
+			function initMerchantSelect2() {
+				if (_select2Ready) return;
+				if (typeof $ !== 'undefined' && $.fn.select2) {
+					$('#changeMerchantSelect').select2({
+						placeholder: '-- Select Merchant --',
+						allowClear: false,
+						width: '100%',
+						dropdownParent: $('#changeMerchantModal')
+					});
+					_select2Ready = true;
+				}
+			}
+
+			document.addEventListener('click', function(e) {
+				var btn = e.target.closest('.change-merchant-btn');
+				if (!btn) return;
+				e.preventDefault();
+				var serialNum = btn.getAttribute('data-device-id');
+				var currentMerchant = btn.getAttribute('data-merchant-name');
+				var model = btn.getAttribute('data-model');
+				document.getElementById('changeMerchantCSI').textContent = serialNum;
+				document.getElementById('changeMerchantSerialNum').value = serialNum;
+				document.getElementById('changeMerchantModel').value = model || '';
+				document.getElementById('changeMerchantError').style.display = 'none';
+				initMerchantSelect2();
+				var $sel = $('#changeMerchantSelect');
+				if (_select2Ready) {
+					$sel.val(null).trigger('change');
+					$sel.empty().append('<option value="">Loading...</option>').trigger('change');
+				} else {
+					$sel.empty().append('<option value="">Loading...</option>');
+				}
+				$('#changeMerchantModal').modal('show');
+				// Fetch merchant list
+				fetch('/veristore/merchants-api')
+					.then(function(r) { return r.json(); })
+					.then(function(data) {
+						$sel.empty().append('<option value="">-- Select Merchant --</option>');
+						if (data.merchants && data.merchants.length) {
+							data.merchants.forEach(function(m) {
+								var val = m.id || m.value || '';
+								var selected = (m.name === currentMerchant);
+								$sel.append(new Option(m.name || '', val, selected, selected));
+							});
+						}
+						if (_select2Ready) $sel.trigger('change');
+					})
+					.catch(function() {
+						$sel.empty().append('<option value="">Failed to load merchants</option>');
+						if (_select2Ready) $sel.trigger('change');
+					});
+			});
+
+			document.getElementById('changeMerchantSubmitBtn').addEventListener('click', function() {
+				var serialNum = document.getElementById('changeMerchantSerialNum').value;
+				var merchantId = document.getElementById('changeMerchantSelect').value;
+				var model = document.getElementById('changeMerchantModel').value;
+				var errDiv = document.getElementById('changeMerchantError');
+				if (!merchantId) {
+					errDiv.textContent = 'Please select a merchant';
+					errDiv.style.display = 'block';
+					return;
+				}
+				errDiv.style.display = 'none';
+				var formData = new FormData();
+				formData.append('serialNum', serialNum);
+				formData.append('merchantId', merchantId);
+				formData.append('model', model);
+				fetch('/veristore/change-merchant', { method: 'POST', body: formData })
+					.then(function(r) { return r.json(); })
+					.then(function(resp) {
+						if (resp.code === 0) {
+							$('#changeMerchantModal').modal('hide');
+							window.location.reload();
+						} else {
+							errDiv.textContent = resp.desc || 'Failed to change merchant';
+							errDiv.style.display = 'block';
+						}
+					})
+					.catch(function(e) {
+						errDiv.textContent = 'Error: ' + e.message;
+						errDiv.style.display = 'block';
+					});
+			});
 		})();
 	</script>
 }

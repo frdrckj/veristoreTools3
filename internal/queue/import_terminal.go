@@ -485,8 +485,6 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	}
 
 	// Step 6: Update device ID, merchant, and groups using pre-fetched detail (1 call).
-	merchantIDInt, _ := strconv.Atoi(j.MerchantID)
-
 	groupIDsInt := make([]int, 0, len(j.GroupIDs))
 	for _, g := range j.GroupIDs {
 		if gInt, err := strconv.Atoi(g); err == nil {
@@ -499,7 +497,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	}
 
 	if j.MerchantID != "" || len(groupIDsInt) > 0 {
-		updateDevResp, err := h.tmsClient.UpdateDeviceIdDirect(session, detailData, merchantIDInt, groupIDsInt, j.SerialNum)
+		updateDevResp, err := h.tmsClient.UpdateDeviceIdDirect(session, detailData, j.MerchantID, groupIDsInt, j.SerialNum)
 		if err != nil {
 			if !isExisting {
 				_ = h.deleteTerminalOnError(session, j.SerialNum)

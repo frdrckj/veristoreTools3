@@ -282,6 +282,7 @@ func main() {
 	protected.GET("/veristore/state", tmsHandler.GetState)
 	protected.GET("/veristore/city", tmsHandler.GetCity)
 	protected.GET("/veristore/district", tmsHandler.GetDistrict)
+	protected.GET("/veristore/merchants-api", tmsHandler.MerchantsAPI)
 
 	// Veristore - Login
 	protected.GET("/veristore/login", tmsHandler.Login)
@@ -382,14 +383,14 @@ func main() {
 	// -----------------------------------------------------------------------
 	asynqWorker := queue.NewWorker(redisCfg)
 	asynqMux := queue.NewMux(map[string]asynq.Handler{
-		queue.TaskImportTerminal:  importTermHandler,
-		queue.TaskExportTerminal:  exportTermHandler,
-		queue.TaskImportMerchant:  importMerchHandler,
-		queue.TaskSyncParameter:   syncParamHandler,
-		queue.TaskExportAll:       exportTermHandler, // reuse export handler for export-all
-		queue.TaskTMSPing:         tmsPingHandler,
-		queue.TaskSchedulerCheck:  schedulerCheckHandler,
-		queue.TaskReportTerminal:  reportTermHandler,
+		queue.TaskImportTerminal: importTermHandler,
+		queue.TaskExportTerminal: exportTermHandler,
+		queue.TaskImportMerchant: importMerchHandler,
+		queue.TaskSyncParameter:  syncParamHandler,
+		queue.TaskExportAll:      exportTermHandler, // reuse export handler for export-all
+		queue.TaskTMSPing:        tmsPingHandler,
+		queue.TaskSchedulerCheck: schedulerCheckHandler,
+		queue.TaskReportTerminal: reportTermHandler,
 	})
 
 	go func() {

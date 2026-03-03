@@ -55,6 +55,9 @@ type Handler struct {
 	queueClient      *asynq.Client
 	queueInspector   *asynq.Inspector
 	paramCache       sync.Map // key: "serialNum|appId" → *paramCacheEntry
+	merchantCache    []map[string]interface{}
+	merchantCacheAt  time.Time
+	merchantCacheMu  sync.Mutex
 }
 
 // NewHandler creates a new veristore handler.
@@ -2021,14 +2024,17 @@ func (h *Handler) ChangeMerchant(c echo.Context) error {
 		})
 	}
 
-	mid, _ := strconv.Atoi(merchantId)
-	resp, err := h.service.UpdateDeviceId(serialNum, model, mid, nil, "")
+	log.Info().Str("serialNum", serialNum).Str("merchantId", merchantId).Str("model", model).Msg("ChangeMerchant request")
+
+	resp, err := h.service.UpdateDeviceId(serialNum, model, merchantId, nil, serialNum)
 	if err != nil {
+		log.Error().Err(err).Msg("ChangeMerchant UpdateDeviceId error")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"code": 1, "desc": err.Error(),
 		})
 	}
 
+	log.Info().Int("resultCode", resp.ResultCode).Str("desc", resp.Desc).Msg("ChangeMerchant result")
 	if resp.ResultCode == 0 {
 		mw.LogActivityFromContext(c, mw.LogVeristoreEditMerchTerm, "Edit merchant csi "+serialNum)
 	}
@@ -2705,8 +2711,23 @@ func (h *Handler) loadVendors() []map[string]interface{} {
 	return vendors
 }
 
-// loadMerchants loads the merchant list from TMS. Returns nil on error.
+// MerchantsAPI handles GET /veristore/merchants-api - Returns merchant list as JSON for AJAX dropdowns.
+func (h *Handler) MerchantsAPI(c echo.Context) error {
+	merchants := h.loadMerchants()
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"merchants": merchants,
+	})
+}
+
+// loadMerchants loads the merchant list from TMS, cached for 5 minutes.
 func (h *Handler) loadMerchants() []map[string]interface{} {
+	h.merchantCacheMu.Lock()
+	defer h.merchantCacheMu.Unlock()
+
+	if h.merchantCache != nil && time.Since(h.merchantCacheAt) < 5*time.Minute {
+		return h.merchantCache
+	}
+
 	resp, err := h.service.GetMerchantList()
 	if err != nil || resp.ResultCode != 0 || resp.Data == nil {
 		return nil
@@ -2719,6 +2740,8 @@ func (h *Handler) loadMerchants() []map[string]interface{} {
 			}
 		}
 	}
+	h.merchantCache = merchants
+	h.merchantCacheAt = time.Now()
 	return merchants
 }
 

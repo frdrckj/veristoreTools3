@@ -555,7 +555,7 @@ func (s *Service) GetAppListSearch(serialNum string) (*TMSResponse, error) {
 
 // UpdateDeviceId updates a terminal's device ID, model, merchant, and groups.
 // Uses old session-based API (requires active TMS session).
-func (s *Service) UpdateDeviceId(serialNum, model string, merchantId int, groupList []int, deviceId string) (*TMSResponse, error) {
+func (s *Service) UpdateDeviceId(serialNum, model string, merchantId string, groupList []int, deviceId string) (*TMSResponse, error) {
 	session := s.GetSession()
 	if session == "" {
 		return nil, fmt.Errorf("no active TMS session")
