@@ -1749,6 +1749,12 @@ func (h *Handler) Import(c echo.Context) error {
 				data.LastComplete = true
 				data.LastFilename = latest.ImpFilename
 				data.Progress = cur + " / " + tot
+
+				// Pop IMPRS notification (consumed once) to show before redirect.
+				if resultMsg := h.adminRepo.PopImportResult(); resultMsg != "" {
+					data.ResultMessage = resultMsg
+					data.ResultIsError = strings.Contains(resultMsg, "gagal")
+				}
 			}
 		}
 		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))

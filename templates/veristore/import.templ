@@ -4,12 +4,14 @@ import "github.com/verifone/veristoretools3/templates/layouts"
 
 // ImportData holds the state for the import page.
 type ImportData struct {
-	InProgress   bool
-	RequestDate  string
-	Progress     string
-	LastComplete bool
-	LastFilename string
-	Errors       []string
+	InProgress    bool
+	RequestDate   string
+	Progress      string
+	LastComplete  bool
+	LastFilename  string
+	Errors        []string
+	ResultMessage string // IMPRS notification message (shown once after import completes)
+	ResultIsError bool   // true if result contains failure
 }
 
 // ImportPage renders the terminal import page with status tracking.
@@ -37,6 +39,19 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 					<script>
 						setTimeout(function() { window.location.reload(); }, 3000);
 					</script>
+				} else if data.LastComplete && data.ResultMessage != "" {
+					if data.ResultIsError {
+						<div class="alert alert-danger" style="font-size: 1.1rem;">
+							<i class="fas fa-times-circle"></i> { data.ResultMessage }
+						</div>
+					} else {
+						<div class="alert alert-success" style="font-size: 1.1rem;">
+							<i class="fas fa-check-circle"></i> { data.ResultMessage }
+						</div>
+					}
+					<a href="/veristore/terminal" class="btn btn-primary">
+						<i class="fas fa-arrow-left"></i> Back to Terminal List
+					</a>
 				} else if data.LastComplete {
 					<div class="alert alert-success" style="font-size: 1.1rem;">
 						Last import completed: { data.LastFilename } ({ data.Progress })

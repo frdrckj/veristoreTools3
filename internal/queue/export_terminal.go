@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -294,71 +295,268 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// ------------------------------------------------------------------
 	// Phase 2: Write all results to Excel (single-threaded, fast).
+	// Matches veristoreTools2 format: 3-row header with merged cells,
+	// static columns [NO, CSI, SN, App Version], dynamic columns from
+	// template_parameter table, boolean conversion, and VerificationReport
+	// data for SN/App Version.
 	// ------------------------------------------------------------------
 	f := excelize.NewFile()
 	defer f.Close()
 	sheetName := "Sheet1"
 
-	headers := []string{"NO", "CSI", "SN", "Device ID", "Model", "Vendor", "Merchant", "Status"}
-	for i, hdr := range headers {
-		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		f.SetCellValue(sheetName, cell, hdr)
+	// Static columns matching v2: NO, CSI, SN, App Version.
+	staticHeaders := []string{"NO", "CSI", "SN", "App Version"}
+
+	// Load template_parameter groups (distinct title/index_title/index).
+	type tparamGroup struct {
+		TparamTitle      string `gorm:"column:tparam_title"`
+		TparamIndexTitle string `gorm:"column:tparam_index_title"`
+		TparamIndex      int    `gorm:"column:tparam_index"`
 	}
+	var groups []tparamGroup
+	h.db.Raw(`SELECT tparam_title, tparam_index_title, tparam_index
+		FROM template_parameter
+		GROUP BY tparam_title, tparam_index_title, tparam_index
+		ORDER BY MIN(tparam_id)`).Scan(&groups)
+
+	// Build column structure from template_parameter.
+	type colDef struct {
+		Title       string // Row 1: group title
+		SubTitleRaw string // Row 2: raw sub-title (may start with * for dynamic lookup)
+		Field       string // tparam_field
+		Index       int    // 1-based parameter index
+		Type        string // tparam_type ('b' for boolean)
+	}
+	var columns []colDef
+	var row1Merges [][2]int // merge ranges for row 1 (title)
+	var row2Merges [][2]int // merge ranges for row 2 (sub-title)
+
+	cntMerge := 0
+	row1Cnt := 0
+	row2Cnt := 0
+	for _, group := range groups {
+		subTitles := strings.Split(group.TparamIndexTitle, "|")
+		var params []admin.TemplateParameter
+		h.db.Where("tparam_title = ?", group.TparamTitle).Order("tparam_id ASC").Find(&params)
+
+		for i := 0; i < group.TparamIndex; i++ {
+			subTitle := ""
+			if i < len(subTitles) {
+				subTitle = subTitles[i]
+			}
+			for _, param := range params {
+				// Check tparam_except: skip this index if listed.
+				skip := false
+				if param.TparamExcept != nil && *param.TparamExcept != "" {
+					for _, exc := range strings.Split(*param.TparamExcept, "|") {
+						if exc == strconv.Itoa(i+1) {
+							skip = true
+							break
+						}
+					}
+				}
+				if skip {
+					continue
+				}
+				cntMerge++
+				columns = append(columns, colDef{
+					Title:       group.TparamTitle,
+					SubTitleRaw: subTitle,
+					Field:       param.TparamField,
+					Index:       i + 1,
+					Type:        param.TparamType,
+				})
+			}
+			row2Merges = append(row2Merges, [2]int{row2Cnt, cntMerge - 1})
+			row2Cnt = cntMerge
+		}
+		row1Merges = append(row1Merges, [2]int{row1Cnt, cntMerge - 1})
+		row1Cnt = cntMerge
+	}
+
+	logger.Info().Int("template_columns", len(columns)).Int("groups", len(groups)).Msg("built column structure from template_parameter")
+
+	// Find the "best" headers from the terminal with fewest N/A descriptions
+	// (matching v2 behavior where the least-N/A terminal determines header rows).
+	bestHeader2 := make([]string, len(columns))
+	bestHeader3 := make([]string, len(columns))
+	for i := range columns {
+		bestHeader2[i] = columns[i].SubTitleRaw
+		bestHeader3[i] = "N/A"
+	}
+	bestNACount := len(columns) + 1
+
+	for _, row := range results {
+		if row.Error || row.Params == nil {
+			continue
+		}
+		paramMap := make(map[string][2]string)
+		for _, raw := range row.Params {
+			p, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			paramMap[tms.ToString(p["dataName"])] = [2]string{
+				tms.ToString(p["description"]),
+				tms.ToString(p["value"]),
+			}
+		}
+
+		naCount := 0
+		h2 := make([]string, len(columns))
+		h3 := make([]string, len(columns))
+		for i, col := range columns {
+			// Resolve dynamic sub-title (prefix *).
+			st := col.SubTitleRaw
+			if len(st) > 0 && st[0] == '*' {
+				if pv, ok := paramMap[st[1:]]; ok {
+					st = pv[1]
+				}
+			}
+			h2[i] = st
+
+			key := col.Field + "-" + strconv.Itoa(col.Index)
+			if pv, ok := paramMap[key]; ok {
+				h3[i] = pv[0]
+			} else {
+				h3[i] = "N/A"
+				naCount++
+			}
+		}
+		if naCount < bestNACount {
+			bestNACount = naCount
+			bestHeader2 = h2
+			bestHeader3 = h3
+		}
+	}
+
+	// Write 3-row header with merged cells.
+	colOffset := len(staticHeaders) + 1
+
+	// Static headers: write in all 3 rows, merge vertically.
+	for i, hdr := range staticHeaders {
+		for r := 1; r <= 3; r++ {
+			cell, _ := excelize.CoordinatesToCellName(i+1, r)
+			f.SetCellValue(sheetName, cell, hdr)
+		}
+		startCell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		endCell, _ := excelize.CoordinatesToCellName(i+1, 3)
+		_ = f.MergeCell(sheetName, startCell, endCell)
+	}
+
+	// Dynamic headers.
+	for i, col := range columns {
+		colNum := colOffset + i
+		cell, _ := excelize.CoordinatesToCellName(colNum, 1)
+		f.SetCellValue(sheetName, cell, col.Title)
+		cell, _ = excelize.CoordinatesToCellName(colNum, 2)
+		f.SetCellValue(sheetName, cell, bestHeader2[i])
+		cell, _ = excelize.CoordinatesToCellName(colNum, 3)
+		f.SetCellValue(sheetName, cell, bestHeader3[i])
+	}
+
+	// Apply title merges (row 1).
+	for _, m := range row1Merges {
+		if m[0] <= m[1] {
+			startCell, _ := excelize.CoordinatesToCellName(colOffset+m[0], 1)
+			endCell, _ := excelize.CoordinatesToCellName(colOffset+m[1], 1)
+			_ = f.MergeCell(sheetName, startCell, endCell)
+		}
+	}
+	// Apply sub-title merges (row 2).
+	for _, m := range row2Merges {
+		if m[0] <= m[1] {
+			startCell, _ := excelize.CoordinatesToCellName(colOffset+m[0], 2)
+			endCell, _ := excelize.CoordinatesToCellName(colOffset+m[1], 2)
+			_ = f.MergeCell(sheetName, startCell, endCell)
+		}
+	}
+
+	// Bold style for all 3 header rows.
 	boldStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{Bold: true},
 	})
-	f.SetRowStyle(sheetName, 1, 1, boldStyle)
+	for r := 1; r <= 3; r++ {
+		f.SetRowStyle(sheetName, r, r, boldStyle)
+	}
 
-	// Track if parameter headers have been written.
-	paramHeadersWritten := false
-
-	for idx, row := range results {
-		rowNum := idx + 2
-
+	// Write data rows starting at row 4 (after 3 header rows).
+	// Only include terminals with successful data fetch (matching v2).
+	rowNo := 0
+	for _, row := range results {
 		if row.Error || row.Data == nil {
-			cell, _ := excelize.CoordinatesToCellName(1, rowNum)
-			f.SetCellValue(sheetName, cell, idx+1)
-			cell, _ = excelize.CoordinatesToCellName(2, rowNum)
-			f.SetCellValue(sheetName, cell, row.SerialNo)
-			cell, _ = excelize.CoordinatesToCellName(3, rowNum)
-			f.SetCellValue(sheetName, cell, "Error fetching data")
 			continue
 		}
+		rowNo++
+		rowNum := rowNo + 3
 
-		rowData := []interface{}{
-			idx + 1,
-			row.SerialNo,
-			tms.ToString(row.Data["sn"]),
-			tms.ToString(row.Data["deviceId"]),
-			tms.ToString(row.Data["model"]),
-			tms.ToString(row.Data["vendor"]),
-			tms.ToString(row.Data["merchantName"]),
-			tms.ToString(row.Data["status"]),
+		// NO
+		cell, _ := excelize.CoordinatesToCellName(1, rowNum)
+		f.SetCellValue(sheetName, cell, rowNo)
+
+		// CSI
+		cell, _ = excelize.CoordinatesToCellName(2, rowNum)
+		f.SetCellValue(sheetName, cell, row.SerialNo)
+
+		// SN and App Version from verification_report (matching v2).
+		var vrResult struct {
+			DeviceID   string `gorm:"column:vfi_rpt_term_device_id"`
+			AppVersion string `gorm:"column:vfi_rpt_term_app_version"`
 		}
-		for colIdx, val := range rowData {
-			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowNum)
-			f.SetCellValue(sheetName, cell, val)
+		vrErr := h.db.Raw(`
+			SELECT vfi_rpt_term_device_id, vfi_rpt_term_app_version
+			FROM verification_report
+			WHERE vfi_rpt_term_serial_num = ?
+			ORDER BY vfi_rpt_id DESC LIMIT 1`, row.SerialNo).Scan(&vrResult).Error
+
+		sn := "Unverified"
+		appVersion := "Unverified"
+		if vrErr == nil && vrResult.DeviceID != "" {
+			sn = vrResult.DeviceID
+			appVersion = vrResult.AppVersion
 		}
 
-		// Write parameter columns.
+		cell, _ = excelize.CoordinatesToCellName(3, rowNum)
+		f.SetCellValue(sheetName, cell, sn)
+		cell, _ = excelize.CoordinatesToCellName(4, rowNum)
+		f.SetCellValue(sheetName, cell, appVersion)
+
+		// Dynamic parameter columns.
 		if row.Params != nil {
-			colOffset := len(headers) + 1
-			for pIdx, raw := range row.Params {
+			paramMap := make(map[string][2]string)
+			for _, raw := range row.Params {
 				p, ok := raw.(map[string]interface{})
 				if !ok {
 					continue
 				}
-				if !paramHeadersWritten {
-					headerCell, _ := excelize.CoordinatesToCellName(colOffset+pIdx, 1)
-					f.SetCellValue(sheetName, headerCell, tms.ToString(p["dataName"]))
+				paramMap[tms.ToString(p["dataName"])] = [2]string{
+					tms.ToString(p["description"]),
+					tms.ToString(p["value"]),
 				}
-				cell, _ := excelize.CoordinatesToCellName(colOffset+pIdx, rowNum)
-				f.SetCellValue(sheetName, cell, tms.ToString(p["value"]))
 			}
-			if !paramHeadersWritten {
-				paramHeadersWritten = true
+			for i, col := range columns {
+				key := col.Field + "-" + strconv.Itoa(col.Index)
+				cell, _ := excelize.CoordinatesToCellName(colOffset+i, rowNum)
+				if pv, ok := paramMap[key]; ok {
+					if col.Type == "b" {
+						if pv[1] == "1" {
+							f.SetCellValue(sheetName, cell, "Yes")
+						} else {
+							f.SetCellValue(sheetName, cell, "No")
+						}
+					} else {
+						f.SetCellValue(sheetName, cell, pv[1])
+					}
+				} else {
+					f.SetCellValue(sheetName, cell, "N/A")
+				}
 			}
 		}
+	}
+
+	// Handle empty results (matching v2 behavior).
+	if rowNo == 0 {
+		f.SetCellValue(sheetName, "A4", "NULL")
 	}
 
 	// Save file.
