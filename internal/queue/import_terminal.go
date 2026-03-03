@@ -333,27 +333,39 @@ sendLoop:
 		}
 	}
 
+	sc := atomic.LoadInt64(&successCount)
+	fc := atomic.LoadInt64(&failCount)
+
 	if cancelledByReset {
-		logger.Info().
-			Int64("success", atomic.LoadInt64(&successCount)).
-			Int64("failed", atomic.LoadInt64(&failCount)).
-			Int("skipped", skipCount).
-			Msg("terminal import job cancelled (reset)")
+		logger.Info().Int64("success", sc).Int64("failed", fc).Int("skipped", skipCount).Msg("terminal import job cancelled (reset)")
 	} else if cancelledByTimeout {
-		logger.Warn().
-			Int64("success", atomic.LoadInt64(&successCount)).
-			Int64("failed", atomic.LoadInt64(&failCount)).
-			Int("skipped", skipCount).
-			Int("processed", actualProcessed).
-			Int("total", totalRows).
+		logger.Warn().Int64("success", sc).Int64("failed", fc).Int("skipped", skipCount).
+			Int("processed", actualProcessed).Int("total", totalRows).
 			Msg("terminal import job timed out by asynq — increase task timeout")
 	} else {
-		logger.Info().
-			Int64("success", atomic.LoadInt64(&successCount)).
-			Int64("failed", atomic.LoadInt64(&failCount)).
-			Int("skipped", skipCount).
-			Msg("terminal import job completed")
+		logger.Info().Int64("success", sc).Int64("failed", fc).Int("skipped", skipCount).Msg("terminal import job completed")
 	}
+
+	// Store import result as a queue_log entry for the terminal page to display.
+	var resultMsg string
+	if cancelledByReset {
+		resultMsg = fmt.Sprintf("Import dibatalkan. %d CSI berhasil, %d CSI gagal.", sc, fc)
+	} else if cancelledByTimeout {
+		resultMsg = fmt.Sprintf("Import timeout. %d CSI berhasil, %d CSI gagal dari total %d CSI.", sc, fc, totalRows)
+	} else if fc == 0 && skipCount == 0 {
+		resultMsg = fmt.Sprintf("Import %d CSI berhasil!", sc)
+	} else if fc == 0 {
+		resultMsg = fmt.Sprintf("Import %d CSI berhasil! (%d baris dilewati)", sc, skipCount)
+	} else {
+		resultMsg = fmt.Sprintf("Import selesai. %d CSI berhasil, %d CSI gagal.", sc, fc)
+	}
+	resultMsgPtr := &resultMsg
+	_ = h.adminRepo.CreateQueueLog(&admin.QueueLog{
+		CreateTime:  strconv.FormatInt(time.Now().UnixMilli(), 10),
+		ExecTime:    strconv.FormatInt(time.Now().UnixMilli(), 10),
+		ProcessName: "IMPRS",
+		ServiceName: resultMsgPtr,
+	})
 
 	return nil
 }
@@ -385,12 +397,13 @@ func (h *ImportTerminalHandler) buildTemplateCache(session string, jobs []import
 // parameter tabs concurrently, and reuses pre-fetched detail data.
 //
 // API calls per terminal (vs 20 in the old pipeline):
-//   1. CopyTerminalById — 1 call (source ID pre-cached)
-//   2. getIdFromSN(destSN) — 1 call (resolve once, reuse everywhere)
-//   3. GetImportTerminalInfo — 2 calls (old-API detail + app list)
-//   4. GetParameterTabsConcurrent — 8 tabs in parallel ≈ 1 RTT
-//   5. UpdateParameterById — 1 call (ID pre-resolved)
-//   6. UpdateDeviceIdDirect — 1 call (detail pre-fetched)
+//  1. CopyTerminalById — 1 call (source ID pre-cached)
+//  2. getIdFromSN(destSN) — 1 call (resolve once, reuse everywhere)
+//  3. GetImportTerminalInfo — 2 calls (old-API detail + app list)
+//  4. GetParameterTabsConcurrent — 8 tabs in parallel ≈ 1 RTT
+//  5. UpdateParameterById — 1 call (ID pre-resolved)
+//  6. UpdateDeviceIdDirect — 1 call (detail pre-fetched)
+//
 // Total: ~7 calls + ~1 RTT for parallel tabs ≈ 60-70% fewer round-trips.
 func (h *ImportTerminalHandler) importSingleTerminalFast(
 	ctx context.Context, session string, j importJob,
@@ -466,8 +479,21 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 		return false
 	}
 
-	// Step 5: Update parameters using pre-resolved string ID (1 call).
+	// Step 5: Build parameter list and validate before submitting.
 	paraList := h.buildParaList(paramResp, j.Row)
+
+	// Validate: TID/MID mandatory for enabled merchants, TID uniqueness.
+	if len(paraList) > 0 {
+		if errMsg := h.validateImportParams(paraList, j.SerialNum, j.RowNum, logger); errMsg != "" {
+			if !isExisting {
+				_ = h.deleteTerminalOnError(session, j.SerialNum)
+			}
+			logger.Warn().Int("row", j.RowNum).Str("error", errMsg).Msg("import validation failed")
+			return false
+		}
+	}
+
+	// Step 5b: Update parameters using pre-resolved string ID (1 call).
 	if len(paraList) > 0 {
 		destIdStr := strconv.Itoa(destId)
 		updateResp, err := h.tmsClient.UpdateParameterById(destIdStr, paraList, appID)
@@ -482,6 +508,9 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 			logger.Warn().Int("row", j.RowNum).Str("desc", desc).Msg("failed to update terminal parameters")
 			return false
 		}
+
+		// Save TID notes for enabled merchants (for future uniqueness checks).
+		h.saveTidNotes(paraList, j.SerialNum)
 	}
 
 	// Step 6: Update device ID, merchant, and groups using pre-fetched detail (1 call).
@@ -732,4 +761,128 @@ func cellValue(row []string, idx int) string {
 // strPtr returns a pointer to a string value.
 func strPtr(s string) *string {
 	return &s
+}
+
+// paramValue returns the value of a named parameter from the paraList.
+func paramValue(paraList []map[string]interface{}, dataName string) string {
+	for _, p := range paraList {
+		if dn, _ := p["dataName"].(string); dn == dataName {
+			if v, ok := p["value"].(string); ok {
+				return v
+			}
+			return fmt.Sprintf("%v", p["value"])
+		}
+	}
+	return ""
+}
+
+// validateImportParams checks import parameter rules matching V2 TidNoteHelper logic:
+//  1. For each enabled merchant (TP-MERCHANT-ENABLE-[i] = '1'):
+//     - TID (TP-MERCHANT-TERMINAL_ID-[i]) must not be empty
+//     - MID (TP-MERCHANT-MERCHANT_ID-[i]) must not be empty
+//     - TID must be exactly 8 characters
+//     - MID must be exactly 15 characters
+//  2. TID must not be already used by another CSI (checked against tid_note table).
+//
+// Returns empty string if valid, or an error message if validation fails.
+func (h *ImportTerminalHandler) validateImportParams(
+	paraList []map[string]interface{}, serialNum string, rowNum int, logger *zerolog.Logger,
+) string {
+	// Collect TIDs from enabled merchants for uniqueness check.
+	var enabledTIDs []string
+
+	for i := 1; i <= 10; i++ {
+		enableKey := fmt.Sprintf("TP-MERCHANT-ENABLE-%d", i)
+		enableVal := paramValue(paraList, enableKey)
+
+		if enableVal != "1" {
+			continue // Merchant disabled — skip validation
+		}
+
+		tidKey := fmt.Sprintf("TP-MERCHANT-TERMINAL_ID-%d", i)
+		midKey := fmt.Sprintf("TP-MERCHANT-MERCHANT_ID-%d", i)
+		tid := strings.TrimSpace(paramValue(paraList, tidKey))
+		mid := strings.TrimSpace(paramValue(paraList, midKey))
+
+		// TID mandatory for enabled merchants.
+		if tid == "" || tid == "0" {
+			return fmt.Sprintf("Merchant %d aktif tetapi TID kosong", i)
+		}
+		// MID mandatory for enabled merchants.
+		if mid == "" || mid == "0" {
+			return fmt.Sprintf("Merchant %d aktif tetapi MID kosong", i)
+		}
+
+		// TID length check (8 digits).
+		if len(tid) != 8 {
+			return fmt.Sprintf("Merchant %d TID harus 8 digit (ditemukan %d digit)", i, len(tid))
+		}
+		// MID length check (15 digits).
+		if len(mid) != 15 {
+			return fmt.Sprintf("Merchant %d MID harus 15 digit (ditemukan %d digit)", i, len(mid))
+		}
+
+		enabledTIDs = append(enabledTIDs, tid)
+	}
+
+	// Check TID uniqueness within this import batch (no duplicates in the file).
+	seen := map[string]bool{}
+	for _, tid := range enabledTIDs {
+		if seen[tid] {
+			return fmt.Sprintf("TID %s duplikat dalam import", tid)
+		}
+		seen[tid] = true
+	}
+
+	// Check TID uniqueness against tid_note table (no conflict with other CSIs).
+	if len(enabledTIDs) > 0 {
+		var conflicting admin.TidNote
+		err := h.db.Where("tid_note_serial_num != ? AND tid_note_data IN ?", serialNum, enabledTIDs).
+			First(&conflicting).Error
+		if err == nil {
+			// Found a conflict.
+			return fmt.Sprintf("TID %s sudah digunakan pada CSI %s",
+				safeDeref(conflicting.TidNoteData), conflicting.TidNoteSerialNum)
+		}
+	}
+
+	return ""
+}
+
+// saveTidNotes saves/updates TID entries in the tid_note table for enabled merchants.
+// This matches V2 TidNoteHelper behavior — each enabled merchant's TID is stored
+// as a separate row for uniqueness checking.
+func (h *ImportTerminalHandler) saveTidNotes(paraList []map[string]interface{}, serialNum string) {
+	// First, delete existing tid_note entries for this CSI.
+	h.db.Where("tid_note_serial_num = ?", serialNum).Delete(&admin.TidNote{})
+
+	now := time.Now()
+	for i := 1; i <= 10; i++ {
+		enableKey := fmt.Sprintf("TP-MERCHANT-ENABLE-%d", i)
+		if paramValue(paraList, enableKey) != "1" {
+			continue
+		}
+
+		tidKey := fmt.Sprintf("TP-MERCHANT-TERMINAL_ID-%d", i)
+		tid := strings.TrimSpace(paramValue(paraList, tidKey))
+		if tid == "" || tid == "0" {
+			continue
+		}
+
+		note := admin.TidNote{
+			TidNoteSerialNum: serialNum,
+			TidNoteData:      &tid,
+			CreatedBy:        "import",
+			CreatedDt:        now,
+		}
+		h.db.Create(&note)
+	}
+}
+
+// safeDeref dereferences a string pointer, returning empty string if nil.
+func safeDeref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

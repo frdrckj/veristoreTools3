@@ -280,6 +280,15 @@ func (h *Handler) Terminal(c echo.Context) error {
 	// Check if buttons should be disabled (pending sync or import in progress, like v2).
 	buttonsDisabled := h.adminRepo.HasPendingSync() || h.adminRepo.HasPendingImport()
 
+	// Show import result notification if available (consumed on first read).
+	if importResult := h.adminRepo.PopImportResult(); importResult != "" {
+		if strings.Contains(importResult, "gagal") {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, importResult)
+		} else {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, importResult)
+		}
+	}
+
 	if shared.IsHTMX(c) {
 		return shared.Render(c, http.StatusOK, vsTmpl.TerminalTablePartial(terminals, pagination, searchParams, buttonsDisabled))
 	}

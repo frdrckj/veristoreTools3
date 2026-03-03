@@ -163,6 +163,22 @@ func (r *Repository) CreateQueueLog(ql *QueueLog) error {
 	return r.db.Create(ql).Error
 }
 
+// PopImportResult retrieves and deletes the most recent import result message
+// (process_name='IMPRS'). Returns the message or empty string if none.
+func (r *Repository) PopImportResult() string {
+	var ql QueueLog
+	err := r.db.Where("process_name = ?", "IMPRS").Order("create_time DESC").First(&ql).Error
+	if err != nil {
+		return ""
+	}
+	// Delete after reading (consume).
+	r.db.Where("process_name = ?", "IMPRS").Delete(&QueueLog{})
+	if ql.ServiceName != nil {
+		return *ql.ServiceName
+	}
+	return ""
+}
+
 // SearchQueueLogs returns a paginated list of queue logs.
 func (r *Repository) SearchQueueLogs(query string, page, perPage int) ([]QueueLog, shared.Pagination, error) {
 	var logs []QueueLog
