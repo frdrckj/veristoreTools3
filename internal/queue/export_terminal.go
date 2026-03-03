@@ -362,7 +362,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 
 	// Save file.
-	filename := fmt.Sprintf("export_%d_%s.xlsx", payload.ExportID, time.Now().Format("20060102_150405"))
+	filename := fmt.Sprintf("export_csi_%s.xlsx", time.Now().Format("20060102_1504"))
 	filePath := h.exportDir + "/" + filename
 	if err := f.SaveAs(filePath); err != nil {
 		return fmt.Errorf("export_terminal: save Excel file: %w", err)
