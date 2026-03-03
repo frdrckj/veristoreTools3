@@ -544,7 +544,7 @@ func (h *Handler) Edit(c echo.Context) error {
 
 	if len(paraList) == 0 {
 		// No parameters edited — just redirect with success.
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Parameters updated successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update parameter berhasil!")
 		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
@@ -559,7 +559,7 @@ func (h *Handler) Edit(c echo.Context) error {
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, appId))
 	}
 
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Parameters updated successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update parameter berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
@@ -811,7 +811,7 @@ func (h *Handler) Copy(c echo.Context) error {
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreCopyCSI, "Copy csi "+sourceSn+" to "+destSn)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal copied successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Copy CSI berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 
@@ -995,7 +995,7 @@ func (h *Handler) Replacement(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Replacement failed: %s", resp.Desc))
 	} else {
 		mw.LogActivityFromContext(c, mw.LogVeristoreReplace, "Replacement CSI "+oldSn+" to "+newSn)
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Terminal replaced successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Replace CSI berhasil!")
 	}
 
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
@@ -2142,7 +2142,7 @@ func (h *Handler) AddMerchant(c echo.Context) error {
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddMerch, "Add merchant "+data.MerchantName)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant added successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Add Merchant berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/merchant")
 }
 
@@ -2205,7 +2205,7 @@ func (h *Handler) EditMerchant(c echo.Context) error {
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreEditMerch, "Edit merchant "+data.MerchantName)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant updated successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update Merchant berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/merchant")
 }
 
@@ -2231,7 +2231,7 @@ func (h *Handler) DeleteMerchant(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete merchant failed: %s", resp.Desc))
 	} else {
 		mw.LogActivityFromContext(c, mw.LogVeristoreDelMerch, fmt.Sprintf("Delete merchant %d", merchantId))
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant deleted successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Delete Merchant berhasil!")
 	}
 
 	return c.Redirect(http.StatusFound, "/veristore/merchant")
@@ -2342,7 +2342,7 @@ func (h *Handler) AddGroup(c echo.Context) error {
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddGroup, "Add group "+groupName)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Group added successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Add Group berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/group")
 }
 
@@ -2431,7 +2431,7 @@ func (h *Handler) EditGroup(c echo.Context) error {
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreEditGroup, "Edit group "+groupName)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Group updated successfully")
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update Group berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/group")
 }
 
@@ -2457,7 +2457,7 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete group failed: %s", resp.Desc))
 	} else {
 		mw.LogActivityFromContext(c, mw.LogVeristoreDelGroup, fmt.Sprintf("Delete group %d", groupId))
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Group deleted successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Delete Group berhasil!")
 	}
 
 	return c.Redirect(http.StatusFound, "/veristore/group")

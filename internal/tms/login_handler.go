@@ -120,7 +120,7 @@ func (h *LoginHandler) Create(c echo.Context) error {
 	if err := h.repo.CreateLogin(login); err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to create TMS login: %v", err))
 	} else {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login created successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login berhasil dibuat!")
 	}
 
 	return c.Redirect(http.StatusFound, "/tmslogin/index")
@@ -136,7 +136,7 @@ func (h *LoginHandler) Delete(c echo.Context) error {
 	if err := h.repo.DeleteLogin(id); err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to delete TMS login: %v", err))
 	} else {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login deleted successfully")
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "TMS login berhasil dihapus!")
 	}
 
 	return c.Redirect(http.StatusFound, "/tmslogin/index")
