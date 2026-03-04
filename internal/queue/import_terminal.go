@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +22,52 @@ import (
 	"github.com/verifone/veristoretools3/internal/admin"
 	"github.com/verifone/veristoretools3/internal/tms"
 )
+
+// importResultCollector collects per-row import results in a concurrency-safe
+// manner, then writes them to a .txt file (matching V2 ImportResult behaviour).
+type importResultCollector struct {
+	mu      sync.Mutex
+	entries []importResultEntry
+}
+
+type importResultEntry struct {
+	RowNum  int
+	Message string
+}
+
+func (c *importResultCollector) Add(rowNum int, msg string) {
+	c.mu.Lock()
+	c.entries = append(c.entries, importResultEntry{RowNum: rowNum, Message: msg})
+	c.mu.Unlock()
+}
+
+// WriteFile sorts entries by row number and writes them to a .txt file.
+// Returns the absolute path of the written file.
+func (c *importResultCollector) WriteFile(dir, importFilename string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sort.Slice(c.entries, func(i, j int) bool {
+		return c.entries[i].RowNum < c.entries[j].RowNum
+	})
+
+	// Derive result filename from import filename (matching V2 convention).
+	base := strings.TrimSuffix(importFilename, filepath.Ext(importFilename))
+	resultName := "import_result_" + base + ".txt"
+	resultPath := filepath.Join(dir, resultName)
+
+	f, err := os.Create(resultPath)
+	if err != nil {
+		return "", fmt.Errorf("create result file: %w", err)
+	}
+	defer f.Close()
+
+	fmt.Fprintln(f, "-- Import Result CSI --")
+	for _, e := range c.entries {
+		fmt.Fprintf(f, "Row %d %s\n", e.RowNum, e.Message)
+	}
+	return resultPath, nil
+}
 
 // Number of concurrent workers for importing terminals via the TMS API.
 // Each worker processes one row at a time using the optimized pipeline
@@ -274,6 +323,22 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	var successCount int64
 	var failCount int64
 	var wg sync.WaitGroup
+	results := &importResultCollector{}
+
+	// Record skipped rows in results (matching V2 behaviour).
+	for rowIdx, row := range rows[1:] {
+		rowNum := rowIdx + 2
+		templateSN := cellValue(row, 1)
+		serialNum := cellValue(row, 2)
+		if templateSN == "" && serialNum == "" {
+			continue // completely blank row, skip silently
+		}
+		if templateSN == "" {
+			results.Add(rowNum, "error (Template tidak boleh kosong)")
+		} else if serialNum == "" {
+			results.Add(rowNum, "error (CSI tidak boleh kosong)")
+		}
+	}
 
 	// Start workers.
 	for w := 0; w < importWorkerCount; w++ {
@@ -287,11 +352,13 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				default:
 				}
 
-				ok := h.importSingleTerminalFast(importCtx, session, j, tabNames, operationMark, groupMap, templateCache, &logger)
-				if ok {
+				errMsg := h.importSingleTerminalFast(importCtx, session, j, tabNames, operationMark, groupMap, templateCache, &logger)
+				if errMsg == "" {
 					atomic.AddInt64(&successCount, 1)
+					results.Add(j.RowNum, "success")
 				} else {
 					atomic.AddInt64(&failCount, 1)
+					results.Add(j.RowNum, "error ("+errMsg+")")
 				}
 
 				count := atomic.AddInt64(&processedCount, 1)
@@ -367,6 +434,16 @@ sendLoop:
 		ServiceName: resultMsgPtr,
 	})
 
+	// Write per-row import results to a .txt file (matching V2 behaviour).
+	importDir := filepath.Dir(payload.FilePath)
+	importBase := filepath.Base(payload.FilePath)
+	resultPath, err := results.WriteFile(importDir, importBase)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to write import result .txt file")
+	} else {
+		logger.Info().Str("path", resultPath).Msg("import result file written")
+	}
+
 	return nil
 }
 
@@ -393,8 +470,7 @@ func (h *ImportTerminalHandler) buildTemplateCache(session string, jobs []import
 }
 
 // importSingleTerminalFast is the optimized import pipeline for a single row.
-// It resolves each SN only once and reuses the ID across all steps, fetches
-// parameter tabs concurrently, and reuses pre-fetched detail data.
+// Returns "" on success, or an error message string on failure.
 //
 // API calls per terminal (vs 20 in the old pipeline):
 //  1. CopyTerminalById — 1 call (source ID pre-cached)
@@ -410,19 +486,19 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	tabNames []string, operationMark string,
 	groupMap map[string]int, templateCache map[string]int,
 	logger *zerolog.Logger,
-) bool {
+) string {
 	// Step 1: Copy terminal from template using pre-cached source ID.
 	isExisting := false
 	sourceId, ok := templateCache[j.TemplateSN]
 	if !ok {
 		logger.Warn().Int("row", j.RowNum).Str("template", j.TemplateSN).Msg("template SN not in cache, skipping")
-		return false
+		return "Template " + j.TemplateSN + " tidak ditemukan"
 	}
 
 	copyResp, err := h.tmsClient.CopyTerminalById(session, sourceId, j.SerialNum)
 	if err != nil {
 		logger.Error().Err(err).Int("row", j.RowNum).Msg("copy terminal API call failed")
-		return false
+		return "Copy terminal gagal: " + err.Error()
 	}
 	if copyResp.ResultCode != 0 {
 		if strings.Contains(strings.ToLower(copyResp.Desc), "duplicate") {
@@ -430,7 +506,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 			logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal already exists, updating")
 		} else {
 			logger.Warn().Int("row", j.RowNum).Str("desc", copyResp.Desc).Msg("copy terminal returned error")
-			return false
+			return "Copy terminal error: " + copyResp.Desc
 		}
 	}
 
@@ -441,7 +517,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
 		logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to resolve dest SN to ID")
-		return false
+		return "Gagal resolve SN " + j.SerialNum
 	}
 
 	// Step 3: Get terminal detail (old API) + app list — 2 calls total.
@@ -451,14 +527,14 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
 		logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to get terminal info")
-		return false
+		return "Gagal mengambil info terminal"
 	}
 	if appID == "" {
 		if !isExisting {
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
 		logger.Warn().Int("row", j.RowNum).Msg("target app not found on terminal")
-		return false
+		return "Aplikasi tidak ditemukan pada terminal"
 	}
 
 	// Step 4: Fetch parameter tabs concurrently (8 tabs in parallel ≈ 1 RTT).
@@ -468,7 +544,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
 		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal parameters")
-		return false
+		return "Gagal mengambil parameter terminal"
 	}
 	allParams, _ := paramResp.Data["paraList"].([]interface{})
 	if len(allParams) == 0 {
@@ -476,7 +552,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 			_ = h.deleteTerminalOnError(session, j.SerialNum)
 		}
 		logger.Warn().Int("row", j.RowNum).Msg("no parameters returned")
-		return false
+		return "Tidak ada parameter yang dikembalikan"
 	}
 
 	// Step 5: Build parameter list and validate before submitting.
@@ -489,7 +565,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 				_ = h.deleteTerminalOnError(session, j.SerialNum)
 			}
 			logger.Warn().Int("row", j.RowNum).Str("error", errMsg).Msg("import validation failed")
-			return false
+			return errMsg
 		}
 	}
 
@@ -506,7 +582,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 				desc = updateResp.Desc
 			}
 			logger.Warn().Int("row", j.RowNum).Str("desc", desc).Msg("failed to update terminal parameters")
-			return false
+			return "Gagal update parameter: " + desc
 		}
 
 		// Save TID notes for enabled merchants (for future uniqueness checks).
@@ -532,14 +608,14 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 				_ = h.deleteTerminalOnError(session, j.SerialNum)
 			}
 			logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to update device details")
-			return false
+			return "Gagal update device details: " + err.Error()
 		}
 		if updateDevResp.ResultCode != 0 {
 			if !isExisting {
 				_ = h.deleteTerminalOnError(session, j.SerialNum)
 			}
 			logger.Warn().Int("row", j.RowNum).Int("code", updateDevResp.ResultCode).Str("desc", updateDevResp.Desc).Msg("failed to update device details")
-			return false
+			return "Gagal update device details: " + updateDevResp.Desc
 		}
 	}
 
@@ -548,7 +624,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	} else {
 		logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal imported successfully")
 	}
-	return true
+	return ""
 }
 
 // buildGroupMap fetches the TMS group list and returns a lowercase name → ID map.

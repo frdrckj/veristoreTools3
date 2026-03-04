@@ -1755,6 +1755,13 @@ func (h *Handler) Import(c echo.Context) error {
 					data.ResultMessage = resultMsg
 					data.ResultIsError = strings.Contains(resultMsg, "gagal")
 				}
+
+				// Check if import result .txt file exists for download.
+				base := strings.TrimSuffix(latest.ImpFilename, filepath.Ext(latest.ImpFilename))
+				resultFile := filepath.Join("static", "import", "import_result_"+base+".txt")
+				if _, err := os.Stat(resultFile); err == nil {
+					data.ResultFileExists = true
+				}
 			}
 		}
 		return shared.Render(c, http.StatusOK, vsTmpl.ImportPage(page, data))
@@ -2004,18 +2011,31 @@ func (h *Handler) ImportFormat(c echo.Context) error {
 
 // ImportResult handles GET /veristore/import-result - Download import result file.
 func (h *Handler) ImportResult(c echo.Context) error {
-	name := c.QueryParam("name")
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "missing report name")
+	// If ?name= param is provided, serve TMS report (legacy behaviour).
+	if name := c.QueryParam("name"); name != "" {
+		report, err := h.service.repo.GetReport(name)
+		if err != nil || report == nil {
+			return echo.NewHTTPError(http.StatusNotFound, "import result not found")
+		}
+		c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.xlsx"`, name))
+		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", report.TmsRptFile)
 	}
 
-	report, err := h.service.repo.GetReport(name)
-	if err != nil || report == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "import result not found")
+	// Otherwise serve the per-row import result .txt file (matching V2).
+	latest, err := h.adminRepo.FindLatestImport()
+	if err != nil || latest == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "no import record found")
 	}
 
-	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.xlsx"`, name))
-	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", report.TmsRptFile)
+	base := strings.TrimSuffix(latest.ImpFilename, filepath.Ext(latest.ImpFilename))
+	resultName := "import_result_" + base + ".txt"
+	resultPath := filepath.Join("static", "import", resultName)
+
+	if _, err := os.Stat(resultPath); os.IsNotExist(err) {
+		return echo.NewHTTPError(http.StatusNotFound, "import result file not found")
+	}
+
+	return c.Attachment(resultPath, resultName)
 }
 
 // ImportMerchant handles GET/POST /veristore/import-merchant - Import merchants from Excel.
