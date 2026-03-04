@@ -50,14 +50,14 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 							<i class="fas fa-check-circle"></i> { data.ResultMessage }
 						</div>
 					}
+					<a href="/veristore/terminal" class="btn btn-primary">
+						<i class="fas fa-arrow-left"></i> Back to Terminal List
+					</a>
 					if data.ResultFileExists {
 						<a href="/veristore/import-result" class="btn btn-danger ml-2">
 							<i class="fas fa-list-alt"></i> Import Result
 						</a>
 					}
-					<a href="/veristore/terminal" class="btn btn-primary">
-						<i class="fas fa-arrow-left"></i> Back to Terminal List
-					</a>
 				} else if data.LastComplete {
 					<div class="alert alert-success" style="font-size: 1.1rem;">
 						Last import completed: { data.LastFilename } ({ data.Progress })
@@ -66,7 +66,7 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 						<div class="col-md-8 offset-md-2">
 							<div class="card card-primary">
 								<div class="card-header">
-									<h3 class="card-title">Import Terminals</h3>
+									<h3 class="card-title">Import CSI</h3>
 									<div class="card-tools">
 										<a href="/veristore/terminal" class="btn btn-sm btn-default">
 											<i class="fas fa-arrow-left"></i> Back to List
@@ -104,7 +104,7 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 						<div class="col-md-8 offset-md-2">
 							<div class="card card-primary">
 								<div class="card-header">
-									<h3 class="card-title">Import Terminals</h3>
+									<h3 class="card-title">Import CSI</h3>
 									<div class="card-tools">
 										<a href="/veristore/terminal" class="btn btn-sm btn-default">
 											<i class="fas fa-arrow-left"></i> Back to List

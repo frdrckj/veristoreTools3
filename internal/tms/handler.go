@@ -1918,7 +1918,7 @@ func (h *Handler) ExportReset(c echo.Context) error {
 
 // Import handles GET/POST /veristore/import - Import terminals from Excel.
 func (h *Handler) Import(c echo.Context) error {
-	page := h.pageData(c, "Import Terminals")
+	page := h.pageData(c, "Import CSI")
 	data := vsTmpl.ImportData{}
 
 	// Check if there is an import in progress.
