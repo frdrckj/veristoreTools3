@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/verifone/veristoretools3/internal/admin"
+	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/tms"
 )
 
@@ -356,6 +357,9 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				if errMsg == "" {
 					atomic.AddInt64(&successCount, 1)
 					results.Add(j.RowNum, "success")
+					// Log each successful import to activity_log (like v2) so
+					// partial sync can discover today's imported CSIs.
+					mw.LogActivity(h.db, mw.LogVeristoreImportCSI, "Import data csi "+j.SerialNum, payload.User)
 				} else {
 					atomic.AddInt64(&failCount, 1)
 					results.Add(j.RowNum, "error ("+errMsg+")")

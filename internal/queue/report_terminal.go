@@ -32,13 +32,14 @@ const (
 
 // ReportTerminalPayload is the JSON payload for the report:terminal task.
 type ReportTerminalPayload struct {
-	UserID      int    `json:"user_id"`
-	UserName    string `json:"user_name"`
-	AppVersion  string `json:"app_version"`
-	Session     string `json:"session"`
-	DateTime    string `json:"date_time"`
-	PackageName string `json:"package_name"`
-	TriggerSync bool   `json:"trigger_sync"` // When true, chains to sync:parameter after report
+	UserID      int      `json:"user_id"`
+	UserName    string   `json:"user_name"`
+	AppVersion  string   `json:"app_version"`
+	Session     string   `json:"session"`
+	DateTime    string   `json:"date_time"`
+	PackageName string   `json:"package_name"`
+	TriggerSync bool     `json:"trigger_sync"`            // When true, chains to sync:parameter after report
+	PartialCSIs []string `json:"partial_csis,omitempty"`   // When set, only process these CSIs (partial sync)
 }
 
 // reportJob represents a unit of work for a report worker.
@@ -160,95 +161,115 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	logger.Info().Str("app_id", appID).Str("sheet", sheetName).Msg("found target app")
 
 	// ------------------------------------------------------------------
-	// Phase 2: Collect all terminals with parallel page fetching.
-	// Fetch page 1 to discover totalPage, then fetch remaining pages
-	// concurrently.
+	// Phase 2: Collect terminals.
+	// - Partial mode: look up only the specified CSIs via search API.
+	// - Full mode: fetch all pages from TMS concurrently.
 	// ------------------------------------------------------------------
 	h.adminRepo.UpdateSyncProcess(payload.UserID, "0", "1") // status 1 = Processing
 
 	var allJobs []reportJob
 	totalTerminals := 0
+	totalPage := 0
 
-	// Fetch first page to get totalPage count.
-	firstResp, err := h.tmsClient.GetTerminalListWithSize(1, reportPageSize)
-	if err != nil || firstResp == nil || firstResp.Data == nil {
-		logger.Error().Err(err).Msg("failed to get first terminal list page")
-		h.adminRepo.FailPendingSyncs(payload.UserID)
-		return fmt.Errorf("report_terminal: get terminal list page 1: %w", err)
-	}
-
-	totalPage := 1
-	if tp, ok := firstResp.Data["totalPage"]; ok {
-		if tpInt, err := strconv.Atoi(fmt.Sprintf("%v", tp)); err == nil && tpInt > 0 {
-			totalPage = tpInt
-		}
-	}
-	if tt, ok := firstResp.Data["total"]; ok {
-		if ttInt, err := strconv.Atoi(fmt.Sprintf("%v", tt)); err == nil && ttInt > 0 {
-			totalTerminals = ttInt
-		}
-	}
-
-	// Process first page terminals.
-	allJobs = append(allJobs, h.extractTerminalsFromPage(firstResp, len(allJobs))...)
-
-	logger.Info().Int("total_pages", totalPage).Int("total_terminals", totalTerminals).Msg("fetching remaining pages concurrently")
-
-	// Fetch remaining pages concurrently.
-	if totalPage > 1 {
-		type pageResult struct {
-			Page      int
-			Terminals []reportJob
-			Err       error
-		}
-
-		pageResults := make([]pageResult, totalPage-1)
-		var pageWg sync.WaitGroup
-
-		for page := 2; page <= totalPage; page++ {
-			select {
-			case <-ctx.Done():
-				h.adminRepo.FailPendingSyncs(payload.UserID)
-				return ctx.Err()
-			default:
-			}
-
-			pageWg.Add(1)
-			go func(p int) {
-				defer pageWg.Done()
-				resp, err := h.tmsClient.GetTerminalListWithSize(p, reportPageSize)
-				idx := p - 2 // pages 2..N map to index 0..N-2
-				if err != nil || resp == nil || resp.Data == nil {
-					pageResults[idx] = pageResult{Page: p, Err: err}
-					return
-				}
-				pageResults[idx] = pageResult{
-					Page:      p,
-					Terminals: h.extractTerminalsFromPage(resp, 0), // index set later
-				}
-			}(page)
-		}
-
-		pageWg.Wait()
-
-		// Collect terminals from all pages.
-		for _, pr := range pageResults {
-			if pr.Err != nil {
-				logger.Warn().Int("page", pr.Page).Err(pr.Err).Msg("failed to get terminal list page")
+	if len(payload.PartialCSIs) > 0 {
+		// --- Partial mode: search each CSI individually ---
+		logger.Info().Int("partial_count", len(payload.PartialCSIs)).Msg("partial mode: looking up specific CSIs")
+		session := h.tmsService.GetSession()
+		for _, csi := range payload.PartialCSIs {
+			resp, err := h.tmsClient.GetTerminalListSearch(session, 1, csi, 4) // queryType 4 = CSI
+			if err != nil || resp == nil || resp.Data == nil {
+				logger.Warn().Str("csi", csi).Err(err).Msg("partial: failed to search CSI")
 				continue
 			}
-			for i := range pr.Terminals {
-				pr.Terminals[i].Index = len(allJobs) + i
-			}
-			allJobs = append(allJobs, pr.Terminals...)
+			jobs := h.extractTerminalsFromPage(resp, len(allJobs))
+			allJobs = append(allJobs, jobs...)
 		}
-	}
-
-	if totalTerminals == 0 {
 		totalTerminals = len(allJobs)
-	}
+		totalPage = 1
+		logger.Info().Int("total_terminals", totalTerminals).Msg("partial terminal collection complete")
+	} else {
+		// --- Full mode: fetch all terminals from TMS ---
+		// Fetch first page to get totalPage count.
+		firstResp, err := h.tmsClient.GetTerminalListWithSize(1, reportPageSize)
+		if err != nil || firstResp == nil || firstResp.Data == nil {
+			logger.Error().Err(err).Msg("failed to get first terminal list page")
+			h.adminRepo.FailPendingSyncs(payload.UserID)
+			return fmt.Errorf("report_terminal: get terminal list page 1: %w", err)
+		}
 
-	logger.Info().Int("total_terminals", len(allJobs)).Int("total_pages", totalPage).Msg("terminal collection complete")
+		totalPage = 1
+		if tp, ok := firstResp.Data["totalPage"]; ok {
+			if tpInt, err := strconv.Atoi(fmt.Sprintf("%v", tp)); err == nil && tpInt > 0 {
+				totalPage = tpInt
+			}
+		}
+		if tt, ok := firstResp.Data["total"]; ok {
+			if ttInt, err := strconv.Atoi(fmt.Sprintf("%v", tt)); err == nil && ttInt > 0 {
+				totalTerminals = ttInt
+			}
+		}
+
+		// Process first page terminals.
+		allJobs = append(allJobs, h.extractTerminalsFromPage(firstResp, len(allJobs))...)
+
+		logger.Info().Int("total_pages", totalPage).Int("total_terminals", totalTerminals).Msg("fetching remaining pages concurrently")
+
+		// Fetch remaining pages concurrently.
+		if totalPage > 1 {
+			type pageResult struct {
+				Page      int
+				Terminals []reportJob
+				Err       error
+			}
+
+			pageResults := make([]pageResult, totalPage-1)
+			var pageWg sync.WaitGroup
+
+			for page := 2; page <= totalPage; page++ {
+				select {
+				case <-ctx.Done():
+					h.adminRepo.FailPendingSyncs(payload.UserID)
+					return ctx.Err()
+				default:
+				}
+
+				pageWg.Add(1)
+				go func(p int) {
+					defer pageWg.Done()
+					resp, err := h.tmsClient.GetTerminalListWithSize(p, reportPageSize)
+					idx := p - 2 // pages 2..N map to index 0..N-2
+					if err != nil || resp == nil || resp.Data == nil {
+						pageResults[idx] = pageResult{Page: p, Err: err}
+						return
+					}
+					pageResults[idx] = pageResult{
+						Page:      p,
+						Terminals: h.extractTerminalsFromPage(resp, 0), // index set later
+					}
+				}(page)
+			}
+
+			pageWg.Wait()
+
+			// Collect terminals from all pages.
+			for _, pr := range pageResults {
+				if pr.Err != nil {
+					logger.Warn().Int("page", pr.Page).Err(pr.Err).Msg("failed to get terminal list page")
+					continue
+				}
+				for i := range pr.Terminals {
+					pr.Terminals[i].Index = len(allJobs) + i
+				}
+				allJobs = append(allJobs, pr.Terminals...)
+			}
+		}
+
+		if totalTerminals == 0 {
+			totalTerminals = len(allJobs)
+		}
+
+		logger.Info().Int("total_terminals", len(allJobs)).Msg("terminal collection complete")
+	}
 
 	if len(allJobs) == 0 {
 		logger.Warn().Msg("no terminals found")
@@ -538,6 +559,7 @@ sendLoop:
 			AppID:      appID,
 			AppName:    appName,
 			AppVersion: payload.AppVersion,
+			IsPartial:  len(payload.PartialCSIs) > 0,
 		}
 		syncPayloadBytes, _ := json.Marshal(syncPayload)
 		syncTask := asynq.NewTask(TaskSyncParameter, syncPayloadBytes)

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"strings"
 	"time"
 
 	"github.com/verifone/veristoretools3/internal/shared"
@@ -61,6 +62,41 @@ func (r *Repository) SearchActivityLogs(query string, page, perPage int) ([]Acti
 // DeleteActivityLog removes an activity log record by ID.
 func (r *Repository) DeleteActivityLog(id int) error {
 	return r.db.Delete(&ActivityLog{}, "act_log_id = ?", id).Error
+}
+
+// FindTodayCSIs returns CSI serial numbers that were added, copied, or imported
+// today. Used by partial sync to determine which CSIs to process.
+func (r *Repository) FindTodayCSIs() []string {
+	var logs []ActivityLog
+	r.db.Where(
+		"act_log_action IN ? AND DATE(created_dt) = CURDATE()",
+		[]string{"VERISTORE ADD CSI", "VERISTORE DUPLICATE CSI", "VERISTORE IMPORT CSI"},
+	).Find(&logs)
+
+	seen := map[string]bool{}
+	var csis []string
+	for _, l := range logs {
+		if l.ActLogDetail == nil {
+			continue
+		}
+		detail := *l.ActLogDetail
+		var csi string
+		switch {
+		case strings.HasPrefix(detail, "Add csi "):
+			csi = strings.TrimPrefix(detail, "Add csi ")
+		case strings.Contains(detail, " to "): // "Copy csi X to Y"
+			parts := strings.Split(detail, " to ")
+			csi = parts[len(parts)-1]
+		case strings.HasPrefix(detail, "Import data csi "):
+			csi = strings.TrimPrefix(detail, "Import data csi ")
+		}
+		csi = strings.TrimSpace(csi)
+		if csi != "" && !seen[csi] {
+			seen[csi] = true
+			csis = append(csis, csi)
+		}
+	}
+	return csis
 }
 
 // ==================== Technician ====================

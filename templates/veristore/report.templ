@@ -12,6 +12,7 @@ type ReportApp struct {
 templ ReportPage(page layouts.PageData, apps []ReportApp) {
 	@layouts.Base(page) {
 		<form id="formReport" method="POST" action="/veristore/report">
+			<input type="hidden" name="mode" id="hiddenMode" value="full"/>
 			<br/>
 			<div class="row align-items-center">
 				<div class="col-lg-2">
@@ -34,8 +35,11 @@ templ ReportPage(page layouts.PageData, apps []ReportApp) {
 					</a>
 				</div>
 				<div class="col-lg-11">
-					<button type="submit" class="btn btn-success" id="btnSubmit">
-						<i class="fas fa-file"></i> Submit
+					<button type="button" class="btn btn-info" id="btnPartial">
+						<i class="fas fa-bolt"></i> Partial Update &amp; Sync
+					</button>
+					<button type="button" class="btn btn-success ml-1" id="btnFull">
+						<i class="fas fa-sync"></i> Full Update &amp; Sync
 					</button>
 					<span id="spinSubmit" style="display:none;" class="ml-2">
 						<i class="fas fa-spinner fa-spin fa-lg text-success"></i>
@@ -52,21 +56,28 @@ templ ReportPage(page layouts.PageData, apps []ReportApp) {
 						width: '350px'
 					});
 				}
-				// Confirmation before submit.
-				var form = document.getElementById('formReport');
-				form.addEventListener('submit', function(e) {
+
+				function submitReport(mode) {
 					var sel = document.getElementById('appVersion');
 					if (!sel.value) {
-						e.preventDefault();
 						alert('Please select an App Name');
 						return;
 					}
 					if (!confirm('Are you sure?')) {
-						e.preventDefault();
 						return;
 					}
+					document.getElementById('hiddenMode').value = mode;
 					document.getElementById('spinSubmit').style.display = 'inline';
-					document.getElementById('btnSubmit').disabled = true;
+					document.getElementById('btnPartial').disabled = true;
+					document.getElementById('btnFull').disabled = true;
+					document.getElementById('formReport').submit();
+				}
+
+				document.getElementById('btnPartial').addEventListener('click', function() {
+					submitReport('partial');
+				});
+				document.getElementById('btnFull').addEventListener('click', function() {
+					submitReport('full');
 				});
 			});
 		</script>

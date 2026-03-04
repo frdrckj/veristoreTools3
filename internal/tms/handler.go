@@ -1538,13 +1538,14 @@ func (h *Handler) CheckPDF(c echo.Context) error {
 
 // reportPayload mirrors the background job payload to avoid import cycle.
 type reportPayload struct {
-	UserID      int    `json:"user_id"`
-	UserName    string `json:"user_name"`
-	AppVersion  string `json:"app_version"`
-	Session     string `json:"session"`
-	DateTime    string `json:"date_time"`
-	PackageName string `json:"package_name"`
-	TriggerSync bool   `json:"trigger_sync"`
+	UserID      int      `json:"user_id"`
+	UserName    string   `json:"user_name"`
+	AppVersion  string   `json:"app_version"`
+	Session     string   `json:"session"`
+	DateTime    string   `json:"date_time"`
+	PackageName string   `json:"package_name"`
+	TriggerSync bool     `json:"trigger_sync"`
+	PartialCSIs []string `json:"partial_csis,omitempty"`
 }
 
 // Report handles GET/POST /veristore/report - CSI (Update) page (like v2 actionReport).
@@ -1556,6 +1557,18 @@ func (h *Handler) Report(c echo.Context) error {
 		if appVersion == "" {
 			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Please select an App Name")
 			return c.Redirect(http.StatusFound, "/veristore/report")
+		}
+
+		mode := c.FormValue("mode") // "partial" or "full"
+
+		// For partial mode, find today's CSIs from activity log.
+		var partialCSIs []string
+		if mode == "partial" {
+			partialCSIs = h.adminRepo.FindTodayCSIs()
+			if len(partialCSIs) == 0 {
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Tidak ada CSI yang ditambahkan/dicopy/diimport hari ini.")
+				return c.Redirect(http.StatusFound, "/veristore/report")
+			}
 		}
 
 		// Create SyncTerminal record IMMEDIATELY so buttons are disabled
@@ -1586,6 +1599,7 @@ func (h *Handler) Report(c echo.Context) error {
 			DateTime:    now.Format("2006-01-02 15:04:05"),
 			PackageName: h.packageName,
 			TriggerSync: true,
+			PartialCSIs: partialCSIs,
 		}
 		payloadBytes, _ := json.Marshal(payload)
 		task := asynq.NewTask("report:terminal", payloadBytes)
@@ -1594,8 +1608,12 @@ func (h *Handler) Report(c echo.Context) error {
 			return c.Redirect(http.StatusFound, "/veristore/report")
 		}
 
-		mw.LogActivityFromContext(c, mw.LogVeristoreReport, "Update & Sync version "+appVersion)
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update & Sync dimulai. Report akan tersedia dalam beberapa saat.")
+		modeLabel := "Full"
+		if mode == "partial" {
+			modeLabel = fmt.Sprintf("Partial (%d CSI)", len(partialCSIs))
+		}
+		mw.LogActivityFromContext(c, mw.LogVeristoreReport, modeLabel+" Update & Sync version "+appVersion)
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, modeLabel+" Update & Sync dimulai. Report akan tersedia dalam beberapa saat.")
 		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
