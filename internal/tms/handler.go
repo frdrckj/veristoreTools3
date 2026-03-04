@@ -431,6 +431,10 @@ func (h *Handler) Edit(c echo.Context) error {
 			// Fetch params synchronously so we can resolve *-prefixed tree titles.
 			paramData := h.getCachedParams(serialNum, appId)
 
+			// Save TID notes for this CSI so that checkTidDuplicate can detect
+			// conflicts even if this CSI was never edited through v3 before.
+			h.saveTidNotesFromParams(serialNum, paramData, mw.GetCurrentUserFullname(c))
+
 			type tplGroup struct {
 				Title      string
 				IndexTitle string
@@ -565,6 +569,34 @@ func (h *Handler) Edit(c echo.Context) error {
 		}
 	}
 
+	// Always validate TID uniqueness before submitting (matching V2 behaviour).
+	// V2 always sends the FULL paraList (all params as JSON), so the check
+	// always runs against every TID field.  In V3 the form only sends the
+	// currently visible tab, so we build a complete picture by fetching the
+	// full params from TMS and overlaying any form-submitted changes.
+	fullParams := h.getCachedParams(serialNum, appId)
+	// Overlay form-submitted values so we check the user's edits.
+	for _, p := range paraList {
+		dn, _ := p["dataName"].(string)
+		val, _ := p["value"].(string)
+		if dn == "" {
+			continue
+		}
+		if existing, ok := fullParams[dn]; ok {
+			fullParams[dn] = [2]string{existing[0], val}
+		} else {
+			fullParams[dn] = [2]string{"", val}
+		}
+	}
+	if errMsg := h.checkTidDuplicateFromParams(serialNum, fullParams); errMsg != "" {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, errMsg)
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, appId))
+	}
+
+	// Save TID notes from the full params BEFORE the update so that other
+	// CSIs being edited concurrently can detect this CSI's TIDs.
+	h.saveTidNotesFromParams(serialNum, fullParams, mw.GetCurrentUserFullname(c))
+
 	if len(paraList) == 0 {
 		// No parameters edited — just redirect with success.
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update parameter berhasil!")
@@ -582,8 +614,130 @@ func (h *Handler) Edit(c echo.Context) error {
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/veristore/edit?serialNum=%s&appId=%s", serialNum, appId))
 	}
 
+	// Update tid_note entries after successful parameter update (matching V2 TidNoteHelper::add).
+	h.saveTidNotesFromParams(serialNum, fullParams, mw.GetCurrentUserFullname(c))
+
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update parameter berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
+}
+
+// checkTidDuplicateFromParams checks if any enabled merchant TID is already
+// used by a different CSI in the tid_note table (matching V2 TidNoteHelper::check).
+// Works with the full cached params map (map[string][2]string) so the check
+// always covers ALL TID fields regardless of which form tab was submitted.
+// Returns an error message string if conflict found, "" otherwise.
+func (h *Handler) checkTidDuplicateFromParams(serialNum string, params map[string][2]string) string {
+	// Collect TIDs from enabled merchants.
+	var enabledTIDs []string
+	for i := 1; i <= 10; i++ {
+		enableKey := fmt.Sprintf("TP-MERCHANT-ENABLE-%d", i)
+		entry, ok := params[enableKey]
+		if !ok || entry[1] != "1" {
+			continue
+		}
+		tidKey := fmt.Sprintf("TP-MERCHANT-TERMINAL_ID-%d", i)
+		tidEntry, ok := params[tidKey]
+		if !ok {
+			continue
+		}
+		tid := strings.TrimSpace(tidEntry[1])
+		if tid != "" && tid != "0" {
+			enabledTIDs = append(enabledTIDs, tid)
+		}
+	}
+
+	if len(enabledTIDs) == 0 {
+		return ""
+	}
+
+	// Check against tid_note table for conflicts with other CSIs.
+	var conflicting admin.TidNote
+	err := h.service.db.Where(
+		"tid_note_serial_num != ? AND tid_note_data IN ?",
+		serialNum,
+		enabledTIDs,
+	).First(&conflicting).Error
+	if err == nil {
+		tid := ""
+		if conflicting.TidNoteData != nil {
+			tid = *conflicting.TidNoteData
+		}
+		return fmt.Sprintf("TID %s sudah digunakan pada CSI %s", tid, conflicting.TidNoteSerialNum)
+	}
+	return ""
+}
+
+// saveTidNotes updates tid_note entries after a successful parameter update
+// (matching V2 TidNoteHelper::add). Deletes old entries for the CSI and
+// inserts new ones for each enabled merchant's TID.
+func (h *Handler) saveTidNotes(serialNum string, paraList []map[string]interface{}, user string) {
+	// Delete existing entries for this CSI.
+	h.service.db.Where("tid_note_serial_num = ?", serialNum).Delete(&admin.TidNote{})
+
+	// Insert new entries.
+	now := time.Now()
+	for i := 1; i <= 10; i++ {
+		enableKey := fmt.Sprintf("TP-MERCHANT-ENABLE-%d", i)
+		if getParamValue(paraList, enableKey) != "1" {
+			continue
+		}
+		tidKey := fmt.Sprintf("TP-MERCHANT-TERMINAL_ID-%d", i)
+		tid := strings.TrimSpace(getParamValue(paraList, tidKey))
+		if tid == "" || tid == "0" {
+			continue
+		}
+		h.service.db.Create(&admin.TidNote{
+			TidNoteSerialNum: serialNum,
+			TidNoteData:      &tid,
+			CreatedBy:        user,
+			CreatedDt:        now,
+		})
+	}
+}
+
+// saveTidNotesFromParams is like saveTidNotes but works with the cached params
+// format (map[string][2]string where key=dataName, value=[description, value]).
+// Used when we have params from getCachedParams (Edit GET, Copy POST).
+func (h *Handler) saveTidNotesFromParams(serialNum string, params map[string][2]string, user string) {
+	// Delete existing entries for this CSI.
+	h.service.db.Where("tid_note_serial_num = ?", serialNum).Delete(&admin.TidNote{})
+
+	// Insert new entries.
+	now := time.Now()
+	for i := 1; i <= 10; i++ {
+		enableKey := fmt.Sprintf("TP-MERCHANT-ENABLE-%d", i)
+		entry, ok := params[enableKey]
+		if !ok || entry[1] != "1" {
+			continue
+		}
+		tidKey := fmt.Sprintf("TP-MERCHANT-TERMINAL_ID-%d", i)
+		tidEntry, ok := params[tidKey]
+		if !ok {
+			continue
+		}
+		tid := strings.TrimSpace(tidEntry[1])
+		if tid == "" || tid == "0" {
+			continue
+		}
+		h.service.db.Create(&admin.TidNote{
+			TidNoteSerialNum: serialNum,
+			TidNoteData:      &tid,
+			CreatedBy:        user,
+			CreatedDt:        now,
+		})
+	}
+}
+
+// getParamValue extracts a value from the paraList by dataName key.
+func getParamValue(paraList []map[string]interface{}, dataName string) string {
+	for _, p := range paraList {
+		if dn, ok := p["dataName"].(string); ok && dn == dataName {
+			if v, ok := p["value"].(string); ok {
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 // EditParam handles GET /veristore/edit/param - AJAX endpoint returning parameter form HTML.
@@ -831,6 +985,37 @@ func (h *Handler) Copy(c echo.Context) error {
 
 	if resp.ResultCode != 0 {
 		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Copy failed: %s", resp.Desc)}, sourceSn))
+	}
+
+	// Save TID notes for both source and destination CSIs so that
+	// checkTidDuplicate can detect conflicts immediately.
+	user := mw.GetCurrentUserFullname(c)
+
+	// Find the app ID for the source terminal to fetch its params.
+	sourceDetail, detailErr := h.service.GetTerminalDetail(sourceSn)
+	if detailErr == nil && sourceDetail.ResultCode == 0 && sourceDetail.Data != nil {
+		sourceAppId := ""
+		if apps, ok := sourceDetail.Data["terminalShowApps"].([]interface{}); ok {
+			bestVer := ""
+			for _, a := range apps {
+				am, ok := a.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				ver := fmt.Sprintf("%v", am["version"])
+				id := fmt.Sprintf("%v", am["id"])
+				if bestVer == "" || compareAppVersions(ver, bestVer) > 0 {
+					bestVer = ver
+					sourceAppId = id
+				}
+			}
+		}
+		if sourceAppId != "" {
+			sourceParams := h.getCachedParams(sourceSn, sourceAppId)
+			h.saveTidNotesFromParams(sourceSn, sourceParams, user)
+			// Destination has same params as source after copy.
+			h.saveTidNotesFromParams(destSn, sourceParams, user)
+		}
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreCopyCSI, "Copy csi "+sourceSn+" to "+destSn)
