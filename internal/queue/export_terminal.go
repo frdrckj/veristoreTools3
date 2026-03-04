@@ -382,7 +382,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	bestHeader3 := make([]string, len(columns))
 	for i := range columns {
 		bestHeader2[i] = columns[i].SubTitleRaw
-		bestHeader3[i] = "N/A"
+		bestHeader3[i] = ""
 	}
 	bestNACount := len(columns) + 1
 
@@ -419,7 +419,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			if pv, ok := paramMap[key]; ok {
 				h3[i] = pv[0]
 			} else {
-				h3[i] = "N/A"
+				h3[i] = ""
 				naCount++
 			}
 		}
@@ -547,8 +547,6 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 					} else {
 						f.SetCellValue(sheetName, cell, pv[1])
 					}
-				} else {
-					f.SetCellValue(sheetName, cell, "N/A")
 				}
 			}
 		}

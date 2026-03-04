@@ -1875,7 +1875,7 @@ func (h *Handler) ExportResult(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/veristore/terminal")
 	}
 
-	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="export_%s"`, latest.ExpFilename))
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, latest.ExpFilename))
 	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", latest.ExpData)
 }
 
