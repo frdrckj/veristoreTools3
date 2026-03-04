@@ -28,7 +28,7 @@ func toTreeNodes(items []FaqData) []treeNode {
 	for _, item := range items {
 		n := treeNode{Text: item.FaqName}
 		if item.FaqLink != "" {
-			n.Href = "/faq/index?title=" + item.FaqName + "&page=" + item.FaqLink
+			n.Href = "/faq/content?title=" + item.FaqName + "&page=" + item.FaqLink
 		}
 		if len(item.Children) > 0 {
 			n.Nodes = toTreeNodes(item.Children)
@@ -55,41 +55,83 @@ templ FaqPage(page layouts.PageData, tree []FaqData, faqTitle string, faqContent
 				</a>
 			</div>
 		</div>
-		<div class="row">
-			<div class="col-lg-12">
-				<h4><strong>Panduan Pengguna</strong></h4>
-				<div id="faqTree" data-tree={ TreeJSON(tree) }></div>
-			</div>
-		</div>
-		if faqContent != "" {
-			<div class="row mt-3">
-				<div class="col-lg-12">
-					<div class="card card-success">
-						<div class="card-header with-border">
-							<h3 class="card-title">{ faqTitle }</h3>
-						</div>
-						<div class="card-body">
-							@templ.Raw(faqContent)
+		<!-- TreeView panel matching V2 layout -->
+		<div class="tree-view-wrapper">
+			<div class="row tree-header">
+				<div class="col-sm-6">
+					<div class="tree-heading-container"><strong>Panduan Pengguna</strong></div>
+				</div>
+				<div class="col-sm-6">
+					<div class="input-group">
+						<input type="text" class="form-control" id="faqSearch" placeholder="Search..." autocomplete="off"/>
+						<div class="input-group-append">
+							<span class="input-group-text"><i class="fas fa-search"></i></span>
 						</div>
 					</div>
 				</div>
 			</div>
-		}
+			<div class="row">
+				<div class="col-sm-12">
+					<div id="faqTree" data-tree={ TreeJSON(tree) }></div>
+				</div>
+			</div>
+		</div>
+		<!-- AJAX content container -->
+		<div id="faq-content" class="mt-3">
+			if faqContent != "" {
+				<div class="card card-success card-outline">
+					<div class="card-header">
+						<h2 class="card-title">{ faqTitle }</h2>
+					</div>
+					<div class="card-body">
+						@templ.Raw(faqContent)
+					</div>
+				</div>
+			}
+		</div>
 		<link rel="stylesheet" href="/static/plugins/bootstrap-treeview/bootstrap-treeview.min.css"/>
 		<script src="/static/plugins/bootstrap-treeview/bootstrap-treeview.min.js"></script>
 		<script>
 			$(function() {
 				var el = document.getElementById('faqTree');
 				var treeData = JSON.parse(el.getAttribute('data-tree'));
-				$(el).treeview({
+				var $tree = $(el);
+
+				// Initialise Bootstrap TreeView.
+				$tree.treeview({
 					data: treeData,
 					levels: 1,
 					borderColor: '#fff',
 					onNodeSelected: function(event, node) {
 						if (node.href) {
-							window.location.href = node.href;
+							// Load content via AJAX (matching V2 Pjax behaviour).
+							fetch(node.href)
+								.then(function(res) { return res.text(); })
+								.then(function(html) {
+									document.getElementById('faq-content').innerHTML = html;
+								});
 						}
 					}
+				});
+
+				// Search functionality (matching V2 TreeFilterInput).
+				var $search = $('#faqSearch');
+				var searchTimeout = null;
+				$search.on('keyup', function() {
+					clearTimeout(searchTimeout);
+					var query = $.trim($search.val());
+					searchTimeout = setTimeout(function() {
+						if (query.length > 0) {
+							$tree.treeview('search', [query, {
+								ignoreCase: true,
+								exactMatch: false,
+								revealResults: true
+							}]);
+						} else {
+							$tree.treeview('clearSearch');
+							$tree.treeview('collapseAll', { silent: true });
+						}
+					}, 300);
 				});
 			});
 		</script>

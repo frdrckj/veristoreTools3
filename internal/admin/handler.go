@@ -409,6 +409,30 @@ func (h *Handler) FaqIndex(c echo.Context) error {
 	return shared.Render(c, http.StatusOK, adminTmpl.FaqPage(page, tree, faqTitle, faqContent))
 }
 
+// FaqContent returns a partial HTML fragment for a single FAQ topic.
+// It is called via AJAX from the FAQ page (matching V2 Pjax behaviour).
+func (h *Handler) FaqContent(c echo.Context) error {
+	pageName := c.QueryParam("page")
+	faqTitle := c.QueryParam("title")
+	if pageName == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "page parameter is required")
+	}
+
+	contentFile := filepath.Join(h.faqDir, pageName+".html")
+	data, err := os.ReadFile(contentFile)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "FAQ content not found")
+	}
+
+	// Return a card fragment matching V2's box box-success styling:
+	// green top border, white header with h2 title and bottom border, then body.
+	html := `<div class="card card-success card-outline">` +
+		`<div class="card-header"><h2 class="card-title">` + faqTitle + `</h2></div>` +
+		`<div class="card-body">` + string(data) + `</div>` +
+		`</div>`
+	return c.HTML(http.StatusOK, html)
+}
+
 // FaqDownload serves the role-specific user guide PDF (matching V2).
 func (h *Handler) FaqDownload(c echo.Context) error {
 	privileges := mw.GetCurrentUserPrivileges(c)

@@ -326,6 +326,7 @@ func main() {
 	// About
 	protected.GET("/about/version", adminHandler.VersionPage)
 	protected.GET("/faq/index", adminHandler.FaqIndex)
+	protected.GET("/faq/content", adminHandler.FaqContent)
 	protected.GET("/faq/download", adminHandler.FaqDownload)
 
 	// Backup

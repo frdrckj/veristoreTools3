@@ -374,3 +374,39 @@ th input[type="checkbox"] {
 ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
 }
+
+/* --- FAQ TreeView wrapper (matching V2 execut/yii2-widget-bootstraptreeview) --- */
+.tree-view-wrapper {
+    margin-bottom: 1rem;
+}
+.tree-view-wrapper .tree-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.tree-heading-container {
+    font-size: 1.15rem;
+    line-height: 2.2rem;
+    color: #1e293b;
+}
+/* Make FAQ content card title match V2's h2 style */
+.card-outline.card-success > .card-header {
+    border-top: 3px solid #28a745;
+}
+.card-outline.card-success > .card-header .card-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+/* Ensure FAQ content images are responsive */
+#faq-content img {
+    max-width: 100%;
+    height: auto;
+}
+/* Bootstrap TreeView middle size (matching V2 SIZE_MIDDLE) */
+#faqTree.middle .list-group-item {
+    font-size: 1rem;
+    padding: 8px 15px;
+}
