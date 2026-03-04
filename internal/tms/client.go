@@ -837,12 +837,13 @@ func (c *Client) GetTerminalListWithSize(pageNum, pageSize int) (*TMSResponse, e
 //	4 = deviceId, 5 = MID param
 func (c *Client) GetTerminalListSearch(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
 	// queryType: 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
-	// CSI (4), TID (3), MID (5) use the faster signed API.
+	// CSI (4) uses the faster signed API.
+	// TID (3), MID (5) use the old session-based API (matching v2's param search).
 	// Merchant (1), Group (2), SN (0) use the old session-based API.
 	switch queryType {
-	case 3, 4, 5:
+	case 4: // CSI — signed API
 		return c.getTerminalListSearchNew(pageNum, search, queryType)
-	default:
+	default: // SN, Merchant, Group, TID, MID — old session-based API
 		return c.getTerminalListSearchOld(session, pageNum, search, queryType)
 	}
 }
@@ -851,9 +852,9 @@ func (c *Client) GetTerminalListSearch(session string, pageNum int, search strin
 // page size (100) for bulk operations (export, delete-all).
 func (c *Client) GetTerminalListSearchBulk(session string, pageNum int, search string, queryType int) (*TMSResponse, error) {
 	switch queryType {
-	case 3, 4, 5:
+	case 4: // CSI — signed API
 		return c.getTerminalListSearchNewBulk(pageNum, search, queryType)
-	default:
+	default: // SN, Merchant, Group, TID, MID — old session-based API
 		return c.getTerminalListSearchOldBulk(session, pageNum, search, queryType)
 	}
 }

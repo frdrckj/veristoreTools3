@@ -135,20 +135,15 @@ func (s *Service) GetTerminalListBulk(page int) (*TMSResponse, error) {
 
 // SearchTerminals searches terminals with filters.
 // queryType 0=SN, 1=Merchant, 2=Group, 3=TID, 4=CSI, 5=MID.
-// TID/MID search local database; others use TMS API.
+// All search types use TMS API (matching v2 behavior).
 // Pass username so we can use the per-user TMS session for old API calls.
 func (s *Service) SearchTerminals(page int, search string, queryType int, username string) (*TMSResponse, error) {
-	switch queryType {
-	case 3, 5: // TID/MID — search local database
-		return s.searchTerminalsByParam(page, search, queryType)
-	default:
-		// Prefer per-user session; fall back to global tms_login session.
-		session := s.GetUserSession(username)
-		if session == "" {
-			session = s.GetSession()
-		}
-		return s.client.GetTerminalListSearch(session, page, search, queryType)
+	// Prefer per-user session; fall back to global tms_login session.
+	session := s.GetUserSession(username)
+	if session == "" {
+		session = s.GetSession()
 	}
+	return s.client.GetTerminalListSearch(session, page, search, queryType)
 }
 
 // searchTerminalsByParam searches the local terminal_parameter table by TID or MID
@@ -272,16 +267,11 @@ func (s *Service) EnrichTerminalsWithTIDMID(terminals []map[string]interface{}) 
 // SearchTerminalsBulk is like SearchTerminals but with page size 100.
 // Used by bulk operations (export, delete-all) to reduce API calls (10x fewer pages).
 func (s *Service) SearchTerminalsBulk(page int, search string, queryType int, username string) (*TMSResponse, error) {
-	switch queryType {
-	case 3, 5: // TID/MID — search local database (bulk page size)
-		return s.searchTerminalsByParamBulk(page, search, queryType)
-	default:
-		session := s.GetUserSession(username)
-		if session == "" {
-			session = s.GetSession()
-		}
-		return s.client.GetTerminalListSearchBulk(session, page, search, queryType)
+	session := s.GetUserSession(username)
+	if session == "" {
+		session = s.GetSession()
 	}
+	return s.client.GetTerminalListSearchBulk(session, page, search, queryType)
 }
 
 // searchTerminalsByParamBulk is like searchTerminalsByParam but with page size 100.
