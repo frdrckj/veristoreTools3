@@ -418,18 +418,27 @@ sendLoop:
 	}
 
 	// Store import result as a queue_log entry for the terminal page to display.
-	var resultMsg string
+	// Format: prefix|success_count|fail_count|suffix
+	// e.g. "Import selesai.|10 CSI berhasil|3 CSI gagal|"
+	var prefix, successPart, failPart, suffix string
 	if cancelledByReset {
-		resultMsg = fmt.Sprintf("Import dibatalkan. %d CSI berhasil, %d CSI gagal.", sc, fc)
+		prefix = "Import dibatalkan."
 	} else if cancelledByTimeout {
-		resultMsg = fmt.Sprintf("Import timeout. %d CSI berhasil, %d CSI gagal dari total %d CSI.", sc, fc, totalRows)
-	} else if fc == 0 && skipCount == 0 {
-		resultMsg = fmt.Sprintf("Import %d CSI berhasil!", sc)
-	} else if fc == 0 {
-		resultMsg = fmt.Sprintf("Import %d CSI berhasil! (%d baris dilewati)", sc, skipCount)
+		prefix = "Import timeout."
+		suffix = fmt.Sprintf("dari total %d CSI.", totalRows)
 	} else {
-		resultMsg = fmt.Sprintf("Import selesai. %d CSI berhasil, %d CSI gagal.", sc, fc)
+		prefix = "Import selesai."
 	}
+	if sc > 0 {
+		successPart = fmt.Sprintf("%d CSI berhasil", sc)
+	}
+	if fc > 0 {
+		failPart = fmt.Sprintf("%d CSI gagal", fc)
+	}
+	if skipCount > 0 && fc == 0 {
+		suffix = fmt.Sprintf("(%d baris dilewati)", skipCount)
+	}
+	resultMsg := fmt.Sprintf("%s|%s|%s|%s", prefix, successPart, failPart, suffix)
 	resultMsgPtr := &resultMsg
 	_ = h.adminRepo.CreateQueueLog(&admin.QueueLog{
 		CreateTime:  strconv.FormatInt(time.Now().UnixMilli(), 10),

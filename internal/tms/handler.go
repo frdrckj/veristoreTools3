@@ -281,9 +281,26 @@ func (h *Handler) Terminal(c echo.Context) error {
 	buttonsDisabled := h.adminRepo.HasPendingSync() || h.adminRepo.HasPendingImport()
 
 	// Show import result notification if available (consumed on first read).
+	// Format: "prefix|success|fail|suffix"
 	if importResult := h.adminRepo.PopImportResult(); importResult != "" {
-		if strings.Contains(importResult, "gagal") {
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, importResult)
+		parts := strings.Split(importResult, "|")
+		if len(parts) == 4 {
+			// Reconstruct a readable message for the flash
+			msg := parts[0]
+			if parts[1] != "" {
+				msg += " " + parts[1] + "."
+			}
+			if parts[2] != "" {
+				msg += " " + parts[2] + "."
+			}
+			if parts[3] != "" {
+				msg += " " + parts[3]
+			}
+			if parts[2] != "" {
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, msg)
+			} else {
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, msg)
+			}
 		} else {
 			shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, importResult)
 		}
@@ -1961,9 +1978,21 @@ func (h *Handler) Import(c echo.Context) error {
 				data.Progress = cur + " / " + tot
 
 				// Pop IMPRS notification (consumed once) to show before redirect.
+				// Format: "prefix|success|fail|suffix"
 				if resultMsg := h.adminRepo.PopImportResult(); resultMsg != "" {
-					data.ResultMessage = resultMsg
-					data.ResultIsError = strings.Contains(resultMsg, "gagal")
+					data.ResultMessage = resultMsg // keep raw for non-empty check
+					parts := strings.Split(resultMsg, "|")
+					if len(parts) == 4 {
+						data.ResultPrefix = parts[0]
+						data.ResultSuccess = parts[1]
+						data.ResultFail = parts[2]
+						data.ResultSuffix = parts[3]
+						data.ResultIsError = parts[2] != ""
+					} else {
+						// Legacy fallback
+						data.ResultPrefix = resultMsg
+						data.ResultIsError = strings.Contains(resultMsg, "gagal")
+					}
 				}
 
 				// Check if import result .txt file exists for download.

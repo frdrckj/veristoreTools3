@@ -13,6 +13,10 @@ type ImportData struct {
 	ResultMessage    string // IMPRS notification message (shown once after import completes)
 	ResultIsError    bool   // true if result contains failure
 	ResultFileExists bool   // true if an import_result_*.txt file exists for download
+	ResultPrefix     string // e.g. "Import selesai." or "Import dibatalkan."
+	ResultSuccess    string // e.g. "10 CSI berhasil"
+	ResultFail       string // e.g. "3 CSI gagal" (empty if none)
+	ResultSuffix     string // e.g. "(5 baris dilewati)" or "dari total 100 CSI."
 }
 
 // ImportPage renders the terminal import page with status tracking.
@@ -41,15 +45,22 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 						setTimeout(function() { window.location.href = '/veristore/import'; }, 3000);
 					</script>
 				} else if data.LastComplete && data.ResultMessage != "" {
-					if data.ResultIsError {
-						<div class="alert alert-danger" style="font-size: 1.1rem;">
-							<i class="fas fa-times-circle"></i> { data.ResultMessage }
-						</div>
-					} else {
-						<div class="alert alert-success" style="font-size: 1.1rem;">
-							<i class="fas fa-check-circle"></i> { data.ResultMessage }
-						</div>
-					}
+					<div class="alert alert-light border" style="font-size: 1.1rem;">
+						{ data.ResultPrefix }
+						if data.ResultSuccess != "" {
+							<span class="badge badge-success" style="font-size: 0.95rem;">
+								<i class="fas fa-check-circle"></i> { data.ResultSuccess }
+							</span>
+						}
+						if data.ResultFail != "" {
+							<span class="badge badge-danger ml-1" style="font-size: 0.95rem;">
+								<i class="fas fa-times-circle"></i> { data.ResultFail }
+							</span>
+						}
+						if data.ResultSuffix != "" {
+							<span class="ml-1">{ data.ResultSuffix }</span>
+						}
+					</div>
 					<a href="/veristore/terminal" class="btn btn-primary">
 						<i class="fas fa-arrow-left"></i> Back to Terminal List
 					</a>
@@ -68,9 +79,6 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 								<div class="card-header">
 									<h3 class="card-title">Import CSI</h3>
 									<div class="card-tools">
-										<a href="/veristore/terminal" class="btn btn-sm btn-default">
-											<i class="fas fa-arrow-left"></i> Back to List
-										</a>
 									</div>
 								</div>
 								<form method="POST" action="/veristore/import" enctype="multipart/form-data">
@@ -85,8 +93,10 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 											</div>
 											<small class="form-text text-muted">
 												Upload an Excel file with terminal data.
-												<a href="/veristore/import-format">Download template</a>
 											</small>
+											<a href="/veristore/import-format" class="btn btn-sm btn-outline-primary mt-2">
+												<i class="fas fa-download"></i> Download Format
+											</a>
 										</div>
 									</div>
 									<div class="card-footer">
@@ -106,9 +116,6 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 								<div class="card-header">
 									<h3 class="card-title">Import CSI</h3>
 									<div class="card-tools">
-										<a href="/veristore/terminal" class="btn btn-sm btn-default">
-											<i class="fas fa-arrow-left"></i> Back to List
-										</a>
 									</div>
 								</div>
 								<form method="POST" action="/veristore/import" enctype="multipart/form-data">
@@ -135,8 +142,10 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 											</div>
 											<small class="form-text text-muted">
 												Upload an Excel file with terminal data.
-												<a href="/veristore/import-format">Download template</a>
 											</small>
+											<a href="/veristore/import-format" class="btn btn-sm btn-outline-primary mt-2">
+												<i class="fas fa-download"></i> Download Format
+											</a>
 										</div>
 									</div>
 									<div class="card-footer">
