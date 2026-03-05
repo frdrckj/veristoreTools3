@@ -501,7 +501,6 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	logger *zerolog.Logger,
 ) string {
 	// Step 1: Copy terminal from template using pre-cached source ID.
-	isExisting := false
 	sourceId, ok := templateCache[j.TemplateSN]
 	if !ok {
 		logger.Warn().Int("row", j.RowNum).Str("template", j.TemplateSN).Msg("template SN not in cache, skipping")
@@ -515,20 +514,17 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	}
 	if copyResp.ResultCode != 0 {
 		if strings.Contains(strings.ToLower(copyResp.Desc), "duplicate") {
-			isExisting = true
-			logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal already exists, updating")
-		} else {
-			logger.Warn().Int("row", j.RowNum).Str("desc", copyResp.Desc).Msg("copy terminal returned error")
-			return "Copy terminal error: " + copyResp.Desc
+			logger.Warn().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal already exists, skipping")
+			return "CSI " + j.SerialNum + " sudah ada di TMS"
 		}
+		logger.Warn().Int("row", j.RowNum).Str("desc", copyResp.Desc).Msg("copy terminal returned error")
+		return "Copy terminal error: " + copyResp.Desc
 	}
 
 	// Step 2: Resolve dest SN → old-API int ID (one call, reused for all steps).
 	destId, err := h.tmsClient.GetIdFromSN(session, j.SerialNum)
 	if err != nil {
-		if !isExisting {
-			_ = h.deleteTerminalOnError(session, j.SerialNum)
-		}
+		_ = h.deleteTerminalOnError(session, j.SerialNum)
 		logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to resolve dest SN to ID")
 		return "Gagal resolve SN " + j.SerialNum
 	}
@@ -536,16 +532,12 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	// Step 3: Get terminal detail (old API) + app list — 2 calls total.
 	detailData, appID, err := h.tmsClient.GetImportTerminalInfo(session, destId)
 	if err != nil {
-		if !isExisting {
-			_ = h.deleteTerminalOnError(session, j.SerialNum)
-		}
+		_ = h.deleteTerminalOnError(session, j.SerialNum)
 		logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to get terminal info")
 		return "Gagal mengambil info terminal"
 	}
 	if appID == "" {
-		if !isExisting {
-			_ = h.deleteTerminalOnError(session, j.SerialNum)
-		}
+		_ = h.deleteTerminalOnError(session, j.SerialNum)
 		logger.Warn().Int("row", j.RowNum).Msg("target app not found on terminal")
 		return "Aplikasi tidak ditemukan pada terminal"
 	}
@@ -553,17 +545,13 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	// Step 4: Fetch parameter tabs concurrently (8 tabs in parallel ≈ 1 RTT).
 	paramResp, err := h.tmsClient.GetParameterTabsConcurrent(session, destId, operationMark, appID, tabNames)
 	if err != nil || paramResp.Data == nil {
-		if !isExisting {
-			_ = h.deleteTerminalOnError(session, j.SerialNum)
-		}
+		_ = h.deleteTerminalOnError(session, j.SerialNum)
 		logger.Warn().Int("row", j.RowNum).Msg("failed to get terminal parameters")
 		return "Gagal mengambil parameter terminal"
 	}
 	allParams, _ := paramResp.Data["paraList"].([]interface{})
 	if len(allParams) == 0 {
-		if !isExisting {
-			_ = h.deleteTerminalOnError(session, j.SerialNum)
-		}
+		_ = h.deleteTerminalOnError(session, j.SerialNum)
 		logger.Warn().Int("row", j.RowNum).Msg("no parameters returned")
 		return "Tidak ada parameter yang dikembalikan"
 	}
@@ -574,9 +562,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	// Validate: TID/MID mandatory for enabled merchants, TID uniqueness.
 	if len(paraList) > 0 {
 		if errMsg := h.validateImportParams(paraList, j.SerialNum, j.RowNum, logger); errMsg != "" {
-			if !isExisting {
-				_ = h.deleteTerminalOnError(session, j.SerialNum)
-			}
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
 			logger.Warn().Int("row", j.RowNum).Str("error", errMsg).Msg("import validation failed")
 			return errMsg
 		}
@@ -587,9 +573,7 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 		destIdStr := strconv.Itoa(destId)
 		updateResp, err := h.tmsClient.UpdateParameterById(destIdStr, paraList, appID)
 		if err != nil || updateResp.ResultCode != 0 {
-			if !isExisting {
-				_ = h.deleteTerminalOnError(session, j.SerialNum)
-			}
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
 			desc := ""
 			if updateResp != nil {
 				desc = updateResp.Desc
@@ -617,26 +601,18 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 	if j.MerchantID != "" || len(groupIDsInt) > 0 {
 		updateDevResp, err := h.tmsClient.UpdateDeviceIdDirect(session, detailData, j.MerchantID, groupIDsInt, j.SerialNum)
 		if err != nil {
-			if !isExisting {
-				_ = h.deleteTerminalOnError(session, j.SerialNum)
-			}
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
 			logger.Warn().Err(err).Int("row", j.RowNum).Msg("failed to update device details")
 			return "Gagal update device details: " + err.Error()
 		}
 		if updateDevResp.ResultCode != 0 {
-			if !isExisting {
-				_ = h.deleteTerminalOnError(session, j.SerialNum)
-			}
+			_ = h.deleteTerminalOnError(session, j.SerialNum)
 			logger.Warn().Int("row", j.RowNum).Int("code", updateDevResp.ResultCode).Str("desc", updateDevResp.Desc).Msg("failed to update device details")
 			return "Gagal update device details: " + updateDevResp.Desc
 		}
 	}
 
-	if isExisting {
-		logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("existing terminal updated successfully")
-	} else {
-		logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal imported successfully")
-	}
+	logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal imported successfully")
 	return ""
 }
 
