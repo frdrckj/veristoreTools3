@@ -11,42 +11,41 @@ type ReportApp struct {
 // ReportPage renders the CSI (Update) page with an app version dropdown (like v2).
 templ ReportPage(page layouts.PageData, apps []ReportApp) {
 	@layouts.Base(page) {
-		<form id="formReport" method="POST" action="/veristore/report">
-			<input type="hidden" name="mode" id="hiddenMode" value="full"/>
-			<br/>
-			<div class="row align-items-center">
-				<div class="col-lg-2">
-					<h5><strong>App Name</strong></h5>
-				</div>
-				<div class="col-lg-10">
-					<select class="form-control select2" id="appVersion" name="appVersion" required>
-						<option value="">App Name</option>
-						for _, app := range apps {
-							<option value={ app.Version }>{ app.DisplayName }</option>
-						}
-					</select>
+		<div class="row">
+			<div class="col-md-6 offset-md-3">
+				<div class="card card-primary">
+					<div class="card-header">
+						<h3 class="card-title">Update &amp; Sync</h3>
+					</div>
+					<form id="formReport" method="POST" action="/veristore/report">
+						<input type="hidden" name="mode" id="hiddenMode" value="full"/>
+						<div class="card-body">
+							<div class="form-group">
+								<label for="appVersion">App Name</label>
+								<select class="form-control select2" id="appVersion" name="appVersion" required>
+									<option value="">Select App</option>
+									for _, app := range apps {
+										<option value={ app.Version }>{ app.DisplayName }</option>
+									}
+								</select>
+							</div>
+						</div>
+						<div class="card-footer">
+							<button type="button" class="btn btn-info" id="btnPartial">
+								<i class="fas fa-bolt"></i> Partial Update &amp; Sync
+							</button>
+							<button type="button" class="btn btn-success ml-2" id="btnFull">
+								<i class="fas fa-sync"></i> Full Update &amp; Sync
+							</button>
+							<a href="/veristore/terminal" class="btn btn-default ml-2">Cancel</a>
+							<span id="spinSubmit" style="display:none;" class="ml-2">
+								<i class="fas fa-spinner fa-spin fa-lg text-success"></i>
+							</span>
+						</div>
+					</form>
 				</div>
 			</div>
-			<br/>
-			<div class="row">
-				<div class="col-lg-1">
-					<a href="/veristore/terminal" class="btn btn-danger">
-						<i class="fas fa-arrow-circle-left"></i> Back
-					</a>
-				</div>
-				<div class="col-lg-11">
-					<button type="button" class="btn btn-info" id="btnPartial">
-						<i class="fas fa-bolt"></i> Partial Update &amp; Sync
-					</button>
-					<button type="button" class="btn btn-success ml-1" id="btnFull">
-						<i class="fas fa-sync"></i> Full Update &amp; Sync
-					</button>
-					<span id="spinSubmit" style="display:none;" class="ml-2">
-						<i class="fas fa-spinner fa-spin fa-lg text-success"></i>
-					</span>
-				</div>
-			</div>
-		</form>
+		</div>
 		<script>
 			window.addEventListener('load', function() {
 				if (typeof $ !== 'undefined' && $.fn.select2) {
