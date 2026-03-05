@@ -256,6 +256,7 @@ func main() {
 	protected.GET("/veristore/importreset", tmsHandler.ImportReset)
 	protected.GET("/veristore/import-merchant", tmsHandler.ImportMerchant)
 	protected.POST("/veristore/import-merchant", tmsHandler.ImportMerchant)
+	protected.GET("/veristore/import-format-merchant", tmsHandler.ImportFormatMerchant)
 	protected.POST("/veristore/change-merchant", tmsHandler.ChangeMerchant)
 
 	// Veristore - Merchant

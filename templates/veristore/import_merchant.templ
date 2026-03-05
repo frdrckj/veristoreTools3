@@ -2,55 +2,108 @@ package veristore
 
 import "github.com/verifone/veristoretools3/templates/layouts"
 
-// ImportMerchantPage renders the merchant import upload form.
-templ ImportMerchantPage(page layouts.PageData, errors []string) {
+// ImportMerchantData holds the state for the import merchant page.
+type ImportMerchantData struct {
+	InProgress    bool
+	RequestDate   string
+	Progress      string
+	Errors        []string
+	ResultMessage string // IMCHRS notification message (shown once after import completes)
+	ResultPrefix  string // e.g. "Import merchant selesai."
+	ResultSuccess string // e.g. "10 merchant berhasil"
+	ResultFail    string // e.g. "3 merchant gagal" (empty if none)
+	ResultSuffix  string // e.g. extra info
+}
+
+// ImportMerchantPage renders the merchant import upload form with status tracking.
+templ ImportMerchantPage(page layouts.PageData, data ImportMerchantData) {
 	@layouts.Base(page) {
-		<div class="row">
-			<div class="col-md-8 offset-md-2">
-				<div class="card card-primary">
-					<div class="card-header">
-						<h3 class="card-title">Import Merchants</h3>
-						<div class="card-tools">
-							<a href="/veristore/merchant" class="btn btn-sm btn-default">
-								<i class="fas fa-arrow-left"></i> Back to Merchants
-							</a>
-						</div>
+		<div class="row mb-3">
+			<div class="col">
+				if data.InProgress {
+					<div class="alert alert-info" style="font-size: 1.1rem;">
+						<i class="fas fa-spinner fa-spin"></i> Import merchant is on process, please wait until finish!
+						<br/>
+						File: { data.RequestDate }
+						<br/>
+						Progress: { data.Progress }
 					</div>
-					<form method="POST" action="/veristore/import-merchant" enctype="multipart/form-data">
-						<div class="card-body">
-							if len(errors) > 0 {
-								<div class="alert alert-danger alert-dismissible fade show" role="alert">
-									<ul class="mb-0">
-										for _, err := range errors {
-											<li>{ err }</li>
-										}
-									</ul>
-									<button type="button" class="close" data-dismiss="alert" aria-label="Close">
-										<span aria-hidden="true">&times;</span>
-									</button>
-								</div>
-							}
-							<div class="form-group">
-								<label for="file">Select Excel File (.xlsx)</label>
-								<div class="input-group">
-									<div class="custom-file">
-										<input type="file" class="custom-file-input" id="file" name="file" accept=".xlsx,.xls"/>
-										<label class="custom-file-label" for="file">Choose file</label>
+					<a href="/veristore/import-merchant" class="btn btn-success ml-2">
+						<i class="fas fa-sync-alt"></i> Refresh
+					</a>
+					<script>
+						setTimeout(function() { window.location.href = '/veristore/import-merchant'; }, 3000);
+					</script>
+				} else if data.ResultMessage != "" {
+					<div class="alert alert-light border" style="font-size: 1.1rem;">
+						{ data.ResultPrefix }
+						if data.ResultSuccess != "" {
+							<span class="badge badge-success" style="font-size: 0.95rem;">
+								<i class="fas fa-check-circle"></i> { data.ResultSuccess }
+							</span>
+						}
+						if data.ResultFail != "" {
+							<span class="badge badge-danger ml-1" style="font-size: 0.95rem;">
+								<i class="fas fa-times-circle"></i> { data.ResultFail }
+							</span>
+						}
+						if data.ResultSuffix != "" {
+							<span class="ml-1">{ data.ResultSuffix }</span>
+						}
+					</div>
+					<a href="/veristore/merchant" class="btn btn-primary">
+						<i class="fas fa-arrow-left"></i> Back to Merchant List
+					</a>
+				} else {
+					<div class="row">
+						<div class="col-md-8 offset-md-2">
+							<div class="card card-primary">
+								<div class="card-header">
+									<h3 class="card-title">Import Merchants</h3>
+									<div class="card-tools">
 									</div>
 								</div>
-								<small class="form-text text-muted">
-									Upload an Excel file with merchant data (merchantName, contact, email, phone, address, etc.).
-								</small>
+								<form method="POST" action="/veristore/import-merchant" enctype="multipart/form-data">
+									<div class="card-body">
+										if len(data.Errors) > 0 {
+											<div class="alert alert-danger alert-dismissible fade show" role="alert">
+												<ul class="mb-0">
+													for _, err := range data.Errors {
+														<li>{ err }</li>
+													}
+												</ul>
+												<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+													<span aria-hidden="true">&times;</span>
+												</button>
+											</div>
+										}
+										<div class="form-group">
+											<label for="file">Select Excel File (.xlsx)</label>
+											<div class="input-group">
+												<div class="custom-file">
+													<input type="file" class="custom-file-input" id="file" name="file" accept=".xlsx,.xls"/>
+													<label class="custom-file-label" for="file">Choose file</label>
+												</div>
+											</div>
+											<small class="form-text text-muted">
+												Upload an Excel file with merchant data (merchantName, contact, email, phone, address, etc.).
+											</small>
+											<a href="/veristore/import-format-merchant" class="btn btn-sm btn-outline-primary mt-2">
+												<i class="fas fa-download"></i> Download Format
+											</a>
+										</div>
+									</div>
+									<div class="card-footer">
+										<button type="submit" class="btn btn-primary">
+											<i class="fas fa-file-import"></i> Import Merchants
+										</button>
+										<a href="/veristore/merchant" class="btn btn-default ml-2">Cancel</a>
+									</div>
+								</form>
 							</div>
 						</div>
-						<div class="card-footer">
-							<button type="submit" class="btn btn-primary">
-								<i class="fas fa-file-import"></i> Import Merchants
-							</button>
-							<a href="/veristore/merchant" class="btn btn-default">Cancel</a>
-						</div>
-					</form>
-				</div>
+					</div>
+				}
 			</div>
 		</div>
 		<script>

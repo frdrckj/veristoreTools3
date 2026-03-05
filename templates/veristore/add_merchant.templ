@@ -6,6 +6,13 @@ import "github.com/verifone/veristoretools3/templates/layouts"
 // When isEdit is true, merchantData contains the existing merchant data.
 templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}, countries []map[string]interface{}, timeZones []map[string]interface{}, isEdit bool) {
 	@layouts.Base(page) {
+		<style>
+			.merchant-form input[type="text"],
+			.merchant-form input[type="email"],
+			.merchant-form textarea {
+				text-transform: uppercase;
+			}
+		</style>
 		<div class="row">
 			<div class="col-md-8 offset-md-2">
 				<div class="card card-primary">
@@ -16,41 +23,126 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 							<h3 class="card-title">Add Merchant</h3>
 						}
 						<div class="card-tools">
-							<a href="/veristore/merchant" class="btn btn-sm btn-default">
-								<i class="fas fa-arrow-left"></i> Back to List
-							</a>
 						</div>
 					</div>
-					<form method="POST" action={ merchantFormAction(isEdit, merchantData) }>
+					<form class="merchant-form" method="POST" action={ merchantFormAction(isEdit, merchantData) }>
 						<div class="card-body">
 							if isEdit && merchantData != nil {
 								<input type="hidden" name="id" value={ merchantDataGet(merchantData, "id") }/>
 							}
+							<div class="form-group">
+								<label for="merchantName">Merchant Name <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="merchantName"
+									name="merchantName"
+									placeholder="Merchant Name"
+									maxlength="40"
+									value={ merchantDataGet(merchantData, "merchantName") }
+									required
+								/>
+							</div>
 							<div class="row">
 								<div class="col-md-6">
 									<div class="form-group">
-										<label for="merchantName">Merchant Name <span class="text-danger">*</span></label>
+										<label for="countryId">Country <span class="text-danger">*</span></label>
+										<select class="form-control" id="countryId" name="countryId" required>
+											<option value="">-- Select Country --</option>
+											for _, c := range countries {
+												<option
+													value={ mapGet(c, "id") }
+													selected?={ mapGet(c, "id") == merchantDataGet(merchantData, "countryId") }
+												>
+													{ mapGet(c, "name") }
+												</option>
+											}
+										</select>
+									</div>
+								</div>
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="timeZone">Time Zone <span class="text-danger">*</span></label>
+										<select class="form-control" id="timeZone" name="timeZone" required>
+											<option value="">-- Select Time Zone --</option>
+											for _, tz := range timeZones {
+												<option
+													value={ mapGet(tz, "id") }
+													selected?={ mapGet(tz, "id") == merchantDataGet(merchantData, "timeZone") }
+												>
+													{ mapGet(tz, "name") }
+												</option>
+											}
+										</select>
+									</div>
+								</div>
+							</div>
+							<div class="row">
+								<div class="col-md-4">
+									<div class="form-group">
+										<label for="stateId">State <span class="text-danger">*</span></label>
+										<select class="form-control" id="stateId" name="stateId" required>
+											<option value="">-- Select State --</option>
+										</select>
+									</div>
+								</div>
+								<div class="col-md-4">
+									<div class="form-group">
+										<label for="cityId">City <span class="text-danger">*</span></label>
+										<select class="form-control" id="cityId" name="cityId" required>
+											<option value="">-- Select City --</option>
+										</select>
+									</div>
+								</div>
+								<div class="col-md-4">
+									<div class="form-group">
+										<label for="districtId">District <span class="text-danger">*</span></label>
+										<select class="form-control" id="districtId" name="districtId" required>
+											<option value="">-- Select District --</option>
+										</select>
+									</div>
+								</div>
+							</div>
+							<div class="form-group">
+								<label for="address">Address <span class="text-danger">*</span></label>
+								<textarea
+									class="form-control"
+									id="address"
+									name="address"
+									rows="3"
+									maxlength="200"
+									placeholder="Address"
+									style="resize:none;"
+									required
+								>{ merchantDataGet(merchantData, "address") }</textarea>
+							</div>
+							<div class="row">
+								<div class="col-md-6">
+									<div class="form-group">
+										<label for="postCode">Post Code</label>
 										<input
 											type="text"
 											class="form-control"
-											id="merchantName"
-											name="merchantName"
-											placeholder="Enter merchant name"
-											value={ merchantDataGet(merchantData, "merchantName") }
-											required
+											id="postCode"
+											name="postCode"
+											placeholder="Post Code"
+											maxlength="40"
+											value={ merchantDataGet(merchantData, "postCode") }
+											oninput="this.value = this.value.replace(/[^0-9]/g, '')"
 										/>
 									</div>
 								</div>
 								<div class="col-md-6">
 									<div class="form-group">
-										<label for="contact">Contact</label>
+										<label for="contact">Contact Name <span class="text-danger">*</span></label>
 										<input
 											type="text"
 											class="form-control"
 											id="contact"
 											name="contact"
-											placeholder="Enter contact name"
+											placeholder="Contact Name"
 											value={ merchantDataGet(merchantData, "contact") }
+											required
 										/>
 									</div>
 								</div>
@@ -64,143 +156,43 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 											class="form-control"
 											id="email"
 											name="email"
-											placeholder="Enter email"
+											placeholder="Email"
+											maxlength="40"
 											value={ merchantDataGet(merchantData, "email") }
 										/>
 									</div>
 								</div>
 								<div class="col-md-6">
 									<div class="form-group">
-										<label for="cellPhone">Cell Phone</label>
+										<label for="cellPhone">Mobile <span class="text-danger">*</span></label>
 										<input
 											type="text"
 											class="form-control"
 											id="cellPhone"
 											name="cellPhone"
-											placeholder="Enter cell phone"
+											placeholder="Mobile Phone Number"
+											minlength="10"
+											maxlength="40"
 											value={ merchantDataGet(merchantData, "cellPhone") }
-										/>
-									</div>
-								</div>
-							</div>
-							<div class="row">
-								<div class="col-md-6">
-									<div class="form-group">
-										<label for="telePhone">Telephone</label>
-										<input
-											type="text"
-											class="form-control"
-											id="telePhone"
-											name="telePhone"
-											placeholder="Enter telephone"
-											value={ merchantDataGet(merchantData, "telePhone") }
-										/>
-									</div>
-								</div>
-								<div class="col-md-6">
-									<div class="form-group">
-										<label for="postCode">Post Code</label>
-										<input
-											type="text"
-											class="form-control"
-											id="postCode"
-											name="postCode"
-											placeholder="Enter post code"
-											value={ merchantDataGet(merchantData, "postCode") }
+											oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+											required
 										/>
 									</div>
 								</div>
 							</div>
 							<div class="form-group">
-								<label for="address">Address</label>
-								<textarea
+								<label for="telePhone">Telephone</label>
+								<input
+									type="text"
 									class="form-control"
-									id="address"
-									name="address"
-									rows="3"
-									placeholder="Enter address"
-								>{ merchantDataGet(merchantData, "address") }</textarea>
-							</div>
-							<div class="row">
-								<div class="col-md-6">
-									<div class="form-group">
-										<label for="timeZone">Time Zone</label>
-										<select class="form-control select2" id="timeZone" name="timeZone">
-											<option value="">-- Select Time Zone --</option>
-											for _, tz := range timeZones {
-												<option
-													value={ mapGet(tz, "id") }
-													selected?={ mapGet(tz, "id") == merchantDataGet(merchantData, "timeZone") }
-												>
-													{ mapGet(tz, "name") }
-												</option>
-											}
-										</select>
-									</div>
-								</div>
-								<div class="col-md-6">
-									<div class="form-group">
-										<label for="countryId">Country</label>
-										<select
-											class="form-control select2"
-											id="countryId"
-											name="countryId"
-											hx-get="/veristore/state"
-											hx-target="#stateOptions"
-											hx-trigger="change"
-											hx-include="[name='countryId']"
-										>
-											<option value="">-- Select Country --</option>
-											for _, c := range countries {
-												<option
-													value={ mapGet(c, "id") }
-													selected?={ mapGet(c, "id") == merchantDataGet(merchantData, "countryId") }
-												>
-													{ mapGet(c, "name") }
-												</option>
-											}
-										</select>
-									</div>
-								</div>
-							</div>
-							<div class="row">
-								<div class="col-md-4">
-									<div class="form-group">
-										<label for="stateId">State</label>
-										<select class="form-control select2" id="stateId" name="stateId"
-											hx-get="/veristore/city"
-											hx-target="#cityOptions"
-											hx-trigger="change"
-											hx-include="[name='stateId']"
-										>
-											<option value="">-- Select State --</option>
-										</select>
-										<div id="stateOptions"></div>
-									</div>
-								</div>
-								<div class="col-md-4">
-									<div class="form-group">
-										<label for="cityId">City</label>
-										<select class="form-control select2" id="cityId" name="cityId"
-											hx-get="/veristore/district"
-											hx-target="#districtOptions"
-											hx-trigger="change"
-											hx-include="[name='cityId']"
-										>
-											<option value="">-- Select City --</option>
-										</select>
-										<div id="cityOptions"></div>
-									</div>
-								</div>
-								<div class="col-md-4">
-									<div class="form-group">
-										<label for="districtId">District</label>
-										<select class="form-control select2" id="districtId" name="districtId">
-											<option value="">-- Select District --</option>
-										</select>
-										<div id="districtOptions"></div>
-									</div>
-								</div>
+									id="telePhone"
+									name="telePhone"
+									placeholder="Telephone Number"
+									minlength="10"
+									maxlength="40"
+									value={ merchantDataGet(merchantData, "telePhone") }
+									oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+								/>
 							</div>
 						</div>
 						<div class="card-footer">
@@ -219,6 +211,71 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 				</div>
 			</div>
 		</div>
+		<script>
+			document.querySelector('.merchant-form')?.addEventListener('submit', function() {
+				this.querySelectorAll('input[type="text"], input[type="email"], textarea').forEach(function(el) {
+					el.value = el.value.toUpperCase();
+				});
+			});
+
+			// Cascading dropdown: Country → State → City → District
+			function loadOptions(url, params, targetId, placeholder) {
+				var sel = document.getElementById(targetId);
+				sel.innerHTML = '<option value="">' + placeholder + '</option>';
+				if (!params) return;
+				var qs = Object.keys(params).map(function(k) { return k + '=' + params[k]; }).join('&');
+				fetch(url + '?' + qs).then(function(r) { return r.text(); }).then(function(html) {
+					sel.innerHTML = html;
+				});
+			}
+
+			document.getElementById('countryId').addEventListener('change', function() {
+				var v = this.value;
+				document.getElementById('cityId').innerHTML = '<option value="">-- Select City --</option>';
+				document.getElementById('districtId').innerHTML = '<option value="">-- Select District --</option>';
+				if (v) {
+					loadOptions('/veristore/state', {countryId: v}, 'stateId', '-- Select State --');
+				} else {
+					document.getElementById('stateId').innerHTML = '<option value="">-- Select State --</option>';
+				}
+			});
+
+			document.getElementById('stateId').addEventListener('change', function() {
+				var v = this.value;
+				document.getElementById('districtId').innerHTML = '<option value="">-- Select District --</option>';
+				if (v) {
+					loadOptions('/veristore/city', {stateId: v}, 'cityId', '-- Select City --');
+				} else {
+					document.getElementById('cityId').innerHTML = '<option value="">-- Select City --</option>';
+				}
+			});
+
+			document.getElementById('cityId').addEventListener('change', function() {
+				var v = this.value;
+				if (v) {
+					loadOptions('/veristore/district', {cityId: v}, 'districtId', '-- Select District --');
+				} else {
+					document.getElementById('districtId').innerHTML = '<option value="">-- Select District --</option>';
+				}
+			});
+
+			// Default country to Indonesia on add (not edit).
+			(function() {
+				var sel = document.getElementById('countryId');
+				if (!sel.value) {
+					for (var i = 0; i < sel.options.length; i++) {
+						if (sel.options[i].text.toLowerCase().indexOf('indonesia') >= 0) {
+							sel.value = sel.options[i].value;
+							sel.dispatchEvent(new Event('change'));
+							break;
+						}
+					}
+				} else {
+					// Edit mode: load states for existing country
+					sel.dispatchEvent(new Event('change'));
+				}
+			})();
+		</script>
 	}
 }
 

@@ -2279,24 +2279,156 @@ func (h *Handler) ImportResult(c echo.Context) error {
 	return c.Attachment(resultPath, resultName)
 }
 
+// ImportFormatMerchant handles GET /veristore/import-format-merchant - Download merchant import template.
+func (h *Handler) ImportFormatMerchant(c echo.Context) error {
+	filePath := "static/import_format_merchant.xlsx"
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return c.String(http.StatusNotFound, "Format file not found")
+	}
+	return c.Attachment(filePath, "import_format_merchant.xlsx")
+}
+
 // ImportMerchant handles GET/POST /veristore/import-merchant - Import merchants from Excel.
 func (h *Handler) ImportMerchant(c echo.Context) error {
 	page := h.pageData(c, "Import Merchants")
+	data := vsTmpl.ImportMerchantData{}
 
 	if c.Request().Method == http.MethodGet {
-		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, nil))
+		// Check for in-progress merchant import.
+		inProgress, _ := h.adminRepo.FindInProgressMerchantImport()
+		if inProgress != nil {
+			data.InProgress = true
+			data.RequestDate = inProgress.ImpFilename
+			var prog struct {
+				Current string
+				Total   string
+			}
+			h.service.db.Raw("SELECT COALESCE(imp_cur_row,'0') as current, COALESCE(imp_total_row,'0') as total FROM `import` WHERE imp_id = ?", inProgress.ImpID).Scan(&prog)
+			data.Progress = prog.Current + " / " + prog.Total
+			return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+		}
+
+		// Check for completed merchant import result notification.
+		if resultMsg := h.adminRepo.PopMerchantImportResult(); resultMsg != "" {
+			data.ResultMessage = resultMsg
+			parts := strings.Split(resultMsg, "|")
+			if len(parts) == 4 {
+				data.ResultPrefix = parts[0]
+				data.ResultSuccess = parts[1]
+				data.ResultFail = parts[2]
+				data.ResultSuffix = parts[3]
+			} else {
+				data.ResultPrefix = resultMsg
+			}
+		}
+
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
 	}
 
 	// POST - handle file upload.
 	file, err := c.FormFile("file")
 	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, []string{"Please select a file to upload"}))
+		data.Errors = []string{"Please select a file to upload"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
 	}
 
-	_ = file // TODO: Process the Excel file for merchant import.
+	// Save uploaded file.
+	src, err := file.Open()
+	if err != nil {
+		data.Errors = []string{"Failed to open uploaded file"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+	defer src.Close()
 
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Merchant import completed")
-	return c.Redirect(http.StatusFound, "/veristore/merchant")
+	filename := fmt.Sprintf("mch_%s.xlsx", time.Now().Format("20060102_1504"))
+	destPath := filepath.Join("static", "import", filename)
+	dst, err := os.Create(destPath)
+	if err != nil {
+		data.Errors = []string{fmt.Sprintf("Failed to save file: %v", err)}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+	if _, err = io.Copy(dst, src); err != nil {
+		dst.Close()
+		_ = os.Remove(destPath)
+		data.Errors = []string{fmt.Sprintf("Failed to save file: %v", err)}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+	dst.Close()
+
+	// Count rows for progress tracking.
+	ef, err := excelize.OpenFile(destPath)
+	if err != nil {
+		_ = os.Remove(destPath)
+		data.Errors = []string{"Failed to read Excel file: " + err.Error()}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+	sheetName := ef.GetSheetName(0)
+	allRows, _ := ef.GetRows(sheetName)
+	ef.Close()
+	rowCount := len(allRows) - 1 // exclude header
+	if rowCount < 1 {
+		_ = os.Remove(destPath)
+		data.Errors = []string{"Excel file has no data rows (only header)"}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+
+	// Get TMS session for background job.
+	session := h.service.GetSession()
+	if session == "" {
+		_ = os.Remove(destPath)
+		data.Errors = []string{"No active TMS session. Please login to Veristore first."}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+
+	// Create import record for progress tracking.
+	current := "0"
+	total := strconv.Itoa(rowCount)
+	imp := &admin.Import{
+		ImpCodeID:   "MCH",
+		ImpFilename: filename,
+		ImpCurrent:  &current,
+		ImpTotal:    &total,
+	}
+	if err := h.adminRepo.CreateImport(imp); err != nil {
+		_ = os.Remove(destPath)
+		data.Errors = []string{fmt.Sprintf("Failed to create import record: %v", err)}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+
+	// Get current user.
+	user := ""
+	if u, ok := c.Get("user").(string); ok {
+		user = u
+	}
+	if user == "" {
+		sess, _ := h.store.Get(c.Request(), h.sessionName)
+		if sess != nil {
+			if u, ok := sess.Values["username"].(string); ok {
+				user = u
+			}
+		}
+	}
+
+	// Enqueue background import job.
+	payload := map[string]interface{}{
+		"file_path":  destPath,
+		"session":    session,
+		"user":       user,
+		"country_id": 1,
+		"import_id":  imp.ImpID,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	task := asynq.NewTask("import:merchant", payloadBytes)
+	if _, err := h.queueClient.Enqueue(task, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
+		_ = os.Remove(destPath)
+		data.Errors = []string{fmt.Sprintf("Failed to enqueue import job: %v", err)}
+		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))
+	}
+
+	mw.LogActivityFromContext(c, mw.LogVeristoreImportMerch, "Import Merchant from "+file.Filename)
+
+	// Redirect to GET so the browser doesn't re-submit the form on refresh.
+	return c.Redirect(http.StatusFound, "/veristore/import-merchant")
 }
 
 // ChangeMerchant handles POST /veristore/change-merchant - AJAX change terminal merchant.
@@ -2850,75 +2982,84 @@ func (h *Handler) GetModel(c echo.Context) error {
 func (h *Handler) GetState(c echo.Context) error {
 	countryId, _ := strconv.Atoi(c.QueryParam("countryId"))
 	if countryId == 0 {
-		return c.JSON(http.StatusOK, map[string]interface{}{"data": []interface{}{}})
+		return c.HTML(http.StatusOK, `<option value="">-- Select State --</option>`)
 	}
 
 	resp, err := h.service.GetStateList(countryId)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
+		return c.HTML(http.StatusOK, `<option value="">-- Select State --</option>`)
 	}
 
-	var states []interface{}
+	html := `<option value="">-- Select State --</option>`
 	if resp.ResultCode == 0 && resp.Data != nil {
 		if sl, ok := resp.Data["states"].([]interface{}); ok {
-			states = sl
+			for _, s := range sl {
+				if sm, ok := s.(map[string]interface{}); ok {
+					id := fmt.Sprintf("%v", sm["id"])
+					name := fmt.Sprintf("%v", sm["name"])
+					html += fmt.Sprintf(`<option value="%s">%s</option>`, id, name)
+				}
+			}
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"code": resp.ResultCode,
-		"data": states,
-	})
+	return c.HTML(http.StatusOK, html)
 }
 
 // GetCity handles GET /veristore/city - Get cities by state (HTMX).
 func (h *Handler) GetCity(c echo.Context) error {
 	stateId, _ := strconv.Atoi(c.QueryParam("stateId"))
 	if stateId == 0 {
-		return c.JSON(http.StatusOK, map[string]interface{}{"data": []interface{}{}})
+		return c.HTML(http.StatusOK, `<option value="">-- Select City --</option>`)
 	}
 
 	resp, err := h.service.GetCityList(stateId)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
+		return c.HTML(http.StatusOK, `<option value="">-- Select City --</option>`)
 	}
 
-	var cities []interface{}
+	html := `<option value="">-- Select City --</option>`
 	if resp.ResultCode == 0 && resp.Data != nil {
 		if cl, ok := resp.Data["cities"].([]interface{}); ok {
-			cities = cl
+			for _, ci := range cl {
+				if cm, ok := ci.(map[string]interface{}); ok {
+					id := fmt.Sprintf("%v", cm["id"])
+					name := fmt.Sprintf("%v", cm["name"])
+					html += fmt.Sprintf(`<option value="%s">%s</option>`, id, name)
+				}
+			}
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"code": resp.ResultCode,
-		"data": cities,
-	})
+	return c.HTML(http.StatusOK, html)
 }
 
 // GetDistrict handles GET /veristore/district - Get districts by city (HTMX).
 func (h *Handler) GetDistrict(c echo.Context) error {
 	cityId, _ := strconv.Atoi(c.QueryParam("cityId"))
 	if cityId == 0 {
-		return c.JSON(http.StatusOK, map[string]interface{}{"data": []interface{}{}})
+		return c.HTML(http.StatusOK, `<option value="">-- Select District --</option>`)
 	}
 
 	resp, err := h.service.GetDistrictList(cityId)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
+		return c.HTML(http.StatusOK, `<option value="">-- Select District --</option>`)
 	}
 
-	var districts []interface{}
+	html := `<option value="">-- Select District --</option>`
 	if resp.ResultCode == 0 && resp.Data != nil {
 		if dl, ok := resp.Data["districts"].([]interface{}); ok {
-			districts = dl
+			for _, d := range dl {
+				if dm, ok := d.(map[string]interface{}); ok {
+					id := fmt.Sprintf("%v", dm["id"])
+					name := fmt.Sprintf("%v", dm["name"])
+					html += fmt.Sprintf(`<option value="%s">%s</option>`, id, name)
+				}
+			}
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"code": resp.ResultCode,
-		"data": districts,
-	})
+	return c.HTML(http.StatusOK, html)
 }
 
 // ---------------------------------------------------------------------------

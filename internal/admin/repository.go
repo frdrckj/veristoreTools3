@@ -215,6 +215,22 @@ func (r *Repository) PopImportResult() string {
 	return ""
 }
 
+// PopMerchantImportResult retrieves and deletes the most recent merchant import
+// result message (process_name='IMCHRS'). Returns the message or empty string if none.
+func (r *Repository) PopMerchantImportResult() string {
+	var ql QueueLog
+	err := r.db.Where("process_name = ?", "IMCHRS").Order("create_time DESC").First(&ql).Error
+	if err != nil {
+		return ""
+	}
+	// Delete after reading (consume).
+	r.db.Where("process_name = ?", "IMCHRS").Delete(&QueueLog{})
+	if ql.ServiceName != nil {
+		return *ql.ServiceName
+	}
+	return ""
+}
+
 // SearchQueueLogs returns a paginated list of queue logs.
 func (r *Repository) SearchQueueLogs(query string, page, perPage int) ([]QueueLog, shared.Pagination, error) {
 	var logs []QueueLog
@@ -293,6 +309,26 @@ func (r *Repository) FindLatestImport() (*Import, error) {
 // DeleteIncompleteImports removes imports that are stuck (current != total).
 func (r *Repository) DeleteIncompleteImports() error {
 	return r.db.Where("imp_cur_row != imp_total_row").Delete(&Import{}).Error
+}
+
+// FindInProgressMerchantImport finds a merchant import still being processed.
+func (r *Repository) FindInProgressMerchantImport() (*Import, error) {
+	var i Import
+	err := r.db.Where("imp_code_id = ? AND imp_cur_row != imp_total_row", "MCH").Order("imp_id DESC").First(&i).Error
+	if err != nil {
+		return nil, err
+	}
+	return &i, nil
+}
+
+// FindLatestMerchantImport retrieves the most recent merchant import record.
+func (r *Repository) FindLatestMerchantImport() (*Import, error) {
+	var i Import
+	err := r.db.Where("imp_code_id = ?", "MCH").Order("imp_id DESC").First(&i).Error
+	if err != nil {
+		return nil, err
+	}
+	return &i, nil
 }
 
 // ==================== Export ====================
