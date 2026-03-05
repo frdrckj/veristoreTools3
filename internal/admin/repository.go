@@ -320,10 +320,11 @@ func (r *Repository) DeleteExport(id int) error {
 	return r.db.Delete(&Export{}, "exp_id = ?", id).Error
 }
 
-// FindInProgressExport finds an export that is still being processed (no data, current != total).
+// FindInProgressExport finds an export that is still being processed (no data blob yet).
 func (r *Repository) FindInProgressExport() (*Export, error) {
 	var e Export
-	err := r.db.Where("exp_data IS NULL AND exp_current != exp_total").Order("exp_id DESC").First(&e).Error
+	err := r.db.Select("exp_id, exp_filename, exp_current, exp_total").
+		Where("exp_data IS NULL").Order("exp_id DESC").First(&e).Error
 	if err != nil {
 		return nil, err
 	}

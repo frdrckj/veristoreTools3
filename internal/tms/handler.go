@@ -1658,6 +1658,13 @@ func (h *Handler) Export(c echo.Context) error {
 	if inProgress != nil {
 		data.InProgress = true
 		data.RequestDate = parseExportFilenameDate(inProgress.ExpFilename)
+		// Read progress directly from DB to avoid any pointer/caching issues.
+		var prog struct {
+			Current string
+			Total   string
+		}
+		h.service.db.Raw("SELECT COALESCE(exp_current,'0') as current, COALESCE(exp_total,'0') as total FROM `export` WHERE exp_id = ?", inProgress.ExpID).Scan(&prog)
+		data.Progress = prog.Current + " / " + prog.Total
 		return shared.Render(c, http.StatusOK, vsTmpl.ExportPage(page, data))
 	}
 

@@ -19,6 +19,8 @@ type ExportData struct {
 	DownloadReady bool
 	// LastExportDate is the date of the last completed export.
 	LastExportDate string
+	// Progress shows current/total during export (e.g. "25 / 100").
+	Progress string
 	// ShowCreate is true when the Create button should be shown.
 	ShowCreate bool
 	// SelectAll is true when the user selected all terminals (background job
@@ -37,9 +39,11 @@ templ ExportPage(page layouts.PageData, data ExportData) {
 			<div class="col">
 				if data.InProgress {
 					<div class="alert alert-info" style="font-size: 1.1rem;">
-						Export is on process, please wait until finish!
+						<i class="fas fa-spinner fa-spin"></i> Export is on process, please wait until finish!
 						<br/>
 						Request date: { data.RequestDate }
+						<br/>
+						Progress: { data.Progress }
 					</div>
 					<a href="/veristore/export?refresh=true" class="btn btn-success">
 						<i class="fas fa-sync-alt"></i> Refresh
@@ -47,6 +51,9 @@ templ ExportPage(page layouts.PageData, data ExportData) {
 					<a href="/veristore/exportreset" class="btn btn-warning ml-2" onclick="return confirm('Force stop the export process?')">
 						<i class="fas fa-stop-circle"></i> Force Stop
 					</a>
+					<script>
+						setTimeout(function() { window.location.href = '/veristore/export?refresh=true'; }, 3000);
+					</script>
 				} else if data.DownloadReady {
 					<div class="alert alert-info" style="font-size: 1.1rem;">
 						Last export on { data.LastExportDate }

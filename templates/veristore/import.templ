@@ -28,9 +28,9 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 						<br/>
 						Progress: { data.Progress }
 					</div>
-					<a href="/veristore/import-format" class="btn btn-primary">
-						<i class="fas fa-download"></i> Download Format
-					</a>
+					// <a href="/veristore/import-format" class="btn btn-primary">
+					// 	<i class="fas fa-download"></i> Download Format
+					// </a>
 					<a href="/veristore/import" class="btn btn-success ml-2">
 						<i class="fas fa-sync-alt"></i> Refresh
 					</a>
@@ -38,7 +38,7 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 						<i class="fas fa-stop-circle"></i> Force Stop
 					</a>
 					<script>
-						setTimeout(function() { window.location.reload(); }, 3000);
+						setTimeout(function() { window.location.href = '/veristore/import'; }, 3000);
 					</script>
 				} else if data.LastComplete && data.ResultMessage != "" {
 					if data.ResultIsError {
