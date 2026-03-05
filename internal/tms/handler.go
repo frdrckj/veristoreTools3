@@ -634,6 +634,8 @@ func (h *Handler) Edit(c echo.Context) error {
 	// Update tid_note entries after successful parameter update (matching V2 TidNoteHelper::add).
 	h.saveTidNotesFromParams(serialNum, fullParams, mw.GetCurrentUserFullname(c))
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreEditParam, "Edit parameter csi "+serialNum)
+
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Update parameter berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
