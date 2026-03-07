@@ -91,15 +91,40 @@ func toActivityLogDataSlice(logs []ActivityLog) []adminTmpl.ActivityLogData {
 
 // ActivityLogIndex lists activity logs with search and pagination.
 func (h *Handler) ActivityLogIndex(c echo.Context) error {
-	query := c.QueryParam("q")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
 	}
 
-	logs, pagination, err := h.repo.SearchActivityLogs(query, pageNum, 20)
+	filter := ActivityLogFilter{
+		Action:   c.QueryParam("action"),
+		Detail:   c.QueryParam("detail"),
+		User:     c.QueryParam("user"),
+		DateFrom: c.QueryParam("dateFrom"),
+		DateTo:   c.QueryParam("dateTo"),
+	}
+
+	logs, pagination, err := h.repo.SearchActivityLogsFiltered(filter, pageNum, 20)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load activity logs")
+	}
+
+	// Build query string for pagination links to preserve filters.
+	var qs string
+	if filter.Action != "" {
+		qs += "&action=" + filter.Action
+	}
+	if filter.Detail != "" {
+		qs += "&detail=" + filter.Detail
+	}
+	if filter.User != "" {
+		qs += "&user=" + filter.User
+	}
+	if filter.DateFrom != "" {
+		qs += "&dateFrom=" + filter.DateFrom
+	}
+	if filter.DateTo != "" {
+		qs += "&dateTo=" + filter.DateTo
 	}
 
 	paginationData := components.PaginationData{
@@ -108,16 +133,26 @@ func (h *Handler) ActivityLogIndex(c echo.Context) error {
 		Total:       pagination.Total,
 		BaseURL:     "/activitylog/index",
 		HTMXTarget:  "actlog-table-container",
+		QueryString: qs,
 	}
 
 	page := h.pageData(c, "Activity Log")
 	logData := toActivityLogDataSlice(logs)
+	users := h.repo.GetActivityLogUsers()
 
-	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, adminTmpl.ActivityLogTablePartial(logData, paginationData, query))
+	filterData := adminTmpl.ActivityLogFilterData{
+		Action:   filter.Action,
+		Detail:   filter.Detail,
+		User:     filter.User,
+		DateFrom: filter.DateFrom,
+		DateTo:   filter.DateTo,
 	}
 
-	return shared.Render(c, http.StatusOK, adminTmpl.ActivityLogIndexPage(page, logData, paginationData, query))
+	if shared.IsHTMX(c) {
+		return shared.Render(c, http.StatusOK, adminTmpl.ActivityLogTablePartial(logData, paginationData, filterData, users))
+	}
+
+	return shared.Render(c, http.StatusOK, adminTmpl.ActivityLogIndexPage(page, logData, paginationData, filterData, users))
 }
 
 // ActivityLogView displays activity log details by ID.
@@ -244,6 +279,7 @@ func (h *Handler) TechnicianCreate(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, adminTmpl.TechnicianFormPage(page, toTechnicianData(*t), false, []string{err.Error()}))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreAddTech, "Add technician "+t.TechName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Technician created successfully")
 	return c.Redirect(http.StatusFound, "/technician/index")
 }
@@ -291,6 +327,7 @@ func (h *Handler) TechnicianUpdate(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, adminTmpl.TechnicianFormPage(page, toTechnicianData(*existing), true, []string{err.Error()}))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVeristoreEditTech, "Edit technician "+existing.TechName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Technician updated successfully")
 	return c.Redirect(http.StatusFound, "/technician/index")
 }
@@ -305,6 +342,7 @@ func (h *Handler) TechnicianDelete(c echo.Context) error {
 	if err := h.repo.DeleteTechnician(id); err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to delete technician: %v", err))
 	} else {
+		mw.LogActivityFromContext(c, mw.LogVeristoreDelTech, fmt.Sprintf("Delete technician ID %d", id))
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Technician deleted successfully")
 	}
 
@@ -330,13 +368,28 @@ func (h *Handler) parseTechnicianForm(c echo.Context) (*Technician, []string) {
 
 	var errors []string
 	if t.TechName == "" {
-		errors = append(errors, "Name is required")
+		errors = append(errors, "Nama is required")
 	}
 	if t.TechNip == "" {
 		errors = append(errors, "NIP is required")
 	}
 	if t.TechNumber == "" {
-		errors = append(errors, "Number is required")
+		errors = append(errors, "ID Number (KTP) is required")
+	}
+	if t.TechAddress == "" {
+		errors = append(errors, "Alamat is required")
+	}
+	if t.TechCompany == "" {
+		errors = append(errors, "Perusahaan is required")
+	}
+	if t.TechSercivePoint == "" {
+		errors = append(errors, "Service Point is required")
+	}
+	if t.TechPhone == "" {
+		errors = append(errors, "Telepon is required")
+	}
+	if t.TechGender == "" {
+		errors = append(errors, "Jenis Kelamin is required")
 	}
 
 	return t, errors

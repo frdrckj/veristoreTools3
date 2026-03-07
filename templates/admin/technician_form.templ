@@ -16,13 +16,10 @@ templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, e
 							if isEdit {
 								Edit Technician
 							} else {
-								Create Technician
+								Add Technician
 							}
 						</h3>
 						<div class="card-tools">
-							<a href="/technician/index" class="btn btn-sm btn-default">
-								<i class="fas fa-arrow-left"></i> Back to List
-							</a>
 						</div>
 					</div>
 					<form
@@ -47,13 +44,14 @@ templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, e
 								</div>
 							}
 							<div class="form-group">
-								<label for="tech_name">Name <span class="text-danger">*</span></label>
+								<label for="tech_name">Nama <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="tech_name"
 									name="tech_name"
-									placeholder="Enter name"
+									placeholder="Nama"
+									maxlength="150"
 									value={ t.TechName }
 									required
 								/>
@@ -65,80 +63,94 @@ templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, e
 									class="form-control"
 									id="tech_nip"
 									name="tech_nip"
-									placeholder="Enter NIP"
+									placeholder="NIP"
+									maxlength="50"
 									value={ t.TechNip }
 									required
 								/>
 							</div>
 							<div class="form-group">
-								<label for="tech_number">Number <span class="text-danger">*</span></label>
+								<label for="tech_number">ID Number (KTP) <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="tech_number"
 									name="tech_number"
-									placeholder="Enter number"
+									placeholder="ID Number (KTP)"
+									maxlength="100"
 									value={ t.TechNumber }
 									required
 								/>
 							</div>
 							<div class="form-group">
-								<label for="tech_gender">Gender</label>
-								<select class="form-control" id="tech_gender" name="tech_gender">
-									<option value="M" if t.TechGender == "M" { selected }>Male</option>
-									<option value="F" if t.TechGender == "F" { selected }>Female</option>
-								</select>
+								<label for="tech_address">Alamat <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="tech_address"
+									name="tech_address"
+									placeholder="Alamat"
+									value={ t.TechAddress }
+									required
+								/>
 							</div>
 							<div class="form-group">
-								<label for="tech_company">Company</label>
+								<label for="tech_company">Perusahaan <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="tech_company"
 									name="tech_company"
-									placeholder="Enter company"
+									placeholder="Perusahaan"
+									maxlength="100"
 									value={ t.TechCompany }
+									required
 								/>
 							</div>
 							<div class="form-group">
-								<label for="tech_service_point">Service Point</label>
+								<label for="tech_service_point">Service Point <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="tech_service_point"
 									name="tech_service_point"
-									placeholder="Enter service point"
+									placeholder="Service Point"
+									maxlength="100"
 									value={ t.TechServicePoint }
+									required
 								/>
 							</div>
 							<div class="form-group">
-								<label for="tech_phone">Phone</label>
+								<label for="tech_phone">Telepon <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="tech_phone"
 									name="tech_phone"
-									placeholder="Enter phone number"
+									placeholder="Telepon"
+									maxlength="15"
 									value={ t.TechPhone }
+									oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+									required
 								/>
 							</div>
 							<div class="form-group">
-								<label for="tech_address">Address</label>
-								<textarea
-									class="form-control"
-									id="tech_address"
-									name="tech_address"
-									rows="3"
-									placeholder="Enter address"
-								>{ t.TechAddress }</textarea>
-							</div>
-							<div class="form-group">
-								<label for="tech_status">Status</label>
-								<select class="form-control" id="tech_status" name="tech_status">
-									<option value="1" if t.TechStatus == "1" || t.TechStatus == "" { selected }>Active</option>
-									<option value="0" if t.TechStatus == "0" { selected }>Inactive</option>
+								<label for="tech_gender">Jenis Kelamin <span class="text-danger">*</span></label>
+								<select class="form-control" id="tech_gender" name="tech_gender" required>
+									<option value="">-- Pilih Jenis Kelamin --</option>
+									<option value="0" selected?={ t.TechGender == "0" }>Laki-Laki</option>
+									<option value="1" selected?={ t.TechGender == "1" }>Perempuan</option>
 								</select>
 							</div>
+							if isEdit {
+								<div class="form-group">
+									<label for="tech_status">Status</label>
+									<select class="form-control" id="tech_status" name="tech_status">
+										<option value="1" selected?={ t.TechStatus == "1" || t.TechStatus == "" }>Active</option>
+										<option value="0" selected?={ t.TechStatus == "0" }>Inactive</option>
+									</select>
+								</div>
+							}
 						</div>
 						<div class="card-footer">
 							<button type="submit" class="btn btn-primary">
@@ -146,7 +158,7 @@ templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, e
 								if isEdit {
 									Update Technician
 								} else {
-									Create Technician
+									Add Technician
 								}
 							</button>
 							<a href="/technician/index" class="btn btn-default">Cancel</a>

@@ -43,10 +43,10 @@ func (t TechnicianData) StatusClass() string {
 
 // GenderLabel returns a human-readable gender label.
 func (t TechnicianData) GenderLabel() string {
-	if t.TechGender == "M" {
+	if t.TechGender == "0" || t.TechGender == "M" {
 		return "Male"
 	}
-	if t.TechGender == "F" {
+	if t.TechGender == "1" || t.TechGender == "F" {
 		return "Female"
 	}
 	return t.TechGender
@@ -82,7 +82,7 @@ templ TechnicianIndexPage(page layouts.PageData, techs []TechnicianData, paginat
 							</div>
 						</form>
 						<a href="/technician/create" class="btn btn-sm btn-primary">
-							<i class="fas fa-plus"></i> Create
+							<i class="fas fa-plus"></i> Add
 						</a>
 					</div>
 				</div>

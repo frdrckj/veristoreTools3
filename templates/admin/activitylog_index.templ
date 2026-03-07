@@ -1,11 +1,19 @@
 package admin
 
 import (
-	"fmt"
 	"strconv"
 	"github.com/verifone/veristoretools3/templates/components"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
+
+// ActivityLogFilterData holds filter values for the template.
+type ActivityLogFilterData struct {
+	Action   string
+	Detail   string
+	User     string
+	DateFrom string
+	DateTo   string
+}
 
 // ActivityLogData is a view-layer representation of an activity log entry.
 type ActivityLogData struct {
@@ -16,92 +24,160 @@ type ActivityLogData struct {
 	CreatedDt    string
 }
 
+// activityActions is the list of activity types for the filter dropdown (matching v2).
+var activityActions = []string{
+	"LOGIN",
+	"LOGOUT",
+	"CREATE USER",
+	"UPDATE USER",
+	"CREATE ENGINEER",
+	"UPDATE ENGINEER",
+	"SINKRONISASI DATA",
+	"VERIFIKASI",
+	"TMS LOGIN",
+	"PENJADWALAN SINKRONISASI DATA",
+	"PERUBAHAN PENJADWALAN SINKRONISASI",
+	"VERISTORE LOGIN",
+	"VERISTORE ADD CSI",
+	"VERISTORE DUPLICATE CSI",
+	"VERISTORE DELETE CSI",
+	"VERISTORE EDIT PARAMETER",
+	"VERISTORE CREATE REPORT",
+	"VERISTORE IMPORT CSI",
+	"VERISTORE ADD MERCHANT",
+	"VERISTORE EDIT MERCHANT",
+	"VERISTORE DELETE MERCHANT",
+	"VERISTORE ADD GROUP",
+	"VERISTORE EDIT GROUP",
+	"VERISTORE DELETE GROUP",
+	"VERISTORE EXPORT TERMINAL",
+	"VERISTORE EDIT MERCHANT TERMINAL",
+	"VERISTORE IMPORT MERCHANT",
+	"VERISTORE REPLACEMENT CSI",
+	"VERISTORE ADD TECHNICIAN",
+	"VERISTORE EDIT TECHNICIAN",
+	"VERISTORE DELETE TECHNICIAN",
+}
+
 // ActivityLogIndexPage renders the full activity log list page with layout.
-templ ActivityLogIndexPage(page layouts.PageData, logs []ActivityLogData, pagination components.PaginationData, query string) {
+templ ActivityLogIndexPage(page layouts.PageData, logs []ActivityLogData, pagination components.PaginationData, filter ActivityLogFilterData, users []string) {
 	@layouts.Base(page) {
 		<div class="card">
 			<div class="card-header">
 				<h3 class="card-title">Activity Log</h3>
-				<div class="card-tools">
-					<form
-						hx-get="/activitylog/index"
-						hx-target="#actlog-table-container"
-						hx-push-url="true"
-					>
-						<div class="input-group input-group-sm" style="width: 300px;">
-							<input
-								type="text"
-								name="q"
-								class="form-control"
-								placeholder="Search by action, user..."
-								value={ query }
-							/>
-							<div class="input-group-append">
-								<button type="submit" class="btn btn-default">
-									<i class="fas fa-search"></i>
-								</button>
-							</div>
-						</div>
-					</form>
-				</div>
 			</div>
 			<div id="actlog-table-container">
-				@ActivityLogTablePartial(logs, pagination, query)
+				@ActivityLogTablePartial(logs, pagination, filter, users)
 			</div>
 		</div>
 	}
 }
 
 // ActivityLogTablePartial renders the table body and pagination for HTMX partial updates.
-templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.PaginationData, query string) {
-	<div class="card-body table-responsive p-0">
-		<table class="table table-hover table-striped">
-			<thead>
-				<tr>
-					<th style="width: 60px;">#</th>
-					<th>Action</th>
-					<th>Detail</th>
-					<th>User</th>
-					<th>Date</th>
-					<th style="width: 80px;">Actions</th>
-				</tr>
-			</thead>
-			<tbody>
-				if len(logs) == 0 {
+templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.PaginationData, filter ActivityLogFilterData, users []string) {
+	<form
+		id="actlog-filter-form"
+		hx-get="/activitylog/index"
+		hx-target="#actlog-table-container"
+		hx-push-url="true"
+	>
+		<div class="card-body table-responsive p-0">
+			<table class="table table-hover table-striped">
+				<thead>
 					<tr>
-						<td colspan="6" class="text-center text-muted">No activity logs found</td>
+						<th style="width: 50px;">No</th>
+						<th>Aktifitas</th>
+						<th>Detail</th>
+						<th>Dilakukan Oleh</th>
+						<th colspan="3">Dilakukan Tanggal</th>
 					</tr>
-				}
-				for _, l := range logs {
 					<tr>
-						<td>{ strconv.Itoa(l.ActLogID) }</td>
-						<td>{ l.ActLogAction }</td>
+						<td></td>
 						<td>
-							if l.ActLogDetail != "" {
-								{ truncate(l.ActLogDetail, 80) }
-							} else {
-								<span class="text-muted">-</span>
-							}
+							<select class="form-control form-control-sm" name="action" onchange="this.form.requestSubmit()">
+								<option value=""></option>
+								for _, a := range activityActions {
+									<option value={ a } selected?={ filter.Action == a }>{ a }</option>
+								}
+							</select>
 						</td>
-						<td>{ l.CreatedBy }</td>
-						<td>{ l.CreatedDt }</td>
 						<td>
-							<a
-								href={ templ.SafeURL(fmt.Sprintf("/activitylog/view?id=%d", l.ActLogID)) }
-								class="btn btn-xs btn-info"
-								title="View"
-							>
-								<i class="fas fa-eye"></i>
-							</a>
+							<input
+								type="text"
+								class="form-control form-control-sm"
+								name="detail"
+								placeholder=""
+								value={ filter.Detail }
+							/>
+						</td>
+						<td>
+							<select class="form-control form-control-sm" name="user" onchange="this.form.requestSubmit()">
+								<option value=""></option>
+								for _, u := range users {
+									<option value={ u } selected?={ filter.User == u }>{ u }</option>
+								}
+							</select>
+						</td>
+						<td>
+							<input
+								type="date"
+								class="form-control form-control-sm"
+								name="dateFrom"
+								placeholder="Start date"
+								value={ filter.DateFrom }
+								onchange="this.form.requestSubmit()"
+							/>
+						</td>
+						<td style="width: 30px; text-align: center; vertical-align: middle;">s.d</td>
+						<td>
+							<input
+								type="date"
+								class="form-control form-control-sm"
+								name="dateTo"
+								placeholder="End date"
+								value={ filter.DateTo }
+								onchange="this.form.requestSubmit()"
+							/>
 						</td>
 					</tr>
-				}
-			</tbody>
-		</table>
-	</div>
+				</thead>
+				<tbody>
+					if len(logs) == 0 {
+						<tr>
+							<td colspan="7" class="text-center text-muted">No activity logs found</td>
+						</tr>
+					}
+					for i, l := range logs {
+						<tr>
+							<td>{ strconv.Itoa((pagination.CurrentPage-1)*20 + i + 1) }</td>
+							<td>{ l.ActLogAction }</td>
+							<td>
+								if l.ActLogDetail != "" {
+									{ truncate(l.ActLogDetail, 80) }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+							<td>{ l.CreatedBy }</td>
+							<td colspan="3">{ l.CreatedDt }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</form>
 	<div class="card-footer clearfix">
 		@components.Pagination(pagination)
 	</div>
+	<script>
+		// Submit detail filter on Enter key
+		document.querySelector('#actlog-filter-form input[name="detail"]')?.addEventListener('keydown', function(e) {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				this.form.requestSubmit();
+			}
+		});
+	</script>
 }
 
 // truncate returns the first n characters of s, appending "..." if truncated.

@@ -37,6 +37,9 @@ const (
 	LogVeristoreReplace   = "VERISTORE REPLACEMENT CSI"
 	LogVeristoreImportMerch     = "VERISTORE IMPORT MERCHANT"
 	LogVeristoreEditMerchTerm   = "VERISTORE EDIT MERCHANT TERMINAL"
+	LogVeristoreAddTech         = "VERISTORE ADD TECHNICIAN"
+	LogVeristoreEditTech        = "VERISTORE EDIT TECHNICIAN"
+	LogVeristoreDelTech         = "VERISTORE DELETE TECHNICIAN"
 )
 
 // contextKeyDB is the key used to store *gorm.DB in the echo context.

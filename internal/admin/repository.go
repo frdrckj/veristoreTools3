@@ -59,6 +59,56 @@ func (r *Repository) SearchActivityLogs(query string, page, perPage int) ([]Acti
 	return logs, p, nil
 }
 
+// ActivityLogFilter holds filter parameters for activity log search.
+type ActivityLogFilter struct {
+	Action   string // exact match on act_log_action
+	Detail   string // LIKE match on act_log_detail
+	User     string // exact match on created_by
+	DateFrom string // start date (YYYY-MM-DD)
+	DateTo   string // end date (YYYY-MM-DD)
+}
+
+// SearchActivityLogsFiltered returns a paginated list of activity logs with individual filters.
+func (r *Repository) SearchActivityLogsFiltered(f ActivityLogFilter, page, perPage int) ([]ActivityLog, shared.Pagination, error) {
+	var logs []ActivityLog
+	var total int64
+
+	tx := r.db.Model(&ActivityLog{})
+	if f.Action != "" {
+		tx = tx.Where("act_log_action = ?", f.Action)
+	}
+	if f.Detail != "" {
+		tx = tx.Where("act_log_detail LIKE ?", "%"+f.Detail+"%")
+	}
+	if f.User != "" {
+		tx = tx.Where("created_by = ?", f.User)
+	}
+	if f.DateFrom != "" {
+		tx = tx.Where("created_dt >= ?", f.DateFrom+" 00:00:00")
+	}
+	if f.DateTo != "" {
+		tx = tx.Where("created_dt <= ?", f.DateTo+" 23:59:59")
+	}
+
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, shared.Pagination{}, err
+	}
+
+	p := shared.NewPagination(page, perPage, total)
+	if err := tx.Offset(p.Offset()).Limit(p.PerPage).Order("act_log_id DESC").Find(&logs).Error; err != nil {
+		return nil, shared.Pagination{}, err
+	}
+
+	return logs, p, nil
+}
+
+// GetActivityLogUsers returns distinct created_by values from the activity log table.
+func (r *Repository) GetActivityLogUsers() []string {
+	var users []string
+	r.db.Model(&ActivityLog{}).Distinct("created_by").Order("created_by ASC").Pluck("created_by", &users)
+	return users
+}
+
 // DeleteActivityLog removes an activity log record by ID.
 func (r *Repository) DeleteActivityLog(id int) error {
 	return r.db.Delete(&ActivityLog{}, "act_log_id = ?", id).Error
