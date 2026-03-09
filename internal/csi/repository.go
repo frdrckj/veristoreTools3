@@ -110,6 +110,47 @@ func (r *Repository) SearchFiltered(f ReportFilter, page, perPage int) ([]Verifi
 	return reports, p, nil
 }
 
+// FindAllFiltered returns all verification reports matching the given filters
+// without pagination. Used for export.
+func (r *Repository) FindAllFiltered(f ReportFilter) ([]VerificationReport, error) {
+	var reports []VerificationReport
+
+	tx := r.db.Model(&VerificationReport{})
+	if f.DateFrom != "" {
+		tx = tx.Where("created_dt >= ?", f.DateFrom+" 00:00:00")
+	}
+	if f.DateTo != "" {
+		tx = tx.Where("created_dt <= ?", f.DateTo+" 23:59:59")
+	}
+	if f.CSI != "" {
+		tx = tx.Where("vfi_rpt_term_device_id LIKE ?", "%"+f.CSI+"%")
+	}
+	if f.SerialNumber != "" {
+		tx = tx.Where("vfi_rpt_term_serial_num LIKE ?", "%"+f.SerialNumber+"%")
+	}
+	if f.EdcType != "" {
+		tx = tx.Where("vfi_rpt_term_model = ?", f.EdcType)
+	}
+	if f.AppVersion != "" {
+		tx = tx.Where("vfi_rpt_term_app_version = ?", f.AppVersion)
+	}
+	if f.Technician != "" {
+		tx = tx.Where("vfi_rpt_tech_name = ?", f.Technician)
+	}
+	if f.TMSOperator != "" {
+		tx = tx.Where("vfi_rpt_term_tms_create_operator = ?", f.TMSOperator)
+	}
+	if f.VfiOperator != "" {
+		tx = tx.Where("created_by = ?", f.VfiOperator)
+	}
+
+	if err := tx.Order("vfi_rpt_id DESC").Find(&reports).Error; err != nil {
+		return nil, err
+	}
+
+	return reports, nil
+}
+
 // GetDistinctModels returns distinct terminal models from the verification report table.
 func (r *Repository) GetDistinctModels() []string {
 	var vals []string

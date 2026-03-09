@@ -510,21 +510,33 @@ func (s *Service) GetMerchantDetail(merchantId int) (*TMSResponse, error) {
 }
 
 // AddMerchant creates a new merchant.
-// Uses new signed API (no session needed).
+// Uses session-based auth (matching v2).
 func (s *Service) AddMerchant(data MerchantData) (*TMSResponse, error) {
-	return s.client.AddMerchant("", data)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.AddMerchant(session, data)
 }
 
 // EditMerchant updates an existing merchant.
-// Uses new signed API (no session needed).
+// Uses session-based auth (matching v2).
 func (s *Service) EditMerchant(data MerchantData) (*TMSResponse, error) {
-	return s.client.EditMerchant("", data)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.EditMerchant(session, data)
 }
 
 // DeleteMerchant removes a merchant by ID.
-// Uses new signed API (no session needed).
+// Uses session-based auth (matching v2).
 func (s *Service) DeleteMerchant(merchantId int) (*TMSResponse, error) {
-	return s.client.DeleteMerchant("", merchantId)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.DeleteMerchant(session, merchantId)
 }
 
 // GetGroupList retrieves the group selector list.

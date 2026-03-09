@@ -2386,8 +2386,11 @@ func (c *Client) GetMerchantManageDetail(session string, merchantId int) (*TMSRe
 }
 
 // AddMerchant creates a new merchant in the TMS.
+// Uses session-based auth at /market/manage/merchant/add (matching v2).
 func (c *Client) AddMerchant(session string, merchant MerchantData) (*TMSResponse, error) {
 	params := map[string]interface{}{
+		"id":           "",
+		"tags":         "",
 		"merchantName": merchant.MerchantName,
 		"address":      merchant.Address,
 		"postCode":     merchant.PostCode,
@@ -2402,7 +2405,7 @@ func (c *Client) AddMerchant(session string, merchant MerchantData) (*TMSRespons
 		"districtId":   merchant.DistrictId,
 	}
 
-	result, err := c.doSignedPost("/v1/tps/merchant/add", params)
+	result, err := c.doPost(session, "/market/manage/merchant/add", params)
 	if err != nil {
 		return nil, err
 	}
@@ -2418,9 +2421,11 @@ func (c *Client) AddMerchant(session string, merchant MerchantData) (*TMSRespons
 }
 
 // EditMerchant updates an existing merchant in the TMS.
+// Uses session-based auth at /market/manage/merchant/update (matching v2).
 func (c *Client) EditMerchant(session string, merchant MerchantData) (*TMSResponse, error) {
 	params := map[string]interface{}{
 		"id":           merchant.ID,
+		"tags":         "",
 		"merchantName": merchant.MerchantName,
 		"address":      merchant.Address,
 		"postCode":     merchant.PostCode,
@@ -2435,7 +2440,7 @@ func (c *Client) EditMerchant(session string, merchant MerchantData) (*TMSRespon
 		"districtId":   merchant.DistrictId,
 	}
 
-	result, err := c.doSignedPost("/v1/tps/merchant/update", params)
+	result, err := c.doPost(session, "/market/manage/merchant/update", params)
 	if err != nil {
 		return nil, err
 	}
@@ -2451,9 +2456,10 @@ func (c *Client) EditMerchant(session string, merchant MerchantData) (*TMSRespon
 }
 
 // DeleteMerchant removes a merchant by its ID.
+// Uses session-based auth at /market/manage/merchant/delete (matching v2).
 func (c *Client) DeleteMerchant(session string, merchantId int) (*TMSResponse, error) {
-	result, err := c.doSignedPost("/v1/tps/merchant/delete", map[string]interface{}{
-		"merchantId": strconv.Itoa(merchantId),
+	result, err := c.doPost(session, "/market/manage/merchant/delete", map[string]interface{}{
+		"ids": strconv.Itoa(merchantId),
 	})
 	if err != nil {
 		return nil, err

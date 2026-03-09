@@ -303,6 +303,7 @@ func main() {
 	protected.GET("/verificationreport/update", reportHandler.Update)
 	protected.POST("/verificationreport/update", reportHandler.Update)
 	protected.POST("/verificationreport/delete", reportHandler.Delete)
+	protected.GET("/verificationreport/export", reportHandler.Export)
 
 	// Sync Terminal
 	protected.GET("/sync-terminal/index", syncHandler.Index)

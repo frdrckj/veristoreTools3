@@ -1,6 +1,7 @@
 package csi
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
+	"github.com/xuri/excelize/v2"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
 	"github.com/verifone/veristoretools3/templates/components"
@@ -185,6 +187,111 @@ func (h *ReportHandler) Index(c echo.Context) error {
 	}
 
 	return shared.Render(c, http.StatusOK, reportTmpl.IndexPage(page, reportData, paginationData, filterData, dropdowns))
+}
+
+// Export generates an Excel file with all verification reports matching the current filters.
+// Matches v2's kartik-v ExportMenu columns.
+func (h *ReportHandler) Export(c echo.Context) error {
+	filter := ReportFilter{
+		DateFrom:     c.QueryParam("dateFrom"),
+		DateTo:       c.QueryParam("dateTo"),
+		CSI:          c.QueryParam("csi"),
+		SerialNumber: c.QueryParam("serialNum"),
+		EdcType:      c.QueryParam("edcType"),
+		AppVersion:   c.QueryParam("appVersion"),
+		Technician:   c.QueryParam("technician"),
+		TMSOperator:  c.QueryParam("tmsOperator"),
+		VfiOperator:  c.QueryParam("vfiOperator"),
+	}
+
+	// Fetch ALL matching reports (no pagination).
+	reports, err := h.repo.FindAllFiltered(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load reports for export")
+	}
+
+	f := excelize.NewFile()
+	defer f.Close()
+	sheet := "Sheet1"
+
+	// Headers matching v2 export columns.
+	headers := []string{
+		"No", "CSI", "Serial Number", "Product Number", "Model",
+		"Nama Aplikasi", "Versi Aplikasi", "Parameter",
+		"TMS Operator", "Tanggal TMS Operator",
+		"Nama Teknisi", "NIP", "ID Number (KTP) Teknisi",
+		"Alamat", "Perusahaan Teknisi", "Service Point Teknisi",
+		"Telepon Teknisi", "Jenis Kelamin Teknisi",
+		"No SPK", "Remark", "Status",
+		"Verifikasi Operator", "Tanggal Verifikasi Operator",
+	}
+
+	// Bold header style.
+	boldStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true},
+		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#D9E1F2"}},
+		Border: []excelize.Border{
+			{Type: "left", Style: 1, Color: "#000000"},
+			{Type: "top", Style: 1, Color: "#000000"},
+			{Type: "right", Style: 1, Color: "#000000"},
+			{Type: "bottom", Style: 1, Color: "#000000"},
+		},
+	})
+
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, h)
+	}
+	f.SetRowStyle(sheet, 1, 1, boldStyle)
+
+	// Data rows.
+	for idx, r := range reports {
+		row := idx + 2
+		f.SetCellValue(sheet, cellName(1, row), idx+1)
+		f.SetCellValue(sheet, cellName(2, row), r.VfiRptTermSerialNum)
+		f.SetCellValue(sheet, cellName(3, row), r.VfiRptTermDeviceID)
+		f.SetCellValue(sheet, cellName(4, row), r.VfiRptTermProductNum)
+		f.SetCellValue(sheet, cellName(5, row), r.VfiRptTermModel)
+		f.SetCellValue(sheet, cellName(6, row), r.VfiRptTermAppName)
+		f.SetCellValue(sheet, cellName(7, row), r.VfiRptTermAppVersion)
+		f.SetCellValue(sheet, cellName(8, row), r.VfiRptTermParameter)
+		f.SetCellValue(sheet, cellName(9, row), r.VfiRptTermTmsCreateOperator)
+		f.SetCellValue(sheet, cellName(10, row), r.VfiRptTermTmsCreateDtOperator.Format("2006-01-02 15:04:05"))
+		f.SetCellValue(sheet, cellName(11, row), r.VfiRptTechName)
+		f.SetCellValue(sheet, cellName(12, row), r.VfiRptTechNip)
+		f.SetCellValue(sheet, cellName(13, row), r.VfiRptTechNumber)
+		f.SetCellValue(sheet, cellName(14, row), r.VfiRptTechAddress)
+		f.SetCellValue(sheet, cellName(15, row), r.VfiRptTechCompany)
+		f.SetCellValue(sheet, cellName(16, row), r.VfiRptTechSercivePoint)
+		f.SetCellValue(sheet, cellName(17, row), r.VfiRptTechPhone)
+		f.SetCellValue(sheet, cellName(18, row), r.VfiRptTechGender)
+		f.SetCellValue(sheet, cellName(19, row), r.VfiRptSpkNo)
+		f.SetCellValue(sheet, cellName(20, row), r.VfiRptRemark)
+		f.SetCellValue(sheet, cellName(21, row), r.VfiRptStatus)
+		f.SetCellValue(sheet, cellName(22, row), r.CreatedBy)
+		f.SetCellValue(sheet, cellName(23, row), r.CreatedDt.Format("2006-01-02 15:04:05"))
+	}
+
+	// Auto-width for readability.
+	for i := range headers {
+		colName, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetColWidth(sheet, colName, colName, 18)
+	}
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate Excel file")
+	}
+
+	filename := fmt.Sprintf("verification_report_%s.xlsx", time.Now().Format("20060102_1504"))
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
+}
+
+// cellName is a helper that wraps excelize.CoordinatesToCellName.
+func cellName(col, row int) string {
+	name, _ := excelize.CoordinatesToCellName(col, row)
+	return name
 }
 
 // View displays a verification report detail by ID.

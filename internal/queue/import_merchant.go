@@ -138,7 +138,7 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	countryID := payload.CountryID
 	if countryID == 0 {
-		countryID = 1 // Default country ID
+		countryID = 5 // Default: Indonesia (matches v2's appCountryId)
 	}
 
 	// Parse all data rows into jobs, skip invalid ones.
@@ -277,7 +277,7 @@ sendLoop:
 	_ = h.adminRepo.CreateQueueLog(&admin.QueueLog{
 		CreateTime:  strconv.FormatInt(time.Now().UnixMilli(), 10),
 		ExecTime:    strconv.FormatInt(time.Now().UnixMilli(), 10),
-		ProcessName: "IMCHRS",
+		ProcessName: "IMCHR",
 		ServiceName: resultMsgPtr,
 	})
 

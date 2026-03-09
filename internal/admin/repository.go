@@ -266,15 +266,15 @@ func (r *Repository) PopImportResult() string {
 }
 
 // PopMerchantImportResult retrieves and deletes the most recent merchant import
-// result message (process_name='IMCHRS'). Returns the message or empty string if none.
+// result message (process_name='IMCHR'). Returns the message or empty string if none.
 func (r *Repository) PopMerchantImportResult() string {
 	var ql QueueLog
-	err := r.db.Where("process_name = ?", "IMCHRS").Order("create_time DESC").First(&ql).Error
+	err := r.db.Where("process_name = ?", "IMCHR").Order("create_time DESC").First(&ql).Error
 	if err != nil {
 		return ""
 	}
 	// Delete after reading (consume).
-	r.db.Where("process_name = ?", "IMCHRS").Delete(&QueueLog{})
+	r.db.Where("process_name = ?", "IMCHR").Delete(&QueueLog{})
 	if ql.ServiceName != nil {
 		return *ql.ServiceName
 	}

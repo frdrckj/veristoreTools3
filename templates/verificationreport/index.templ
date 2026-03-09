@@ -220,6 +220,33 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 			<button type="submit" class="btn btn-success btn-sm">
 				<i class="fas fa-search"></i> Cari
 			</button>
+			<a
+				id="export-btn"
+				class="btn btn-primary btn-sm ml-2"
+				title="Export to Excel"
+			>
+				<i class="fas fa-file-excel"></i> Export Excel
+			</a>
+			<script>
+				(function() {
+					function setupExport() {
+						var btn = document.getElementById('export-btn');
+						if (btn) {
+							btn.addEventListener('click', function(e) {
+								e.preventDefault();
+								var form = document.getElementById('report-filter-form');
+								var params = new URLSearchParams(new FormData(form)).toString();
+								window.location.href = '/verificationreport/export?' + params;
+							});
+						}
+					}
+					if (document.readyState === 'loading') {
+						document.addEventListener('DOMContentLoaded', setupExport);
+					} else {
+						setupExport();
+					}
+				})();
+			</script>
 		</div>
 	</form>
 	<div class="card-body table-responsive p-0">

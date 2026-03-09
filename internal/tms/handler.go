@@ -2437,7 +2437,7 @@ func (h *Handler) ImportMerchant(c echo.Context) error {
 		"file_path":  destPath,
 		"session":    session,
 		"user":       user,
-		"country_id": 1,
+		"country_id": 5, // Indonesia (matches v2's appCountryId)
 		"import_id":  imp.ImpID,
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -2669,11 +2669,16 @@ func (h *Handler) DeleteMerchant(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/veristore/merchant")
 	}
 
+	log.Info().Int("merchantId", merchantId).Msg("DeleteMerchant: calling TMS API")
+
 	resp, err := h.service.DeleteMerchant(merchantId)
 	if err != nil {
+		log.Error().Err(err).Int("merchantId", merchantId).Msg("DeleteMerchant: API error")
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to delete merchant: %v", err))
 		return c.Redirect(http.StatusFound, "/veristore/merchant")
 	}
+
+	log.Info().Int("resultCode", resp.ResultCode).Str("desc", resp.Desc).Int("merchantId", merchantId).Msg("DeleteMerchant: API response")
 
 	if resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete merchant failed: %s", resp.Desc))
