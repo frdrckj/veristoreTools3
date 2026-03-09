@@ -2290,6 +2290,24 @@ func (h *Handler) ImportFormatMerchant(c echo.Context) error {
 	return c.Attachment(filePath, "import_format_merchant.xlsx")
 }
 
+// ImportResultMerchant handles GET /veristore/import-result-merchant - Download merchant import result file.
+func (h *Handler) ImportResultMerchant(c echo.Context) error {
+	latest, err := h.adminRepo.FindLatestMerchantImport()
+	if err != nil || latest == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "no merchant import record found")
+	}
+
+	base := strings.TrimSuffix(latest.ImpFilename, filepath.Ext(latest.ImpFilename))
+	resultName := "import_result_" + base + ".txt"
+	resultPath := filepath.Join("static", "import", resultName)
+
+	if _, err := os.Stat(resultPath); os.IsNotExist(err) {
+		return echo.NewHTTPError(http.StatusNotFound, "merchant import result file not found")
+	}
+
+	return c.Attachment(resultPath, resultName)
+}
+
 // ImportMerchant handles GET/POST /veristore/import-merchant - Import merchants from Excel.
 func (h *Handler) ImportMerchant(c echo.Context) error {
 	page := h.pageData(c, "Import Merchants")
@@ -2322,6 +2340,9 @@ func (h *Handler) ImportMerchant(c echo.Context) error {
 			} else {
 				data.ResultPrefix = resultMsg
 			}
+			// Check if a per-row result file exists.
+			matches, _ := filepath.Glob(filepath.Join("static", "import", "import_result_mch_*.txt"))
+			data.ResultFileExists = len(matches) > 0
 		}
 
 		return shared.Render(c, http.StatusOK, vsTmpl.ImportMerchantPage(page, data))

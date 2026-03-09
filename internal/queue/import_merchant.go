@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -164,9 +165,9 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			MerchantName: merchantName,
 			StateID:      cellValue(row, 2),
 			CityID:       cellValue(row, 3),
-			PostCode:     cellValue(row, 4),
-			Address:      cellValue(row, 5),
-			TimeZone:     cellValue(row, 6),
+			TimeZone:     cellValue(row, 4), // Column E — matches v2
+			Address:      cellValue(row, 5), // Column F
+			PostCode:     cellValue(row, 6), // Column G — matches v2
 			Contact:      cellValue(row, 7),
 			Email:        email,
 			CellPhone:    cellValue(row, 9),
@@ -188,6 +189,7 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	var successCount int64
 	var failCount int64
 	var wg sync.WaitGroup
+	var resultCollector importResultCollector // per-row results (reuses CSI import's collector)
 
 	for w := 0; w < importMerchantWorkerCount; w++ {
 		wg.Add(1)
@@ -203,9 +205,11 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				errMsg := h.importSingleMerchant(session, j, countryID)
 				if errMsg == "" {
 					atomic.AddInt64(&successCount, 1)
+					resultCollector.Add(j.RowNum, fmt.Sprintf("[OK] %s", j.MerchantName))
 					logger.Info().Int("row", j.RowNum).Str("merchant", j.MerchantName).Msg("merchant imported successfully")
 				} else {
 					atomic.AddInt64(&failCount, 1)
+					resultCollector.Add(j.RowNum, fmt.Sprintf("[FAIL] %s — %s", j.MerchantName, errMsg))
 					logger.Warn().Int("row", j.RowNum).Str("error", errMsg).Msg("merchant import failed")
 				}
 
@@ -248,6 +252,15 @@ sendLoop:
 		Msg("merchant import job completed")
 
 	mw.LogActivity(h.db, mw.LogVeristoreImportMerch, fmt.Sprintf("Import data merchant: %d success, %d failed", sc, fc), payload.User)
+
+	// Write per-row result file (like CSI import).
+	importDir := filepath.Dir(payload.FilePath)
+	importBase := filepath.Base(payload.FilePath)
+	if resultPath, err := resultCollector.WriteFile(importDir, importBase); err == nil {
+		logger.Info().Str("result_file", resultPath).Msg("wrote merchant import result file")
+	} else {
+		logger.Warn().Err(err).Msg("failed to write merchant import result file")
+	}
 
 	// Store import result as queue_log for the import merchant page to display.
 	// Format: prefix|success_count|fail_count|suffix (same as CSI import).
