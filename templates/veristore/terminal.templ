@@ -332,19 +332,15 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				});
 			}
 
-			// Individual checkbox changes
+			// Individual checkbox changes — uncheck "Select All" when any individual is unchecked.
+			// Do NOT auto-check "Select All" when all visible items are checked individually,
+			// because "Select All" means all terminals across ALL pages.
 			document.querySelectorAll('.terminal-checkbox').forEach(function(cb) {
 				cb.addEventListener('change', function() {
 					if (!this.checked) {
 						window._terminalSelectAll = false;
 						selectAllCb.checked = false;
 						selectAllFlag.value = 'false';
-					} else {
-						var all = document.querySelectorAll('.terminal-checkbox');
-						var checked = document.querySelectorAll('.terminal-checkbox:checked');
-						if (all.length === checked.length) {
-							selectAllCb.checked = true;
-						}
 					}
 				});
 			});
