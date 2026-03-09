@@ -47,26 +47,26 @@ templ FormPage(page layouts.PageData, t TerminalData, isEdit bool, errors []stri
 								</div>
 							}
 							<div class="form-group">
-								<label for="device_id">Device ID <span class="text-danger">*</span></label>
-								<input
-									type="text"
-									class="form-control"
-									id="device_id"
-									name="device_id"
-									placeholder="Enter device ID"
-									value={ t.TermDeviceID }
-									required
-								/>
-							</div>
-							<div class="form-group">
-								<label for="serial_num">Serial Number <span class="text-danger">*</span></label>
+								<label for="serial_num">CSI <span class="text-danger">*</span></label>
 								<input
 									type="text"
 									class="form-control"
 									id="serial_num"
 									name="serial_num"
-									placeholder="Enter serial number (CSI)"
+									placeholder="Enter CSI"
 									value={ t.TermSerialNum }
+									required
+								/>
+							</div>
+							<div class="form-group">
+								<label for="device_id">Serial Number <span class="text-danger">*</span></label>
+								<input
+									type="text"
+									class="form-control"
+									id="device_id"
+									name="device_id"
+									placeholder="Enter serial number"
+									value={ t.TermDeviceID }
 									required
 								/>
 							</div>

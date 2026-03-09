@@ -29,12 +29,12 @@ templ ViewPage(page layouts.PageData, t TerminalData, params []ParamData) {
 									<td>{ strconv.Itoa(t.TermID) }</td>
 								</tr>
 								<tr>
-									<th>Device ID</th>
-									<td>{ t.TermDeviceID }</td>
+									<th>CSI</th>
+									<td>{ t.TermSerialNum }</td>
 								</tr>
 								<tr>
 									<th>Serial Number</th>
-									<td>{ t.TermSerialNum }</td>
+									<td>{ t.TermDeviceID }</td>
 								</tr>
 								<tr>
 									<th>Product Number</th>

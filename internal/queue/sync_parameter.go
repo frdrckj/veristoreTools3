@@ -305,8 +305,10 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 				}
 
 				serialNum := t.SN
-				if serialNum == "" {
-					serialNum = t.CSI
+				if serialNum == "" || serialNum == "<nil>" || serialNum == t.CSI {
+					// Don't use CSI name as hardware SN — leave empty if TMS
+					// returns no distinct SN (common for newly imported terminals).
+					serialNum = ""
 				}
 
 				// Use per-terminal AppID if available (from Excel column H),
@@ -553,7 +555,12 @@ func (h *SyncParameterHandler) doUpdateLocalTerminal(
 			term = &existing[0]
 			// Match V2 convention: term_serial_num = CSI name, term_device_id = hardware SN
 			term.TermSerialNum = deviceID
-			term.TermDeviceID = serialNum
+			// Only update hardware SN if TMS returned a distinct value.
+			// When serialNum is empty (TMS had SN == CSI or blank), preserve
+			// the existing hardware SN already in the database.
+			if serialNum != "" {
+				term.TermDeviceID = serialNum
+			}
 			term.TermProductNum = productNum
 			term.TermModel = model
 			term.TermAppName = appName
@@ -871,7 +878,11 @@ func (h *SyncParameterHandler) syncAllTMSTerminals(
 						if term.LastSyncedAt != nil && !term.LastSyncedAt.Before(syncStart) {
 							return nil
 						}
-						if t.SN != "" && t.SN != "<nil>" {
+						// Only update hardware SN if TMS returned a distinct value
+						// (not empty, not "<nil>", and not the same as the CSI name).
+						// When TMS returns SN == CSI (common for imported terminals),
+						// preserve the existing hardware SN in the database.
+						if t.SN != "" && t.SN != "<nil>" && t.SN != t.DeviceID {
 							term.TermDeviceID = t.SN
 						}
 						term.TermSerialNum = t.DeviceID
@@ -885,7 +896,7 @@ func (h *SyncParameterHandler) syncAllTMSTerminals(
 
 					// Create new terminal.
 					sn := t.SN
-					if sn == "<nil>" {
+					if sn == "<nil>" || sn == t.DeviceID {
 						sn = ""
 					}
 					newTerm := &terminal.Terminal{
