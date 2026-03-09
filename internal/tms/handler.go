@@ -2762,12 +2762,12 @@ func (h *Handler) AddGroup(c echo.Context) error {
 	page := h.pageData(c, "Add Group")
 
 	if c.Request().Method == http.MethodGet {
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, nil, nil, false, 0))
+		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, nil, nil, false, 0, ""))
 	}
 
 	groupName := c.FormValue("groupName")
 	if groupName == "" {
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{"Group name is required"}, nil, false, 0))
+		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{"Group name is required"}, nil, false, 0, ""))
 	}
 
 	// Parse terminal IDs.
@@ -2787,11 +2787,11 @@ func (h *Handler) AddGroup(c echo.Context) error {
 
 	resp, err := h.service.AddGroup(groupName, terminalIDs)
 	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Failed to add group: %v", err)}, nil, false, 0))
+		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Failed to add group: %v", err)}, nil, false, 0, groupName))
 	}
 
 	if resp.ResultCode != 0 {
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Add group failed: %s", resp.Desc)}, nil, false, 0))
+		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Add group failed: %s", resp.Desc)}, nil, false, 0, groupName))
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddGroup, "Add group "+groupName)
@@ -2838,9 +2838,15 @@ func (h *Handler) EditGroup(c echo.Context) error {
 					}
 				}
 			}
+			// Extract group name from detail response if not in query param.
+			if groupName == "" {
+				if gn, ok := resp.Data["groupName"].(string); ok && gn != "" {
+					groupName = gn
+				}
+			}
 		}
 
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, nil, terminals, true, groupId))
+		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, nil, terminals, true, groupId, groupName))
 	}
 
 	// POST - update group.

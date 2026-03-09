@@ -2758,7 +2758,10 @@ func (c *Client) GetGroupManageTerminal(session string, groupId int) (*TMSRespon
 
 	return &TMSResponse{
 		ResultCode: 0,
-		Data:       map[string]interface{}{"terminals": allTerminals},
+		Data: map[string]interface{}{
+			"terminals": allTerminals,
+			"groupName": toString(detailData["groupName"]),
+		},
 	}, nil
 }
 
@@ -2813,11 +2816,33 @@ func (c *Client) GetGroupTerminalSearch(session, search string) (*TMSResponse, e
 	}, nil
 }
 
-// AddGroup creates a new terminal group.
-// New API: direct creation with groupName (no operationMark or preAdd needed).
+// AddGroup creates a new terminal group with optional terminal assignments.
+// Uses session-based auth with operationMark + preAdd flow (matching v2).
 func (c *Client) AddGroup(session, groupName string, terminalList []int) (*TMSResponse, error) {
-	addResult, err := c.doSignedPost("/v1/tps/group/add/normal", map[string]interface{}{
-		"groupName": groupName,
+	// Step 1: Get operationMark.
+	operationMark, err := c.getOperationMark(session)
+	if err != nil {
+		return nil, fmt.Errorf("tms: AddGroup getOperationMark: %w", err)
+	}
+
+	// Step 2: If terminals to add, call preAdd first.
+	if len(terminalList) > 0 {
+		_, err := c.doPost(session, "/market/manage/groupTerminal/preAdd", map[string]interface{}{
+			"operationMark": operationMark,
+			"operationType": 0,
+			"terminalIds":   terminalList,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("tms: AddGroup preAdd: %w", err)
+		}
+	}
+
+	// Step 3: Create the group.
+	addResult, err := c.doPost(session, "/market/manage/group/add/normal", map[string]interface{}{
+		"groupName":     groupName,
+		"id":            "",
+		"operationMark": operationMark,
+		"subGroupIds":   []interface{}{},
 	})
 	if err != nil {
 		return nil, err
@@ -2832,12 +2857,85 @@ func (c *Client) AddGroup(session, groupName string, terminalList []int) (*TMSRe
 	}, nil
 }
 
-// EditGroup updates a group's name.
-// New API: simplified to just id + groupName (no operationMark or preAdd/preDel).
+// EditGroup updates a group's name and terminal membership.
+// Uses session-based auth with operationMark + preAdd/preDel flow (matching v2).
 func (c *Client) EditGroup(session string, groupId int, groupName string, newTerminals, oldTerminals []int) (*TMSResponse, error) {
-	updateResult, err := c.doSignedPost("/v1/tps/group/update/normal", map[string]interface{}{
-		"id":        strconv.Itoa(groupId),
-		"groupName": groupName,
+	// Compute terminal diffs.
+	addSet := map[int]bool{}
+	for _, t := range newTerminals {
+		addSet[t] = true
+	}
+	for _, t := range oldTerminals {
+		delete(addSet, t)
+	}
+	delSet := map[int]bool{}
+	for _, t := range oldTerminals {
+		delSet[t] = true
+	}
+	for _, t := range newTerminals {
+		delete(delSet, t)
+	}
+	var toAdd, toDel []int
+	for t := range addSet {
+		toAdd = append(toAdd, t)
+	}
+	for t := range delSet {
+		toDel = append(toDel, t)
+	}
+
+	var operationMark string
+
+	if len(toAdd) > 0 || len(toDel) > 0 {
+		// Get operationMark from group detail.
+		detailResult, err := c.doPost(session, "/market/manage/group/detail/normal", map[string]interface{}{
+			"groupId": strconv.Itoa(groupId),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("tms: EditGroup detail: %w", err)
+		}
+		detailData, _ := detailResult["data"].(map[string]interface{})
+		operationMark = toString(detailData["operationMark"])
+
+		// PreAdd new terminals.
+		if len(toAdd) > 0 {
+			_, err := c.doPost(session, "/market/manage/groupTerminal/preAdd", map[string]interface{}{
+				"groupId":       strconv.Itoa(groupId),
+				"operationMark": operationMark,
+				"operationType": 1,
+				"terminalIds":   toAdd,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("tms: EditGroup preAdd: %w", err)
+			}
+		}
+
+		// PreDel removed terminals.
+		if len(toDel) > 0 {
+			_, err := c.doPost(session, "/market/manage/groupTerminal/preDel", map[string]interface{}{
+				"groupId":       strconv.Itoa(groupId),
+				"operationMark": operationMark,
+				"operationType": 1,
+				"terminalIds":   toDel,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("tms: EditGroup preDel: %w", err)
+			}
+		}
+	} else {
+		// No terminal changes — just get a fresh operationMark.
+		var err error
+		operationMark, err = c.getOperationMark(session)
+		if err != nil {
+			return nil, fmt.Errorf("tms: EditGroup getOperationMark: %w", err)
+		}
+	}
+
+	// Final update call.
+	updateResult, err := c.doPost(session, "/market/manage/group/update/normal", map[string]interface{}{
+		"groupName":     groupName,
+		"id":            strconv.Itoa(groupId),
+		"operationMark": operationMark,
+		"subGroupIds":   []interface{}{},
 	})
 	if err != nil {
 		return nil, err
@@ -2854,9 +2952,10 @@ func (c *Client) EditGroup(session string, groupId int, groupName string, newTer
 }
 
 // DeleteGroup removes a group by its ID.
+// Uses session-based auth at /market/manage/group/delete (matching v2).
 func (c *Client) DeleteGroup(session string, groupId int) (*TMSResponse, error) {
-	result, err := c.doSignedPost("/v1/tps/group/delete", map[string]interface{}{
-		"groupId": strconv.Itoa(groupId),
+	result, err := c.doPost(session, "/market/manage/group/delete", map[string]interface{}{
+		"ids": strconv.Itoa(groupId),
 	})
 	if err != nil {
 		return nil, err

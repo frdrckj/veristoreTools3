@@ -7,7 +7,7 @@ import (
 )
 
 // AddGroupPage renders the group add/edit form with terminal selector.
-templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[string]interface{}, isEdit bool, groupId int) {
+templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[string]interface{}, isEdit bool, groupId int, groupName string) {
 	@layouts.Base(page) {
 		<div class="row">
 			<div class="col-md-8 offset-md-2">
@@ -49,6 +49,7 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 									id="groupName"
 									name="groupName"
 									placeholder="Enter group name"
+									value={ groupName }
 									required
 								/>
 							</div>

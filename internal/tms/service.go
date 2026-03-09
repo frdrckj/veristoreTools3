@@ -570,21 +570,33 @@ func (s *Service) GetGroupDetail(groupId int) (*TMSResponse, error) {
 }
 
 // AddGroup creates a new terminal group.
-// Uses new signed API (no session needed).
+// Uses session-based auth with operationMark (matching v2).
 func (s *Service) AddGroup(name string, terminals []int) (*TMSResponse, error) {
-	return s.client.AddGroup("", name, terminals)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.AddGroup(session, name, terminals)
 }
 
 // EditGroup updates a group's name and terminal membership.
-// Uses new signed API (no session needed).
+// Uses session-based auth with operationMark + preAdd/preDel (matching v2).
 func (s *Service) EditGroup(id int, name string, newTerminals, oldTerminals []int) (*TMSResponse, error) {
-	return s.client.EditGroup("", id, name, newTerminals, oldTerminals)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.EditGroup(session, id, name, newTerminals, oldTerminals)
 }
 
 // DeleteGroup removes a group by ID.
-// Uses new signed API (no session needed).
+// Uses session-based auth (matching v2).
 func (s *Service) DeleteGroup(groupId int) (*TMSResponse, error) {
-	return s.client.DeleteGroup("", groupId)
+	session := s.GetSession()
+	if session == "" {
+		return nil, fmt.Errorf("no active TMS session")
+	}
+	return s.client.DeleteGroup(session, groupId)
 }
 
 // GetDashboard retrieves the TMS dashboard data.
