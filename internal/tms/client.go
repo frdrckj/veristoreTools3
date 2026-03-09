@@ -3034,7 +3034,13 @@ func (c *Client) GetTimeZoneList(session string) (*TMSResponse, error) {
 			for _, item := range data {
 				m, _ := item.(map[string]interface{})
 				if m != nil {
-					m["name"] = toString(m["label"])
+					label := toString(m["label"])
+					m["name"] = label
+					// Timezone API returns only "label" — no "id" or "value".
+					// Use the label itself as the id (e.g. "UTC+7"), matching v2 behavior.
+					if _, hasID := m["id"]; !hasID {
+						m["id"] = label
+					}
 					timeZones = append(timeZones, m)
 				}
 			}
