@@ -1758,26 +1758,28 @@ func (h *Handler) Export(c echo.Context) error {
 		// Initial POST from terminal page — collect serial numbers and show count.
 		selectAll := c.FormValue("selectAll")
 		if selectAll == "true" {
-			// Get exact total from 1 API call — the TMS API returns a "total"
-			// field in the response, so no need to fetch all pages.
+			// Count from local terminal table — matches what the export worker
+			// will actually collect, avoiding TMS API total vs actual mismatch.
 			searchSerialNo := c.FormValue("searchSerialNo")
 			searchType, _ := strconv.Atoi(c.FormValue("searchType"))
 
-			exactCount := 0
-			var resp *TMSResponse
-			var err error
+			var exactCount int64
+			query := h.service.db.Table("terminal").Where("term_serial_num != ''")
 			if searchSerialNo != "" {
-				resp, err = h.service.SearchTerminalsBulk(1, searchSerialNo, searchType, mw.GetCurrentUserName(c))
-			} else {
-				resp, err = h.service.GetTerminalListBulk(1)
-			}
-			if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
-				if t, ok := resp.Data["total"]; ok {
-					exactCount, _ = toInt(t)
+				switch searchType {
+				case 0: // SN
+					query = query.Where("term_device_id LIKE ?", "%"+searchSerialNo+"%")
+				case 1: // Merchant
+					query = query.Where("term_serial_num IN (SELECT DISTINCT tp.param_term_serial_num FROM terminal_parameter tp WHERE tp.param_merchant_name LIKE ?)", "%"+searchSerialNo+"%")
+				case 4: // CSI
+					query = query.Where("term_serial_num LIKE ?", "%"+searchSerialNo+"%")
+				default:
+					query = query.Where("term_serial_num LIKE ?", "%"+searchSerialNo+"%")
 				}
 			}
+			query.Count(&exactCount)
 
-			data.Count = exactCount
+			data.Count = int(exactCount)
 			data.ShowCreate = exactCount > 0
 			data.SelectAll = true
 			data.SearchSerialNo = searchSerialNo

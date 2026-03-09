@@ -106,49 +106,30 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		return fmt.Errorf("export_terminal: no active TMS session")
 	}
 
-	// If SelectAll, collect all terminal IDs now (in the background job,
-	// not in the HTTP handler — avoids blocking the web response).
+	// If SelectAll, collect all CSIs from the local terminal table.
+	// This is faster and more reliable than paginating through TMS API,
+	// which can miss terminals with null/non-string deviceId values.
+	// The local DB is already synced with TMS, so counts match exactly.
 	if payload.SelectAll {
-		logger.Info().Str("search", payload.SearchSerialNo).Int("searchType", payload.SearchType).Msg("selectAll: collecting terminal IDs from TMS")
+		logger.Info().Str("search", payload.SearchSerialNo).Int("searchType", payload.SearchType).Msg("selectAll: collecting CSIs from local DB")
 		var allIDs []string
-		for page := 1; ; page++ {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
+		query := h.db.Table("terminal").Select("term_serial_num")
+		if payload.SearchSerialNo != "" {
+			switch payload.SearchType {
+			case 0: // SN
+				query = query.Where("term_device_id LIKE ?", "%"+payload.SearchSerialNo+"%")
+			case 1: // Merchant
+				query = query.Where("term_serial_num IN (SELECT DISTINCT tp.param_term_serial_num FROM terminal_parameter tp WHERE tp.param_merchant_name LIKE ?)", "%"+payload.SearchSerialNo+"%")
+			case 4: // CSI
+				query = query.Where("term_serial_num LIKE ?", "%"+payload.SearchSerialNo+"%")
 			default:
-			}
-			var resp *tms.TMSResponse
-			var err error
-			if payload.SearchSerialNo != "" {
-				resp, err = h.tmsService.SearchTerminalsBulk(page, payload.SearchSerialNo, payload.SearchType, payload.Username)
-			} else {
-				resp, err = h.tmsService.GetTerminalListBulk(page)
-			}
-			if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
-				break
-			}
-			tl, ok := resp.Data["terminalList"].([]interface{})
-			if !ok || len(tl) == 0 {
-				break
-			}
-			for _, t := range tl {
-				if m, ok := t.(map[string]interface{}); ok {
-					if devId, ok := m["deviceId"].(string); ok && devId != "" {
-						allIDs = append(allIDs, devId)
-					}
-				}
-			}
-			totalPage := 0
-			if tp, ok := resp.Data["totalPage"]; ok {
-				totalPage, _ = tms.ToInt(tp)
-			}
-			logger.Info().Int("page", page).Int("totalPage", totalPage).Int("collected", len(allIDs)).Msg("selectAll: collected page")
-			if page >= totalPage {
-				break
+				query = query.Where("term_serial_num LIKE ?", "%"+payload.SearchSerialNo+"%")
 			}
 		}
+		query.Where("term_serial_num != ''").Order("term_id DESC").Pluck("term_serial_num", &allIDs)
+
 		payload.SerialNos = allIDs
-		logger.Info().Int("total", len(allIDs)).Msg("selectAll: finished collecting terminal IDs")
+		logger.Info().Int("total", len(allIDs)).Msg("selectAll: finished collecting CSIs from local DB")
 
 		// Update the export record total now that we know the actual count.
 		if payload.ExportID > 0 {
