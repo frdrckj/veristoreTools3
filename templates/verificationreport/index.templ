@@ -50,57 +50,185 @@ func (r ReportData) StatusClass() string {
 	}
 }
 
+// ReportFilterData holds the current filter values for the template.
+type ReportFilterData struct {
+	DateFrom     string
+	DateTo       string
+	CSI          string
+	SerialNumber string
+	EdcType      string
+	AppVersion   string
+	Technician   string
+	TMSOperator  string
+	VfiOperator  string
+}
+
+// ReportDropdowns holds dropdown option values for the filter form.
+type ReportDropdowns struct {
+	Models       []string
+	AppVersions  []string
+	Technicians  []string
+	TMSOperators []string
+	VfiOperators []string
+}
+
 // IndexPage renders the full verification report list page with layout.
-templ IndexPage(page layouts.PageData, reports []ReportData, pagination components.PaginationData, query string) {
+templ IndexPage(page layouts.PageData, reports []ReportData, pagination components.PaginationData, filter ReportFilterData, dropdowns ReportDropdowns) {
 	@layouts.Base(page) {
 		<div class="card">
 			<div class="card-header">
 				<h3 class="card-title">Verification Reports</h3>
 				<div class="card-tools">
-					<div class="d-flex align-items-center">
-						<form
-							class="mr-2"
-							hx-get="/verificationreport/index"
-							hx-target="#report-table-container"
-							hx-push-url="true"
-						>
-							<div class="input-group input-group-sm" style="width: 250px;">
-								<input
-									type="text"
-									name="q"
-									class="form-control"
-									placeholder="Search by CSI/Tech/Device..."
-									value={ query }
-								/>
-								<div class="input-group-append">
-									<button type="submit" class="btn btn-default">
-										<i class="fas fa-search"></i>
-									</button>
-								</div>
-							</div>
-						</form>
-						<a href="/verificationreport/create" class="btn btn-sm btn-primary">
-							<i class="fas fa-plus"></i> Create Report
-						</a>
-					</div>
+					<a href="/verificationreport/create" class="btn btn-sm btn-primary">
+						<i class="fas fa-plus"></i> Create Report
+					</a>
 				</div>
 			</div>
 			<div id="report-table-container">
-				@ReportTablePartial(reports, pagination, query)
+				@ReportTablePartial(reports, pagination, filter, dropdowns)
 			</div>
 		</div>
 	}
 }
 
-// ReportTablePartial renders the table body and pagination for HTMX partial updates.
-templ ReportTablePartial(reports []ReportData, pagination components.PaginationData, query string) {
+// ReportTablePartial renders the filter form, table, and pagination for HTMX partial updates.
+templ ReportTablePartial(reports []ReportData, pagination components.PaginationData, filter ReportFilterData, dropdowns ReportDropdowns) {
+	<form
+		id="report-filter-form"
+		hx-get="/verificationreport/index"
+		hx-target="#report-table-container"
+		hx-push-url="true"
+	>
+		<div class="card-body">
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">Periode</label>
+				</div>
+				<div class="col-md-10">
+					<div class="d-flex align-items-center">
+						<input
+							type="date"
+							class="form-control form-control-sm"
+							name="dateFrom"
+							value={ filter.DateFrom }
+							style="max-width: 200px;"
+						/>
+						<span class="mx-2">s.d</span>
+						<input
+							type="date"
+							class="form-control form-control-sm"
+							name="dateTo"
+							value={ filter.DateTo }
+							style="max-width: 200px;"
+						/>
+					</div>
+				</div>
+			</div>
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">CSI</label>
+				</div>
+				<div class="col-md-4">
+					<input
+						type="text"
+						class="form-control form-control-sm"
+						name="csi"
+						placeholder="CSI"
+						value={ filter.CSI }
+					/>
+				</div>
+			</div>
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">Serial Number</label>
+				</div>
+				<div class="col-md-4">
+					<input
+						type="text"
+						class="form-control form-control-sm"
+						name="serialNum"
+						placeholder="Serial Number"
+						value={ filter.SerialNumber }
+					/>
+				</div>
+			</div>
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">Tipe EDC</label>
+				</div>
+				<div class="col-md-4">
+					<select class="form-control form-control-sm report-select2" name="edcType">
+						<option value="">-- Pilih Tipe EDC --</option>
+						for _, v := range dropdowns.Models {
+							<option value={ v } selected?={ filter.EdcType == v }>{ v }</option>
+						}
+					</select>
+				</div>
+			</div>
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">Versi App</label>
+				</div>
+				<div class="col-md-4">
+					<select class="form-control form-control-sm report-select2" name="appVersion">
+						<option value="">-- Pilih Versi App --</option>
+						for _, v := range dropdowns.AppVersions {
+							<option value={ v } selected?={ filter.AppVersion == v }>{ v }</option>
+						}
+					</select>
+				</div>
+			</div>
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">Teknisi</label>
+				</div>
+				<div class="col-md-4">
+					<select class="form-control form-control-sm report-select2" name="technician">
+						<option value="">-- Pilih Teknisi --</option>
+						for _, v := range dropdowns.Technicians {
+							<option value={ v } selected?={ filter.Technician == v }>{ v }</option>
+						}
+					</select>
+				</div>
+			</div>
+			<div class="row mb-2">
+				<div class="col-md-2">
+					<label class="font-weight-bold">TMS Operator</label>
+				</div>
+				<div class="col-md-4">
+					<select class="form-control form-control-sm report-select2" name="tmsOperator">
+						<option value="">-- Pilih TMS Operator --</option>
+						for _, v := range dropdowns.TMSOperators {
+							<option value={ v } selected?={ filter.TMSOperator == v }>{ v }</option>
+						}
+					</select>
+				</div>
+			</div>
+			<div class="row mb-3">
+				<div class="col-md-2">
+					<label class="font-weight-bold">Verification Operator</label>
+				</div>
+				<div class="col-md-4">
+					<select class="form-control form-control-sm report-select2" name="vfiOperator">
+						<option value="">-- Pilih Verification Operator --</option>
+						for _, v := range dropdowns.VfiOperators {
+							<option value={ v } selected?={ filter.VfiOperator == v }>{ v }</option>
+						}
+					</select>
+				</div>
+			</div>
+			<button type="submit" class="btn btn-success btn-sm">
+				<i class="fas fa-search"></i> Cari
+			</button>
+		</div>
+	</form>
 	<div class="card-body table-responsive p-0">
 		<table class="table table-hover table-striped">
 			<thead>
 				<tr>
-					<th style="width: 60px;">#</th>
+					<th style="width: 50px;">No</th>
+					<th>CSI</th>
 					<th>Serial Number</th>
-					<th>Device ID</th>
 					<th>Model</th>
 					<th>Technician</th>
 					<th>Status</th>
@@ -114,9 +242,9 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 						<td colspan="8" class="text-center text-muted">No verification reports found</td>
 					</tr>
 				}
-				for _, r := range reports {
+				for i, r := range reports {
 					<tr>
-						<td>{ strconv.Itoa(r.VfiRptID) }</td>
+						<td>{ strconv.Itoa((pagination.CurrentPage-1)*20 + i + 1) }</td>
 						<td>{ r.VfiRptTermSerialNum }</td>
 						<td>{ r.VfiRptTermDeviceID }</td>
 						<td>{ r.VfiRptTermModel }</td>
@@ -165,4 +293,23 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 	<div class="card-footer clearfix">
 		@components.Pagination(pagination)
 	</div>
+	<script>
+		(function() {
+			function initReportSelect2() {
+				if (typeof $ !== 'undefined' && $.fn.select2) {
+					$('#report-filter-form .report-select2').select2({
+						allowClear: true,
+						placeholder: '',
+						width: '100%',
+						minimumResultsForSearch: 0
+					});
+				}
+			}
+			if (typeof $ !== 'undefined') {
+				initReportSelect2();
+			} else {
+				window.addEventListener('load', initReportSelect2);
+			}
+		})();
+	</script>
 }

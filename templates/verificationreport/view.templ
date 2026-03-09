@@ -29,12 +29,12 @@ templ ViewPage(page layouts.PageData, r ReportData) {
 									<td>{ strconv.Itoa(r.VfiRptID) }</td>
 								</tr>
 								<tr>
-									<th>Device ID</th>
-									<td>{ r.VfiRptTermDeviceID }</td>
+									<th>CSI</th>
+									<td>{ r.VfiRptTermSerialNum }</td>
 								</tr>
 								<tr>
 									<th>Serial Number</th>
-									<td>{ r.VfiRptTermSerialNum }</td>
+									<td>{ r.VfiRptTermDeviceID }</td>
 								</tr>
 								<tr>
 									<th>Product Number</th>

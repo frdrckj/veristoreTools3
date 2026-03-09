@@ -94,7 +94,7 @@ templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.Pagi
 					<tr>
 						<td></td>
 						<td>
-							<select class="form-control form-control-sm" name="action" onchange="this.form.requestSubmit()">
+							<select class="form-control form-control-sm actlog-select2" name="action">
 								<option value=""></option>
 								for _, a := range activityActions {
 									<option value={ a } selected?={ filter.Action == a }>{ a }</option>
@@ -111,7 +111,7 @@ templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.Pagi
 							/>
 						</td>
 						<td>
-							<select class="form-control form-control-sm" name="user" onchange="this.form.requestSubmit()">
+							<select class="form-control form-control-sm actlog-select2" name="user">
 								<option value=""></option>
 								for _, u := range users {
 									<option value={ u } selected?={ filter.User == u }>{ u }</option>
@@ -170,6 +170,27 @@ templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.Pagi
 		@components.Pagination(pagination)
 	</div>
 	<script>
+		(function() {
+			function initActlogSelect2() {
+				if (typeof $ !== 'undefined' && $.fn.select2) {
+					var $selects = $('#actlog-filter-form .actlog-select2');
+					$selects.select2({
+						allowClear: true,
+						placeholder: '',
+						width: '100%',
+						minimumResultsForSearch: 0
+					});
+					$selects.on('select2:select select2:clear', function() {
+						this.form.requestSubmit();
+					});
+				}
+			}
+			if (typeof $ !== 'undefined') {
+				initActlogSelect2();
+			} else {
+				window.addEventListener('load', initActlogSelect2);
+			}
+		})();
 		// Submit detail filter on Enter key
 		document.querySelector('#actlog-filter-form input[name="detail"]')?.addEventListener('keydown', function(e) {
 			if (e.key === 'Enter') {

@@ -96,15 +96,56 @@ func toReportDataSlice(reports []VerificationReport) []reportTmpl.ReportData {
 
 // Index lists verification reports with search and pagination. Supports HTMX partial updates.
 func (h *ReportHandler) Index(c echo.Context) error {
-	query := c.QueryParam("q")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
 	}
 
-	reports, pagination, err := h.repo.Search(query, pageNum, 20)
+	filter := ReportFilter{
+		DateFrom:     c.QueryParam("dateFrom"),
+		DateTo:       c.QueryParam("dateTo"),
+		CSI:          c.QueryParam("csi"),
+		SerialNumber: c.QueryParam("serialNum"),
+		EdcType:      c.QueryParam("edcType"),
+		AppVersion:   c.QueryParam("appVersion"),
+		Technician:   c.QueryParam("technician"),
+		TMSOperator:  c.QueryParam("tmsOperator"),
+		VfiOperator:  c.QueryParam("vfiOperator"),
+	}
+
+	reports, pagination, err := h.repo.SearchFiltered(filter, pageNum, 20)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load verification reports")
+	}
+
+	// Build query string for pagination.
+	var qs string
+	if filter.DateFrom != "" {
+		qs += "&dateFrom=" + filter.DateFrom
+	}
+	if filter.DateTo != "" {
+		qs += "&dateTo=" + filter.DateTo
+	}
+	if filter.CSI != "" {
+		qs += "&csi=" + filter.CSI
+	}
+	if filter.SerialNumber != "" {
+		qs += "&serialNum=" + filter.SerialNumber
+	}
+	if filter.EdcType != "" {
+		qs += "&edcType=" + filter.EdcType
+	}
+	if filter.AppVersion != "" {
+		qs += "&appVersion=" + filter.AppVersion
+	}
+	if filter.Technician != "" {
+		qs += "&technician=" + filter.Technician
+	}
+	if filter.TMSOperator != "" {
+		qs += "&tmsOperator=" + filter.TMSOperator
+	}
+	if filter.VfiOperator != "" {
+		qs += "&vfiOperator=" + filter.VfiOperator
 	}
 
 	paginationData := components.PaginationData{
@@ -113,17 +154,37 @@ func (h *ReportHandler) Index(c echo.Context) error {
 		Total:       pagination.Total,
 		BaseURL:     "/verificationreport/index",
 		HTMXTarget:  "report-table-container",
+		QueryString: qs,
 	}
 
 	page := h.pageData(c, "Verification Reports")
 	reportData := toReportDataSlice(reports)
 
-	// For HTMX requests, return only the table partial.
-	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, reportTmpl.ReportTablePartial(reportData, paginationData, query))
+	dropdowns := reportTmpl.ReportDropdowns{
+		Models:       h.repo.GetDistinctModels(),
+		AppVersions:  h.repo.GetDistinctAppVersions(),
+		Technicians:  h.repo.GetDistinctTechnicians(),
+		TMSOperators: h.repo.GetDistinctTMSOperators(),
+		VfiOperators: h.repo.GetDistinctVfiOperators(),
 	}
 
-	return shared.Render(c, http.StatusOK, reportTmpl.IndexPage(page, reportData, paginationData, query))
+	filterData := reportTmpl.ReportFilterData{
+		DateFrom:     filter.DateFrom,
+		DateTo:       filter.DateTo,
+		CSI:          filter.CSI,
+		SerialNumber: filter.SerialNumber,
+		EdcType:      filter.EdcType,
+		AppVersion:   filter.AppVersion,
+		Technician:   filter.Technician,
+		TMSOperator:  filter.TMSOperator,
+		VfiOperator:  filter.VfiOperator,
+	}
+
+	if shared.IsHTMX(c) {
+		return shared.Render(c, http.StatusOK, reportTmpl.ReportTablePartial(reportData, paginationData, filterData, dropdowns))
+	}
+
+	return shared.Render(c, http.StatusOK, reportTmpl.IndexPage(page, reportData, paginationData, filterData, dropdowns))
 }
 
 // View displays a verification report detail by ID.

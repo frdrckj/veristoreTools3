@@ -50,14 +50,14 @@ templ FormPage(page layouts.PageData, r ReportData, isEdit bool, errors []string
 								<div class="col-md-6">
 									<h5>Terminal Information</h5>
 									<div class="form-group">
-										<label for="device_id">Device ID <span class="text-danger">*</span></label>
+										<label for="device_id">CSI <span class="text-danger">*</span></label>
 										<input
 											type="text"
 											class="form-control"
 											id="device_id"
 											name="device_id"
-											placeholder="Enter device ID"
-											value={ r.VfiRptTermDeviceID }
+											placeholder="Enter CSI"
+											value={ r.VfiRptTermSerialNum }
 											required
 										/>
 									</div>
@@ -69,7 +69,7 @@ templ FormPage(page layouts.PageData, r ReportData, isEdit bool, errors []string
 											id="serial_num"
 											name="serial_num"
 											placeholder="Enter serial number"
-											value={ r.VfiRptTermSerialNum }
+											value={ r.VfiRptTermDeviceID }
 											required
 										/>
 									</div>
