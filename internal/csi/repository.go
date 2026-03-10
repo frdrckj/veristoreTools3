@@ -77,10 +77,10 @@ func (r *Repository) SearchFiltered(f ReportFilter, page, perPage int) ([]Verifi
 		tx = tx.Where("created_dt <= ?", f.DateTo+" 23:59:59")
 	}
 	if f.CSI != "" {
-		tx = tx.Where("vfi_rpt_term_device_id LIKE ?", "%"+f.CSI+"%")
+		tx = tx.Where("vfi_rpt_term_serial_num LIKE ?", "%"+f.CSI+"%")
 	}
 	if f.SerialNumber != "" {
-		tx = tx.Where("vfi_rpt_term_serial_num LIKE ?", "%"+f.SerialNumber+"%")
+		tx = tx.Where("vfi_rpt_term_device_id LIKE ?", "%"+f.SerialNumber+"%")
 	}
 	if f.EdcType != "" {
 		tx = tx.Where("vfi_rpt_term_model = ?", f.EdcType)
@@ -123,10 +123,10 @@ func (r *Repository) FindAllFiltered(f ReportFilter) ([]VerificationReport, erro
 		tx = tx.Where("created_dt <= ?", f.DateTo+" 23:59:59")
 	}
 	if f.CSI != "" {
-		tx = tx.Where("vfi_rpt_term_device_id LIKE ?", "%"+f.CSI+"%")
+		tx = tx.Where("vfi_rpt_term_serial_num LIKE ?", "%"+f.CSI+"%")
 	}
 	if f.SerialNumber != "" {
-		tx = tx.Where("vfi_rpt_term_serial_num LIKE ?", "%"+f.SerialNumber+"%")
+		tx = tx.Where("vfi_rpt_term_device_id LIKE ?", "%"+f.SerialNumber+"%")
 	}
 	if f.EdcType != "" {
 		tx = tx.Where("vfi_rpt_term_model = ?", f.EdcType)
