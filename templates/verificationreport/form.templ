@@ -284,6 +284,7 @@ templ FormPage(page layouts.PageData, r ReportData, isEdit bool, errors []string
 										<label for="status">Status <span class="text-danger">*</span></label>
 										<select class="form-control" id="status" name="status" required>
 											<option value="">-- Select Status --</option>
+											<option value="DONE" selected?={ r.VfiRptStatus == "DONE" }>DONE</option>
 											<option value="PASS" selected?={ r.VfiRptStatus == "PASS" }>PASS</option>
 											<option value="FAIL" selected?={ r.VfiRptStatus == "FAIL" }>FAIL</option>
 											<option value="PENDING" selected?={ r.VfiRptStatus == "PENDING" }>PENDING</option>
