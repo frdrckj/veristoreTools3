@@ -2,7 +2,6 @@ package admin
 
 import (
 	"fmt"
-	"strconv"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
 
@@ -11,7 +10,7 @@ templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
 	@layouts.Base(page) {
 		<div class="card">
 			<div class="card-header">
-				<h3 class="card-title">Technician Detail</h3>
+				<h3 class="card-title">Detail Teknisi</h3>
 				<div class="card-tools">
 					<a href="/technician/index" class="btn btn-sm btn-default">
 						<i class="fas fa-arrow-left"></i> Back to List
@@ -22,11 +21,7 @@ templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
 				<table class="table table-bordered">
 					<tbody>
 						<tr>
-							<th style="width: 200px;">ID</th>
-							<td>{ strconv.Itoa(t.TechID) }</td>
-						</tr>
-						<tr>
-							<th>Name</th>
+							<th style="width: 250px;">Nama</th>
 							<td>{ t.TechName }</td>
 						</tr>
 						<tr>
@@ -34,15 +29,15 @@ templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
 							<td>{ t.TechNip }</td>
 						</tr>
 						<tr>
-							<th>Number</th>
+							<th>ID Number (KTP)</th>
 							<td>{ t.TechNumber }</td>
 						</tr>
 						<tr>
-							<th>Gender</th>
-							<td>{ t.GenderLabel() }</td>
+							<th>Alamat</th>
+							<td>{ t.TechAddress }</td>
 						</tr>
 						<tr>
-							<th>Company</th>
+							<th>Perusahaan</th>
 							<td>{ t.TechCompany }</td>
 						</tr>
 						<tr>
@@ -50,12 +45,12 @@ templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
 							<td>{ t.TechServicePoint }</td>
 						</tr>
 						<tr>
-							<th>Phone</th>
+							<th>Telepon</th>
 							<td>{ t.TechPhone }</td>
 						</tr>
 						<tr>
-							<th>Address</th>
-							<td>{ t.TechAddress }</td>
+							<th>Jenis Kelamin</th>
+							<td>{ t.GenderLabel() }</td>
 						</tr>
 						<tr>
 							<th>Status</th>
@@ -66,30 +61,26 @@ templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
 							</td>
 						</tr>
 						<tr>
-							<th>Created By</th>
+							<th>Dibuat Oleh</th>
 							<td>{ t.CreatedBy }</td>
 						</tr>
 						<tr>
-							<th>Created Date</th>
+							<th>Dibuat Tanggal</th>
 							<td>{ t.CreatedDt }</td>
 						</tr>
 						<tr>
-							<th>Updated By</th>
+							<th>Diperbaharui Oleh</th>
 							<td>
 								if t.UpdatedBy != "" {
 									{ t.UpdatedBy }
-								} else {
-									<span class="text-muted">-</span>
 								}
 							</td>
 						</tr>
 						<tr>
-							<th>Updated Date</th>
+							<th>Diperbaharui Tanggal</th>
 							<td>
 								if t.UpdatedDt != "" {
 									{ t.UpdatedDt }
-								} else {
-									<span class="text-muted">-</span>
 								}
 							</td>
 						</tr>
@@ -101,7 +92,7 @@ templ TechnicianViewPage(page layouts.PageData, t TechnicianData) {
 					href={ templ.SafeURL(fmt.Sprintf("/technician/update?id=%d", t.TechID)) }
 					class="btn btn-warning"
 				>
-					<i class="fas fa-edit"></i> Edit
+					<i class="fas fa-edit"></i> Update
 				</a>
 				<form
 					method="POST"
