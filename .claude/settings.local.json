@@ -2,7 +2,33 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:github.com)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(zsh -lc 'which claude' 2>/dev/null)",
+      "Bash(zsh -lc 'which zoxide' 2>/dev/null)",
+      "Bash(zsh -c '/opt/homebrew/bin/nu -c \"\\\\$env.PATH | describe\"' 2>&1)",
+      "Bash(zsh -c '/opt/homebrew/bin/nu -l -c \"which claude\"' 2>&1)",
+      "Bash(zsh -c '/opt/homebrew/bin/nu -l -c \"zoxide init nushell | save -f ~/.zoxide.nu\"' 2>&1)",
+      "Bash(grep:*)",
+      "Bash(zsh -c '/opt/homebrew/bin/nu -l -c \"$nu.default-config-dir\"' 2>&1)",
+      "Bash(zsh -c \"/opt/homebrew/bin/nu -l -c 'echo \\\\$nu.config-path'\" 2>&1)",
+      "Bash(zsh -c \"/opt/homebrew/bin/nu -l -c 'echo \\\\$nu.env-path'\" 2>&1)",
+      "Bash(zsh -c \"/opt/homebrew/bin/nu -l -c 'which claude'\" 2>&1)",
+      "WebSearch",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "WebFetch(domain:superset.apache.org)",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(pip show:*)",
+      "Bash(find:*)",
+      "Bash(python3.12 -m pip show apache-superset 2>&1)",
+      "Bash(docker:*)",
+      "Bash(brew list:*)",
+      "Bash(conda list:*)",
+      "Bash(brew info:*)",
+      "Bash(env | grep -i superset)",
+      "Bash(which npx:*)",
+      "Bash(npx asar:*)",
+      "Bash(npm install:*)",
+      "Bash(python3:*)"
     ]
   }
 }
