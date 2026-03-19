@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,9 +13,10 @@ import (
 	"github.com/labstack/echo/v4"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/shared"
+	adminTmpl "github.com/verifone/veristoretools3/templates/admin"
 	"github.com/verifone/veristoretools3/templates/components"
 	"github.com/verifone/veristoretools3/templates/layouts"
-	adminTmpl "github.com/verifone/veristoretools3/templates/admin"
+	"github.com/xuri/excelize/v2"
 )
 
 // Handler holds dependencies for admin HTTP handlers (activity log, technician,
@@ -530,6 +532,63 @@ func (h *Handler) BackupIndex(c echo.Context) error {
 
 // BackupDownload generates and serves an activity log backup as an Excel file.
 func (h *Handler) BackupDownload(c echo.Context) error {
-	// TODO: Generate an XLSX file from activity logs using excelize and serve it.
-	return echo.NewHTTPError(http.StatusNotImplemented, "activity log backup download not yet implemented")
+	logs, err := h.repo.FindAllActivityLogs()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load activity logs for export")
+	}
+
+	f := excelize.NewFile()
+	defer f.Close()
+	sheet := "Sheet1"
+
+	headers := []string{"No", "Action", "Detail", "Created By", "Created Date"}
+
+	boldStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true},
+		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#D9E1F2"}},
+		Border: []excelize.Border{
+			{Type: "left", Style: 1, Color: "#000000"},
+			{Type: "top", Style: 1, Color: "#000000"},
+			{Type: "right", Style: 1, Color: "#000000"},
+			{Type: "bottom", Style: 1, Color: "#000000"},
+		},
+	})
+
+	for i, hdr := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, hdr)
+	}
+	f.SetRowStyle(sheet, 1, 1, boldStyle)
+
+	for idx, l := range logs {
+		row := idx + 2
+		cell := func(col, r int) string {
+			name, _ := excelize.CoordinatesToCellName(col, r)
+			return name
+		}
+		f.SetCellValue(sheet, cell(1, row), idx+1)
+		f.SetCellValue(sheet, cell(2, row), l.ActLogAction)
+		detail := ""
+		if l.ActLogDetail != nil {
+			detail = *l.ActLogDetail
+		}
+		f.SetCellValue(sheet, cell(3, row), detail)
+		f.SetCellValue(sheet, cell(4, row), l.CreatedBy)
+		f.SetCellValue(sheet, cell(5, row), l.CreatedDt.Format("2006-01-02 15:04:05"))
+	}
+
+	colWidths := []float64{8, 30, 50, 20, 22}
+	for i, w := range colWidths {
+		colName, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetColWidth(sheet, colName, colName, w)
+	}
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate Excel file")
+	}
+
+	filename := fmt.Sprintf("activity_log_backup_%s.xlsx", time.Now().Format("20060102_1504"))
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }

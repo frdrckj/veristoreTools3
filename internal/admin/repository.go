@@ -114,6 +114,15 @@ func (r *Repository) DeleteActivityLog(id int) error {
 	return r.db.Delete(&ActivityLog{}, "act_log_id = ?", id).Error
 }
 
+// FindAllActivityLogs returns all activity log records ordered by ID descending.
+func (r *Repository) FindAllActivityLogs() ([]ActivityLog, error) {
+	var logs []ActivityLog
+	if err := r.db.Order("act_log_id DESC").Find(&logs).Error; err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
 // FindTodayCSIs returns CSI serial numbers that were added, copied, or imported
 // today. Used by partial sync to determine which CSIs to process.
 func (r *Repository) FindTodayCSIs() []string {
