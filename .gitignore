@@ -1,4 +1,5 @@
 /server
+/veristoretools3
 bin/
 vendor/
 *.exe
