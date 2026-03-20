@@ -140,7 +140,7 @@ func TestNewClient_Initialization(t *testing.T) {
 
 func TestNewClient_HTTPTimeout(t *testing.T) {
 	client := NewClient("https://tms.example.com", "https://tms.example.com", nil, false, "", "")
-	assert.Equal(t, 30*1000*1000*1000, int(client.httpClient.Timeout), "timeout should be 30 seconds")
+	assert.Equal(t, 60*1000*1000*1000, int(client.httpClient.Timeout), "timeout should be 60 seconds")
 }
 
 func TestNewClient_TLSSkipVerify(t *testing.T) {
@@ -508,14 +508,14 @@ func TestGetTerminalList(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
-	assert.Equal(t, float64(5), resp.Data["totalPage"])
+	assert.Equal(t, json.Number("5"), resp.Data["totalPage"])
 
 	termList, ok := resp.Data["terminalList"].([]interface{})
 	assert.True(t, ok)
 	assert.Len(t, termList, 1)
 
 	first, _ := termList[0].(map[string]interface{})
-	assert.Equal(t, float64(1), first["status"])
+	assert.Equal(t, json.Number("1"), first["status"])
 }
 
 func TestCheckToken(t *testing.T) {
@@ -540,23 +540,23 @@ func TestCheckToken(t *testing.T) {
 
 func TestDeleteMerchant(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/tps/merchant/delete", r.URL.Path)
+		assert.Equal(t, "/market/manage/merchant/delete", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
-		assert.Equal(t, "42", reqBody["merchantId"])
+		assert.Equal(t, "42", reqBody["ids"])
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": "200",
+			"code": 200,
 			"desc": "deleted",
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
-	resp, err := client.DeleteMerchant("", 42)
+	resp, err := client.DeleteMerchant("session", 42)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -595,12 +595,12 @@ func TestGetCountryList(t *testing.T) {
 
 func TestGetVendorList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "/v1/tps/common/vendor/selector", r.URL.Path)
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/market/common/vendor/selector", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": "200",
+			"code": 200,
 			"data": []interface{}{
 				map[string]interface{}{"id": "V1", "label": "Verifone"},
 			},
@@ -609,7 +609,7 @@ func TestGetVendorList(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
-	resp, err := client.GetVendorList("")
+	resp, err := client.GetVendorList("session")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -625,7 +625,7 @@ func TestGetVendorList(t *testing.T) {
 func TestGetModelList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "/v1/tps/common/model/selector", r.URL.Path)
+		assert.Equal(t, "/market/common/model/selector", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
@@ -634,7 +634,7 @@ func TestGetModelList(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": "200",
+			"code": 200,
 			"data": []interface{}{
 				map[string]interface{}{"id": "M1", "label": "X990"},
 			},
@@ -643,7 +643,7 @@ func TestGetModelList(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
-	resp, err := client.GetModelList("", "V1")
+	resp, err := client.GetModelList("session", "V1")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -658,23 +658,23 @@ func TestGetModelList(t *testing.T) {
 
 func TestDeleteGroup(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/tps/group/delete", r.URL.Path)
+		assert.Equal(t, "/market/manage/group/delete", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
-		assert.Equal(t, "7", reqBody["groupId"])
+		assert.Equal(t, "7", reqBody["ids"])
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": "200",
+			"code": 200,
 			"desc": "deleted",
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
-	resp, err := client.DeleteGroup("", 7)
+	resp, err := client.DeleteGroup("session", 7)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.ResultCode)
@@ -734,7 +734,7 @@ func TestGetMerchantList(t *testing.T) {
 	assert.Len(t, merchants, 2)
 
 	first, _ := merchants[0].(map[string]interface{})
-	assert.Equal(t, 10, first["id"])
+	assert.Equal(t, "10", first["id"])
 	assert.Equal(t, "Merchant A", first["name"])
 }
 
@@ -796,7 +796,7 @@ func TestDoGet_InvalidJSON(t *testing.T) {
 
 func TestAddMerchant(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/tps/merchant/add", r.URL.Path)
+		assert.Equal(t, "/market/manage/merchant/add", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
@@ -807,14 +807,14 @@ func TestAddMerchant(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": "200",
+			"code": 200,
 			"desc": "created",
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
-	resp, err := client.AddMerchant("", MerchantData{
+	resp, err := client.AddMerchant("session", MerchantData{
 		MerchantName: "Test Merchant",
 		Email:        "test@example.com",
 		Address:      "123 Main St",
@@ -827,7 +827,7 @@ func TestAddMerchant(t *testing.T) {
 
 func TestEditMerchant(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/tps/merchant/update", r.URL.Path)
+		assert.Equal(t, "/market/manage/merchant/update", r.URL.Path)
 
 		body, _ := io.ReadAll(r.Body)
 		var reqBody map[string]interface{}
@@ -838,14 +838,14 @@ func TestEditMerchant(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code": "200",
+			"code": 200,
 			"desc": "updated",
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.URL, nil, false, "test-key", "test-secret")
-	resp, err := client.EditMerchant("", MerchantData{
+	resp, err := client.EditMerchant("session", MerchantData{
 		ID:           "42",
 		MerchantName: "Updated Merchant",
 	})
