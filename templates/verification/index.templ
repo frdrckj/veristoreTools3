@@ -240,7 +240,6 @@ templ VerificationPage(data layouts.PageData, result *TerminalResult, technician
 										id="teknisiId"
 										name="teknisiId"
 										class="form-control"
-										onchange="loadTechnician(this.value)"
 									>
 										<option value="">-- Pilih Teknisi --</option>
 										for _, t := range technicians {
@@ -323,7 +322,12 @@ templ VerificationPage(data layouts.PageData, result *TerminalResult, technician
 			<!-- JavaScript for loading technician details -->
 			<script>
 				function loadTechnician(id) {
-					if (!id) return;
+					if (!id) {
+						document.getElementById('techNip').value = '';
+						document.getElementById('techId').value = '';
+						document.getElementById('techCompany').value = '';
+						return;
+					}
 					fetch('/verification/gettechnician?id=' + id)
 						.then(function(response) { return response.text(); })
 						.then(function(data) {
@@ -335,6 +339,22 @@ templ VerificationPage(data layouts.PageData, result *TerminalResult, technician
 							}
 						});
 				}
+
+				(function initTeknisiSelect2() {
+					if (typeof $ !== 'undefined' && $.fn.select2) {
+						$('#teknisiId').select2({
+							placeholder: '-- Pilih Teknisi --',
+							allowClear: true,
+							width: '100%'
+						}).on('select2:select', function(e) {
+							loadTechnician(e.params.data.id);
+						}).on('select2:clear', function() {
+							loadTechnician('');
+						});
+					} else {
+						window.addEventListener('load', initTeknisiSelect2);
+					}
+				})();
 			</script>
 		}
 	}

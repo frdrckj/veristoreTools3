@@ -29,7 +29,8 @@
       "Bash(npx asar:*)",
       "Bash(npm install:*)",
       "Bash(python3:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(ls:*)"
     ]
   }
 }

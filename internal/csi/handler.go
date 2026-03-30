@@ -82,7 +82,7 @@ func (h *Handler) Index(c echo.Context) error {
 
 	// Otherwise, this is a CSI search.
 	if csiVal == "" {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "CSI number is required")
+		page.Flashes = map[string][]string{shared.FlashError: {"CSI number is required"}}
 		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
 	}
 
@@ -94,19 +94,19 @@ func (h *Handler) handleSearch(c echo.Context, page layouts.PageData, csi string
 	appVersion := c.FormValue("appVersion")
 
 	if appVersion == "" {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Versi App harus dipilih")
+		page.Flashes = map[string][]string{shared.FlashError: {"Versi App harus dipilih"}}
 		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
 	}
 
 	result, err := h.service.SearchTerminalWithVersion(csi, appVersion)
 
 	if err != nil {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Search failed: %v", err))
+		page.Flashes = map[string][]string{shared.FlashError: {fmt.Sprintf("Search failed: %v", err)}}
 		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
 	}
 
 	if !result.Found {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashInfo, fmt.Sprintf("CSI %s tidak ditemukan!", csi))
+		page.Flashes = map[string][]string{shared.FlashInfo: {fmt.Sprintf("CSI %s tidak ditemukan!", csi)}}
 		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
 	}
 
