@@ -54,7 +54,9 @@ var alertMsgTranslations = map[string]string{
 	"下载任务成功": "Download Task Success",
 	"推送任务失败": "Push Task Failure",
 	"推送任务成功": "Push Task Success",
-	"toke更新": "Token Renewal",
+	"toke更新":  "Token Renewal",
+	"APP任务失败": "App Task Failure",
+	"APP任务成功": "App Task Success",
 }
 
 // translateAlertMsg translates a Chinese alert message to English.
