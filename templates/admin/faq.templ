@@ -90,49 +90,55 @@ templ FaqPage(page layouts.PageData, tree []FaqData, faqTitle string, faqContent
 			}
 		</div>
 		<link rel="stylesheet" href="/static/plugins/bootstrap-treeview/bootstrap-treeview.min.css"/>
-		<script src="/static/plugins/bootstrap-treeview/bootstrap-treeview.min.js"></script>
 		<script>
-			$(function() {
-				var el = document.getElementById('faqTree');
-				var treeData = JSON.parse(el.getAttribute('data-tree'));
-				var $tree = $(el);
+			// Load bootstrap-treeview after jQuery is available (jQuery is loaded
+			// at the end of base.templ, after the children slot).
+			window.addEventListener('load', function() {
+				var script = document.createElement('script');
+				script.src = '/static/plugins/bootstrap-treeview/bootstrap-treeview.min.js';
+				script.onload = function() {
+					var el = document.getElementById('faqTree');
+					var treeData = JSON.parse(el.getAttribute('data-tree'));
+					var $tree = $(el);
 
-				// Initialise Bootstrap TreeView.
-				$tree.treeview({
-					data: treeData,
-					levels: 1,
-					borderColor: '#fff',
-					onNodeSelected: function(event, node) {
-						if (node.href) {
-							// Load content via AJAX (matching V2 Pjax behaviour).
-							fetch(node.href)
-								.then(function(res) { return res.text(); })
-								.then(function(html) {
-									document.getElementById('faq-content').innerHTML = html;
-								});
+					// Initialise Bootstrap TreeView.
+					$tree.treeview({
+						data: treeData,
+						levels: 1,
+						borderColor: '#fff',
+						onNodeSelected: function(event, node) {
+							if (node.href) {
+								// Load content via AJAX (matching V2 Pjax behaviour).
+								fetch(node.href)
+									.then(function(res) { return res.text(); })
+									.then(function(html) {
+										document.getElementById('faq-content').innerHTML = html;
+									});
+							}
 						}
-					}
-				});
+					});
 
-				// Search functionality (matching V2 TreeFilterInput).
-				var $search = $('#faqSearch');
-				var searchTimeout = null;
-				$search.on('keyup', function() {
-					clearTimeout(searchTimeout);
-					var query = $.trim($search.val());
-					searchTimeout = setTimeout(function() {
-						if (query.length > 0) {
-							$tree.treeview('search', [query, {
-								ignoreCase: true,
-								exactMatch: false,
-								revealResults: true
-							}]);
-						} else {
-							$tree.treeview('clearSearch');
-							$tree.treeview('collapseAll', { silent: true });
-						}
-					}, 300);
-				});
+					// Search functionality (matching V2 TreeFilterInput).
+					var $search = $('#faqSearch');
+					var searchTimeout = null;
+					$search.on('keyup', function() {
+						clearTimeout(searchTimeout);
+						var query = $.trim($search.val());
+						searchTimeout = setTimeout(function() {
+							if (query.length > 0) {
+								$tree.treeview('search', [query, {
+									ignoreCase: true,
+									exactMatch: false,
+									revealResults: true
+								}]);
+							} else {
+								$tree.treeview('clearSearch');
+								$tree.treeview('collapseAll', { silent: true });
+							}
+						}, 300);
+					});
+				};
+				document.body.appendChild(script);
 			});
 		</script>
 	}

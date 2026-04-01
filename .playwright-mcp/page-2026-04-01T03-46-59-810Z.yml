@@ -1,0 +1,87 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - list [ref=e4]:
+      - listitem [ref=e5]:
+        - button "" [ref=e6] [cursor=pointer]:
+          - generic [ref=e7]: 
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - strong [ref=e11]: Profiling
+      - listitem [ref=e12]:
+        - link "User Image" [ref=e13] [cursor=pointer]:
+          - /url: "#"
+          - img "User Image" [ref=e14]
+        - text:  
+  - complementary [ref=e15]:
+    - link "Logo VeriStore Tools 3" [ref=e16] [cursor=pointer]:
+      - /url: /
+      - img "Logo" [ref=e17]
+      - text: VeriStore Tools 3
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - img "User Image" [ref=e21]
+        - generic [ref=e22]:
+          - link "frederick" [ref=e23] [cursor=pointer]:
+            - /url: /
+          - generic [ref=e24]:
+            - generic [ref=e25]: 
+            - text: Online
+      - navigation [ref=e26]:
+        - menu [ref=e27]:
+          - listitem [ref=e28]:
+            - link " Dashboard" [ref=e29] [cursor=pointer]:
+              - /url: /
+              - generic [ref=e30]: 
+              - paragraph [ref=e31]: Dashboard
+          - listitem [ref=e32]:
+            - link " Pengguna" [ref=e33] [cursor=pointer]:
+              - /url: /user/index
+              - generic [ref=e34]: 
+              - paragraph [ref=e35]: Pengguna
+          - listitem [ref=e36]:
+            - link " Aktifitas" [ref=e37] [cursor=pointer]:
+              - /url: /activitylog/index
+              - generic [ref=e38]: 
+              - paragraph [ref=e39]: Aktifitas
+          - listitem [ref=e40]:
+            - link " Merchant " [ref=e41] [cursor=pointer]:
+              - /url: "#"
+              - generic [ref=e42]: 
+              - paragraph [ref=e43]:
+                - text: Merchant
+                - generic [ref=e44]: 
+            - text:  
+          - listitem [ref=e45]:
+            - link " CSI" [ref=e46] [cursor=pointer]:
+              - /url: /veristore/terminal
+              - generic [ref=e47]: 
+              - paragraph [ref=e48]: CSI
+          - listitem [ref=e49]:
+            - link " About " [ref=e50] [cursor=pointer]:
+              - /url: "#"
+              - generic [ref=e51]: 
+              - paragraph [ref=e52]:
+                - text: About
+                - generic [ref=e53]: 
+            - text:  
+      - link "Veristore Logo" [ref=e55] [cursor=pointer]:
+        - /url: ""
+        - img "Veristore Logo" [ref=e56]
+  - generic [ref=e57]:
+    - heading "Bantuan" [level=1] [ref=e62]
+    - generic [ref=e64]:
+      - link "Download User Guide English" [ref=e67] [cursor=pointer]:
+        - /url: /faq/download
+      - generic [ref=e69]:
+        - strong [ref=e72]: Panduan Pengguna
+        - generic [ref=e74]:
+          - textbox "Search..." [ref=e75]
+          - generic [ref=e78]: 
+  - contentinfo [ref=e79]:
+    - strong [ref=e81]: Version 3.0.0
+    - strong [ref=e82]:
+      - text: Copyright © 2026
+      - link "Verifone" [ref=e83] [cursor=pointer]:
+        - /url: https://www.verifone.com
+      - text: .
+    - text: All rights reserved.

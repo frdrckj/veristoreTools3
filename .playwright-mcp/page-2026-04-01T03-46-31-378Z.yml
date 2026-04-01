@@ -1,0 +1,17 @@
+- generic [ref=e4]:
+  - link "VeriStore Tools 3" [ref=e6] [cursor=pointer]:
+    - /url: /
+    - strong [ref=e7]: VeriStore Tools 3
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - textbox "Username" [active] [ref=e10]
+      - generic [ref=e13]: 
+    - generic [ref=e14]:
+      - textbox "Password" [ref=e15]
+      - generic [ref=e18]: 
+    - generic [ref=e19]:
+      - generic [ref=e21]:
+        - checkbox "Remember Me" [ref=e22]
+        - generic [ref=e23]: Remember Me
+      - button "Sign In" [ref=e25] [cursor=pointer]
+  - paragraph [ref=e26]: Version 3.0.0
