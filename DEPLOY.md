@@ -2,7 +2,7 @@
 
 ## Overview
 
-The app is built on your Mac and deployed as Docker images to the Linux server.
+The app is built on your Mac or Windows PC and deployed as Docker images to the Linux server.
 The server does **not** need internet access, Go, or the source code.
 
 ---
@@ -12,17 +12,51 @@ The server does **not** need internet access, Go, or the source code.
 | Machine | Requirements |
 |---------|-------------|
 | Mac (build) | Docker Desktop |
+| Windows (build) | Docker Desktop for Windows (WSL2 backend), PowerShell |
 | Server (production) | Docker Engine + Docker Compose |
 
 ---
 
 ## First-Time Deployment
 
-### Step 1: Build & Package (on Mac)
+### Step 1: Build & Package
+
+#### On Mac:
 
 ```bash
 cd veristoreTools3
 ./deploy.sh
+```
+
+#### On Windows (PowerShell):
+
+The `deploy.sh` script does not run natively on Windows. Run these commands manually in PowerShell:
+
+```powershell
+cd veristoreTools3
+
+# Build the app image for linux/amd64
+docker build --platform linux/amd64 -t veristoretools3-app:latest .
+
+# Pull dependency images for linux/amd64
+docker pull --platform linux/amd64 mysql:8.0
+docker pull --platform linux/amd64 redis:7-alpine
+
+# Create deploy package folder
+mkdir deploy-package
+
+# Save all images to a single tar
+docker save veristoretools3-app:latest mysql:8.0 redis:7-alpine -o deploy-package\veristoretools3-images.tar
+
+# Compress the tar (Option A: gzip via Git Bash)
+gzip deploy-package\veristoretools3-images.tar
+
+# Compress the tar (Option B: 7-Zip if gzip is not available)
+# 7z a deploy-package\veristoretools3-images.tar.gz deploy-package\veristoretools3-images.tar
+
+# Copy config files into the package
+copy docker-compose.prod.yml deploy-package\docker-compose.yml
+copy config.docker.yaml deploy-package\config.docker.yaml
 ```
 
 This creates a `deploy-package/` folder:
@@ -39,7 +73,17 @@ deploy-package/
 
 Copy the folder to the server via USB, SCP, or any method available:
 
+**Mac (bash):**
+
 ```bash
+scp -r deploy-package/ user@server:/opt/veristoretools3/
+```
+
+**Windows (PowerShell):**
+
+`rsync` is not available by default on Windows. Use `scp` instead:
+
+```powershell
 scp -r deploy-package/ user@server:/opt/veristoretools3/
 ```
 
@@ -113,20 +157,47 @@ cd veristoreTools3
 ./deploy.sh
 ```
 
+### On your Windows PC (PowerShell):
+
+```powershell
+cd veristoreTools3
+
+# Rebuild
+docker build --platform linux/amd64 -t veristoretools3-app:latest .
+```
+
 ### Transfer only the app image (smaller & faster):
 
 MySQL and Redis images never change, so you can skip them:
 
+**Mac (bash):**
+
 ```bash
 docker build --platform linux/amd64 -t veristoretools3-app:latest .
 
-# On Mac — save just the app image (~20 MB vs ~600 MB)
+# Save just the app image (~20 MB vs ~600 MB)
 docker save veristoretools3-app:latest -o app-update.tar
 gzip app-update.tar
 
-
 rsync -avz --progress app-update.tar.gz frearm01@10.120.8.116:/opt/veristoretools3/
+```
 
+**Windows (PowerShell):**
+
+```powershell
+docker build --platform linux/amd64 -t veristoretools3-app:latest .
+
+# Save just the app image (~20 MB vs ~600 MB)
+docker save veristoretools3-app:latest -o app-update.tar
+
+# Compress (Option A: gzip via Git Bash)
+gzip app-update.tar
+
+# Compress (Option B: 7-Zip if gzip is not available)
+# 7z a app-update.tar.gz app-update.tar
+
+# Transfer via SCP (rsync not available on Windows by default)
+scp app-update.tar.gz user@server:/opt/veristoretools3/
 ```
 
 Transfer only `app-update.tar.gz` to the server.
