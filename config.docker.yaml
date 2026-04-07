@@ -20,11 +20,11 @@ database:
   max_idle_conns: 10
 
 v2_database:
-  host: mysql
+  host: host.docker.internal
   port: 3306
   name: veristoretools2
   user: root
-  password: "veristoretools3"
+  password: ""
   charset: utf8mb4
   max_open_conns: 10
   max_idle_conns: 5
