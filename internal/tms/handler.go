@@ -1710,9 +1710,26 @@ func (h *Handler) Export(c echo.Context) error {
 			if !isSelectAll {
 				total = strconv.Itoa(len(serialNos))
 			} else {
-				// Worker will update the total after collecting from TMS.
-				// Set to 0 for now — the worker updates it once it knows the real count.
-				total = "0"
+				// Get total from TMS API for progress display.
+				var tmsCount int64
+				if searchSerialNo != "" {
+					resp, err := h.service.SearchTerminals(1, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+						if tc, ok := resp.Data["total"]; ok {
+							n, _ := toInt(tc)
+							tmsCount = int64(n)
+						}
+					}
+				} else {
+					resp, err := h.service.GetTerminalList(1)
+					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+						if tc, ok := resp.Data["total"]; ok {
+							n, _ := toInt(tc)
+							tmsCount = int64(n)
+						}
+					}
+				}
+				total = strconv.FormatInt(tmsCount, 10)
 			}
 			current := "0"
 			export := &admin.Export{
@@ -1762,45 +1779,31 @@ func (h *Handler) Export(c echo.Context) error {
 		// Initial POST from terminal page — collect serial numbers and show count.
 		selectAll := c.FormValue("selectAll")
 		if selectAll == "true" {
-			// Count only terminals with a CSI (deviceId) from TMS API.
+			// Get total count from TMS API.
 			searchSerialNo := c.FormValue("searchSerialNo")
 			searchType, _ := strconv.Atoi(c.FormValue("searchType"))
 
-			var exportableCount int
-			pageSize := 100
-			for page := 1; ; page++ {
-				var resp *TMSResponse
-				var err error
-				if searchSerialNo != "" {
-					resp, err = h.service.SearchTerminals(page, searchSerialNo, searchType, mw.GetCurrentUserName(c))
-				} else {
-					resp, err = h.service.Client().GetTerminalListWithSize(page, pageSize)
-				}
-				if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
-					break
-				}
-				tl, ok := resp.Data["terminalList"].([]interface{})
-				if !ok || len(tl) == 0 {
-					break
-				}
-				for _, t := range tl {
-					if m, ok := t.(map[string]interface{}); ok {
-						if did, _ := m["deviceId"].(string); did != "" {
-							exportableCount++
-						}
+			var tmsTotal int64
+			if searchSerialNo != "" {
+				resp, err := h.service.SearchTerminals(1, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+				if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+					if tc, ok := resp.Data["total"]; ok {
+						n, _ := toInt(tc)
+						tmsTotal = int64(n)
 					}
 				}
-				totalPage := 0
-				if tp, ok := resp.Data["totalPage"]; ok {
-					totalPage, _ = toInt(tp)
-				}
-				if page >= totalPage {
-					break
+			} else {
+				resp, err := h.service.GetTerminalList(1)
+				if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+					if tc, ok := resp.Data["total"]; ok {
+						n, _ := toInt(tc)
+						tmsTotal = int64(n)
+					}
 				}
 			}
 
-			data.Count = exportableCount
-			data.ShowCreate = exportableCount > 0
+			data.Count = int(tmsTotal)
+			data.ShowCreate = tmsTotal > 0
 			data.SelectAll = true
 			data.SearchSerialNo = searchSerialNo
 			data.SearchType = searchType

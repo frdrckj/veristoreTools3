@@ -207,9 +207,7 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				for _, t := range terminals {
 					<tr>
 						<td>
-							if mapGet(t, "deviceId") != "" {
-								<input type="checkbox" name="serialNos[]" value={ mapGet(t, "deviceId") } class="terminal-checkbox"/>
-							}
+							<input type="checkbox" name="serialNos[]" value={ mapGet(t, "deviceId") } class="terminal-checkbox"/>
 						</td>
 						<td>{ mapGet(t, "deviceId") }</td>
 						<td>{ mapGet(t, "sn") }</td>
