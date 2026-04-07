@@ -119,3 +119,17 @@ func (r *Repository) SetUserTmsSession(username, session string) error {
 func (r *Repository) ClearUserTmsSession(username string) error {
 	return r.db.Table("user").Where("user_name = ?", username).Update("tms_session", nil).Error
 }
+
+// GetAnyActiveUserSession returns a tms_session from any user that has one set.
+func (r *Repository) GetAnyActiveUserSession() string {
+	var row struct {
+		TmsSession *string `gorm:"column:tms_session"`
+	}
+	if err := r.db.Table("user").Where("tms_session IS NOT NULL AND tms_session != ''").Order("updated_at DESC").First(&row).Error; err != nil {
+		return ""
+	}
+	if row.TmsSession == nil {
+		return ""
+	}
+	return *row.TmsSession
+}

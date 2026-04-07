@@ -101,13 +101,21 @@ func (s *Service) SaveTmsPassword(currentUsername, plainPassword string) {
 		Update("tms_password", encrypted)
 }
 
+// Client returns the underlying TMS API client.
+func (s *Service) Client() *Client {
+	return s.client
+}
+
 // GetSession returns the active TMS session token from the tms_login table.
 func (s *Service) GetSession() string {
+	// Try tms_login table first (scheduled/automated sessions).
 	login, err := s.repo.GetActiveLogin()
-	if err != nil || login == nil || login.TmsLoginSession == nil {
-		return ""
+	if err == nil && login != nil && login.TmsLoginSession != nil && *login.TmsLoginSession != "" {
+		return *login.TmsLoginSession
 	}
-	return *login.TmsLoginSession
+	// Fall back to any user's tms_session (per-user login).
+	session := s.repo.GetAnyActiveUserSession()
+	return session
 }
 
 // GetUserSession returns the per-user TMS session token from the user table.

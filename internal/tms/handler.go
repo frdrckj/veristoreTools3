@@ -1709,6 +1709,27 @@ func (h *Handler) Export(c echo.Context) error {
 			total := "0"
 			if !isSelectAll {
 				total = strconv.Itoa(len(serialNos))
+			} else {
+				// Pre-count from TMS API so progress shows correct total immediately.
+				var tmsCount int64
+				if searchSerialNo != "" {
+					resp, err := h.service.SearchTerminals(1, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+						if tc, ok := resp.Data["total"]; ok {
+							n, _ := toInt(tc)
+							tmsCount = int64(n)
+						}
+					}
+				} else {
+					resp, err := h.service.GetTerminalList(1)
+					if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+						if tc, ok := resp.Data["total"]; ok {
+							n, _ := toInt(tc)
+							tmsCount = int64(n)
+						}
+					}
+				}
+				total = strconv.FormatInt(tmsCount, 10)
 			}
 			current := "0"
 			export := &admin.Export{
@@ -1758,29 +1779,31 @@ func (h *Handler) Export(c echo.Context) error {
 		// Initial POST from terminal page — collect serial numbers and show count.
 		selectAll := c.FormValue("selectAll")
 		if selectAll == "true" {
-			// Count from local terminal table — matches what the export worker
-			// will actually collect, avoiding TMS API total vs actual mismatch.
+			// Get count from TMS API.
 			searchSerialNo := c.FormValue("searchSerialNo")
 			searchType, _ := strconv.Atoi(c.FormValue("searchType"))
 
-			var exactCount int64
-			query := h.service.db.Table("terminal").Where("term_serial_num != ''")
+			var tmsTotal int64
 			if searchSerialNo != "" {
-				switch searchType {
-				case 0: // SN
-					query = query.Where("term_device_id LIKE ?", "%"+searchSerialNo+"%")
-				case 1: // Merchant
-					query = query.Where("term_serial_num IN (SELECT DISTINCT tp.param_term_serial_num FROM terminal_parameter tp WHERE tp.param_merchant_name LIKE ?)", "%"+searchSerialNo+"%")
-				case 4: // CSI
-					query = query.Where("term_serial_num LIKE ?", "%"+searchSerialNo+"%")
-				default:
-					query = query.Where("term_serial_num LIKE ?", "%"+searchSerialNo+"%")
+				resp, err := h.service.SearchTerminals(1, searchSerialNo, searchType, mw.GetCurrentUserName(c))
+				if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+					if tc, ok := resp.Data["total"]; ok {
+						n, _ := toInt(tc)
+						tmsTotal = int64(n)
+					}
+				}
+			} else {
+				resp, err := h.service.GetTerminalList(1)
+				if err == nil && resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+					if tc, ok := resp.Data["total"]; ok {
+						n, _ := toInt(tc)
+						tmsTotal = int64(n)
+					}
 				}
 			}
-			query.Count(&exactCount)
 
-			data.Count = int(exactCount)
-			data.ShowCreate = exactCount > 0
+			data.Count = int(tmsTotal)
+			data.ShowCreate = tmsTotal > 0
 			data.SelectAll = true
 			data.SearchSerialNo = searchSerialNo
 			data.SearchType = searchType

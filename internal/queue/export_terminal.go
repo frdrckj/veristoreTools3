@@ -80,7 +80,14 @@ func NewExportTerminalHandler(tmsService *tms.Service, tmsClient *tms.Client, ad
 // ProcessTask implements asynq.Handler. It fetches terminal details and
 // parameters from the TMS API using concurrent workers, then writes the
 // results to an Excel file.
-func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Task) error {
+func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Task) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Str("task", TaskExportTerminal).Msg("export task panicked")
+			retErr = fmt.Errorf("export_terminal: panic: %v", r)
+		}
+	}()
+
 	var payload ExportTerminalPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
 		return fmt.Errorf("export_terminal: unmarshal payload: %w", err)
@@ -89,7 +96,7 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	logger := log.With().Str("task", TaskExportTerminal).Int("export_id", payload.ExportID).Logger()
 	logger.Info().Int("count", len(payload.SerialNos)).Bool("selectAll", payload.SelectAll).Int("workers", exportWorkerCount).Msg("starting terminal export job")
 
-	// Log job start to queue_log.
+	// Log job start to queue_log (ignore errors — non-critical).
 	createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	_ = h.adminRepo.CreateQueueLog(&admin.QueueLog{
 		CreateTime:  createTime,
@@ -103,35 +110,57 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		session = h.tmsService.GetSession()
 	}
 	if session == "" {
+		logger.Error().Msg("no active TMS session — cannot export")
 		return fmt.Errorf("export_terminal: no active TMS session")
 	}
+	logger.Info().Msg("TMS session OK, proceeding with export")
 
-	// If SelectAll, collect all CSIs from the local terminal table.
-	// This is faster and more reliable than paginating through TMS API,
-	// which can miss terminals with null/non-string deviceId values.
-	// The local DB is already synced with TMS, so counts match exactly.
+	// If SelectAll, collect all CSIs by paginating through TMS API.
 	if payload.SelectAll {
-		logger.Info().Str("search", payload.SearchSerialNo).Int("searchType", payload.SearchType).Msg("selectAll: collecting CSIs from local DB")
+		logger.Info().Str("search", payload.SearchSerialNo).Int("searchType", payload.SearchType).Msg("selectAll: collecting CSIs from TMS API")
 		var allIDs []string
-		query := h.db.Table("terminal").Select("term_serial_num")
-		if payload.SearchSerialNo != "" {
-			switch payload.SearchType {
-			case 0: // SN
-				query = query.Where("term_device_id LIKE ?", "%"+payload.SearchSerialNo+"%")
-			case 1: // Merchant
-				query = query.Where("term_serial_num IN (SELECT DISTINCT tp.param_term_serial_num FROM terminal_parameter tp WHERE tp.param_merchant_name LIKE ?)", "%"+payload.SearchSerialNo+"%")
-			case 4: // CSI
-				query = query.Where("term_serial_num LIKE ?", "%"+payload.SearchSerialNo+"%")
-			default:
-				query = query.Where("term_serial_num LIKE ?", "%"+payload.SearchSerialNo+"%")
+		pageSize := 100
+		for page := 1; ; page++ {
+			var resp *tms.TMSResponse
+			var err error
+			if payload.SearchSerialNo != "" {
+				resp, err = h.tmsService.Client().GetTerminalListSearchBulk(session, page, payload.SearchSerialNo, payload.SearchType)
+			} else {
+				resp, err = h.tmsService.Client().GetTerminalListWithSize(page, pageSize)
+			}
+			if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+				break
+			}
+			tl, ok := resp.Data["terminalList"].([]interface{})
+			if !ok || len(tl) == 0 {
+				break
+			}
+			for _, t := range tl {
+				if m, ok := t.(map[string]interface{}); ok {
+					// Use sn (CSI) as primary identifier, fall back to deviceId.
+					id := ""
+					if sn, ok := m["sn"].(string); ok && sn != "" {
+						id = sn
+					} else if did, ok := m["deviceId"].(string); ok && did != "" {
+						id = did
+					}
+					if id != "" {
+						allIDs = append(allIDs, id)
+					}
+				}
+			}
+			totalPage := 0
+			if tp, ok := resp.Data["totalPage"]; ok {
+				totalPage, _ = tms.ToInt(tp)
+			}
+			if page >= totalPage {
+				break
 			}
 		}
-		query.Where("term_serial_num != ''").Order("term_id DESC").Pluck("term_serial_num", &allIDs)
 
 		payload.SerialNos = allIDs
-		logger.Info().Int("total", len(allIDs)).Msg("selectAll: finished collecting CSIs from local DB")
+		logger.Info().Int("total", len(allIDs)).Msg("selectAll: finished collecting CSIs from TMS API")
 
-		// Update the export record total now that we know the actual count.
 		if payload.ExportID > 0 {
 			total := strconv.Itoa(len(allIDs))
 			_ = h.adminRepo.UpdateExportProgress(payload.ExportID, "0", total)

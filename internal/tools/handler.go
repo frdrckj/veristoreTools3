@@ -61,6 +61,11 @@ func (h *Handler) Index(c echo.Context) error {
 func (h *Handler) SyncDatabase(c echo.Context) error {
 	page := h.pageData(c, "Tools")
 
+	if h.v2DB == nil {
+		page.Flashes = map[string][]string{shared.FlashError: {"V2 database is not configured or connection failed. Check v2_database in config.yaml."}}
+		return shared.Render(c, http.StatusOK, toolsTmpl.ToolsPage(page, nil))
+	}
+
 	results, err := SyncDatabases(h.v2DB, h.v3DB)
 	if err != nil {
 		page.Flashes = map[string][]string{shared.FlashError: {err.Error()}}

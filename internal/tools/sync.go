@@ -36,6 +36,10 @@ var skipTables = map[string]bool{
 	"log":             true, // v2 request/response log — not used in v3
 	"migration":       true, // Yii2 migration tracking
 	"queue_log":       true, // v2 uses Yii2 console jobs, v3 uses Asynq — different systems
+	"export":              true, // app-specific generated files — CSI vs TMS exports are different
+	"export_result":       true, // app-specific export results
+	"terminal":            true, // synced from TMS via Sinkronisasi CSI — not shared between v2/v3
+	"terminal_parameter":  true, // child of terminal — same reason
 }
 
 // discoverSharedTables finds tables that exist in both databases and returns
