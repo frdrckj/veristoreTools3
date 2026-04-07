@@ -137,15 +137,8 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			}
 			for _, t := range tl {
 				if m, ok := t.(map[string]interface{}); ok {
-					// Use sn (CSI) as primary identifier, fall back to deviceId.
-					id := ""
 					if sn, ok := m["sn"].(string); ok && sn != "" {
-						id = sn
-					} else if did, ok := m["deviceId"].(string); ok && did != "" {
-						id = did
-					}
-					if id != "" {
-						allIDs = append(allIDs, id)
+						allIDs = append(allIDs, sn)
 					}
 				}
 			}
@@ -519,11 +512,29 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			WHERE vfi_rpt_term_serial_num = ?
 			ORDER BY vfi_rpt_id DESC LIMIT 1`, row.SerialNo).Scan(&vrResult).Error
 
-		sn := "Unverified"
-		appVersion := "Unverified"
+		sn := ""
+		appVersion := ""
+
+		// Try TMS detail data first.
+		if row.Data != nil {
+			sn = tms.ToString(row.Data["sn"])
+			appVersion = tms.ToString(row.Data["appVersion"])
+		}
+
+		// Override with verification report data if available.
 		if vrErr == nil && vrResult.DeviceID != "" {
 			sn = vrResult.DeviceID
+		}
+		if vrErr == nil && vrResult.AppVersion != "" {
 			appVersion = vrResult.AppVersion
+		}
+
+		// Final fallback.
+		if sn == "" {
+			sn = "Unverified"
+		}
+		if appVersion == "" {
+			appVersion = "Unverified"
 		}
 
 		cell, _ = excelize.CoordinatesToCellName(3, rowNum)
