@@ -137,8 +137,8 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			}
 			for _, t := range tl {
 				if m, ok := t.(map[string]interface{}); ok {
-					if sn, ok := m["sn"].(string); ok && sn != "" {
-						allIDs = append(allIDs, sn)
+					if did, ok := m["deviceId"].(string); ok && did != "" {
+						allIDs = append(allIDs, did)
 					}
 				}
 			}
