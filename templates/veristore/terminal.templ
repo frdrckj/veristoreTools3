@@ -207,7 +207,9 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				for _, t := range terminals {
 					<tr>
 						<td>
-							<input type="checkbox" name="serialNos[]" value={ mapGet(t, "deviceId") } class="terminal-checkbox"/>
+							if mapGet(t, "deviceId") != "" {
+								<input type="checkbox" name="serialNos[]" value={ mapGet(t, "deviceId") } class="terminal-checkbox"/>
+							}
 						</td>
 						<td>{ mapGet(t, "deviceId") }</td>
 						<td>{ mapGet(t, "sn") }</td>
@@ -409,6 +411,8 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 				var exportForm = document.getElementById('exportForm');
 				if (!exportForm) { return false; }
 				if (window._terminalSelectAll) {
+					// Select All mode: still use selectAll flag but also pass search params
+					// so the TMS API export collects only terminals with a CSI (deviceId).
 					document.getElementById('exportSelectAll').value = 'true';
 					var deleteForm = document.getElementById('bulkDeleteForm');
 					var sn = deleteForm ? deleteForm.querySelector('input[name="searchSerialNo"]') : null;
