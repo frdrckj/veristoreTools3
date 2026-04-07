@@ -1,0 +1,82 @@
+package tools
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// SyncResultView mirrors tools.SyncResult for the template layer.
+type SyncResultView struct {
+	Table   string
+	V2ToV3  int
+	V3ToV2  int
+	Errors  string
+	V2Count int64
+	V3Count int64
+}
+
+templ ToolsPage(page layouts.PageData, results []SyncResultView) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">
+					<i class="fas fa-tools mr-1"></i>
+					Database Sync
+				</h3>
+			</div>
+			<div class="card-body">
+				<div class="callout callout-info">
+					<h5>Sync Database</h5>
+					<p>
+						Synchronize data between veristoretools2 and veristoretools3 databases.
+					</p>
+					<form method="POST" action="/tools/sync">
+						<button type="submit" class="btn btn-primary" onclick="this.disabled=true; this.innerHTML='<i class=&quot;fas fa-spinner fa-spin&quot;></i> Syncing...'; this.form.submit();">
+							<i class="fas fa-sync-alt"></i> Sync Database
+						</button>
+					</form>
+				</div>
+
+				if results != nil {
+					<div class="mt-4">
+						<h5>Sync Results</h5>
+						<div class="table-responsive">
+							<table class="table table-bordered table-sm table-striped">
+								<thead class="thead-light">
+									<tr>
+										<th>Table</th>
+										<th>V2 &rarr; V3</th>
+										<th>V3 &rarr; V2</th>
+										<th>V2 Count</th>
+										<th>V3 Count</th>
+										<th>Status</th>
+									</tr>
+								</thead>
+								<tbody>
+									for _, r := range results {
+										<tr>
+											<td><code>{ r.Table }</code></td>
+											<td>{ fmt.Sprintf("%d", r.V2ToV3) }</td>
+											<td>{ fmt.Sprintf("%d", r.V3ToV2) }</td>
+											<td>{ fmt.Sprintf("%d", r.V2Count) }</td>
+											<td>{ fmt.Sprintf("%d", r.V3Count) }</td>
+											<td>
+												if r.Errors != "" {
+													<span class="badge badge-danger">{ r.Errors }</span>
+												} else if r.V2Count == r.V3Count {
+													<span class="badge badge-success">OK</span>
+												} else {
+													<span class="badge badge-warning">Mismatch</span>
+												}
+											</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}

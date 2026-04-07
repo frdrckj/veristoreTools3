@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 
 	"github.com/verifone/veristoretools3/internal/activation"
 	"github.com/verifone/veristoretools3/internal/admin"
@@ -30,6 +31,7 @@ import (
 	syncpkg "github.com/verifone/veristoretools3/internal/sync"
 	"github.com/verifone/veristoretools3/internal/terminal"
 	"github.com/verifone/veristoretools3/internal/tms"
+	"github.com/verifone/veristoretools3/internal/tools"
 	"github.com/verifone/veristoretools3/internal/user"
 )
 
@@ -61,6 +63,15 @@ func main() {
 	db, err := shared.NewDatabase(cfg.Database)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+
+	// Connect to V2 database (optional — used by Tools sync feature).
+	var v2DB *gorm.DB
+	if cfg.V2Database.Name != "" {
+		v2DB, err = shared.NewDatabase(cfg.V2Database)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to connect to v2 database (tools sync disabled)")
+		}
 	}
 
 	// -----------------------------------------------------------------------
@@ -364,6 +375,11 @@ func main() {
 	// Scheduler
 	protected.GET("/scheduler/index", schedulerHandler.Index)
 	protected.POST("/scheduler/update", schedulerHandler.Update)
+
+	// Tools
+	toolsHandler := tools.NewHandler(db, v2DB, sessionStore, sessionName, appName, appVersion)
+	protected.GET("/tools/index", toolsHandler.Index)
+	protected.POST("/tools/sync", toolsHandler.SyncDatabase)
 
 	// -----------------------------------------------------------------------
 	// 15. API routes (basic auth)

@@ -56,6 +56,14 @@ templ Sidebar(data PageData) {
 					if data.IsTMS() {
 						@tmsMenu(data)
 					}
+					if data.IsAdmin() || data.IsTMSAdmin() {
+						<li class="nav-item">
+							<a href="/tools/index" class="nav-link">
+								<i class="nav-icon fas fa-tools"></i>
+								<p>Tools</p>
+							</a>
+						</li>
+					}
 				</ul>
 			</nav>
 			<!-- Client Logo -->

@@ -211,3 +211,9 @@ p, TMS OPERATOR, /faq/:action, *
 
 # Backup
 p, TMS OPERATOR, /backup/:action, *
+
+# ---------------------------------------------------------------------------
+# Tools (ADMIN + TMS ADMIN only)
+# ---------------------------------------------------------------------------
+p, ADMIN, /tools/:action, *
+p, TMS ADMIN, /tools/:action, *

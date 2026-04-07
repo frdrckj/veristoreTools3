@@ -10,6 +10,7 @@ import (
 type Config struct {
 	App         AppConfig      `yaml:"app"`
 	Database    DatabaseConfig `yaml:"database"`
+	V2Database  DatabaseConfig `yaml:"v2_database"`
 	Redis       RedisConfig    `yaml:"redis"`
 	TMS         TMSConfig      `yaml:"tms"`
 	API         APIConfig      `yaml:"api"`
@@ -102,6 +103,15 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Database.MaxIdleConns == 0 {
 		cfg.Database.MaxIdleConns = 10
+	}
+	if cfg.V2Database.Charset == "" {
+		cfg.V2Database.Charset = "utf8mb4"
+	}
+	if cfg.V2Database.MaxOpenConns == 0 {
+		cfg.V2Database.MaxOpenConns = 10
+	}
+	if cfg.V2Database.MaxIdleConns == 0 {
+		cfg.V2Database.MaxIdleConns = 5
 	}
 	if cfg.Import.BatchSize == 0 {
 		cfg.Import.BatchSize = 100
