@@ -21,6 +21,7 @@ import (
 
 	"github.com/verifone/veristoretools3/internal/activation"
 	"github.com/verifone/veristoretools3/internal/admin"
+	approvalPkg "github.com/verifone/veristoretools3/internal/approval"
 	"github.com/verifone/veristoretools3/internal/auth"
 	"github.com/verifone/veristoretools3/internal/config"
 	"github.com/verifone/veristoretools3/internal/csi"
@@ -157,7 +158,7 @@ func main() {
 	termHandler := terminal.NewHandler(terminalService, sessionStore, sessionName, appName, appVersion)
 	paramHandler := terminal.NewParamHandler(terminalRepo, sessionStore, sessionName, appName, appVersion)
 	tplParamHandler := admin.NewTemplateParamHandler(adminRepo, sessionStore, sessionName, appName, appVersion)
-	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient, asynqInspector, cfg.PackageName)
+	tmsHandler := tms.NewHandler(tmsService, sessionStore, sessionName, appName, appVersion, adminRepo, asynqClient, asynqInspector, cfg.PackageName, db)
 	tmsLoginHandler := tms.NewLoginHandler(tmsRepo, tmsService, sessionStore, sessionName, appName, appVersion)
 	verifyHandler := csi.NewHandler(csiService, sessionStore, sessionName, appName, appVersion)
 	reportHandler := csi.NewReportHandler(csiRepo, sessionStore, sessionName, appName, appVersion)
@@ -375,6 +376,14 @@ func main() {
 	// Scheduler
 	protected.GET("/scheduler/index", schedulerHandler.Index)
 	protected.POST("/scheduler/update", schedulerHandler.Update)
+
+	// CSI Approval
+	approvalRepo := approvalPkg.NewRepository(db)
+	approvalHandler := approvalPkg.NewHandler(approvalRepo, tmsService, sessionStore, sessionName, appName, appVersion)
+	protected.GET("/approval/index", approvalHandler.Index)
+	protected.GET("/approval/view", approvalHandler.View)
+	protected.POST("/approval/approve", approvalHandler.Approve)
+	protected.POST("/approval/reject", approvalHandler.Reject)
 
 	// Tools
 	toolsHandler := tools.NewHandler(db, v2DB, sessionStore, sessionName, appName, appVersion)

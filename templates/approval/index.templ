@@ -1,0 +1,105 @@
+package approval
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// RequestView holds data for rendering a CSI request in the template.
+type RequestView struct {
+	ID         int
+	DeviceID   string
+	Vendor     string
+	Model      string
+	MerchantID string
+	GroupIDs   string
+	SN         string
+	App        string
+	MoveConf   int
+	Status     string
+	CreatedBy  string
+	CreatedDt  string
+}
+
+templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove bool) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">
+					<i class="fas fa-check-circle mr-1"></i>
+					Persetujuan CSI
+				</h3>
+			</div>
+			<div class="card-body">
+				if requests == nil || len(requests) == 0 {
+					<div class="text-center text-muted py-4">
+						<i class="fas fa-inbox fa-3x mb-3"></i>
+						<p>Tidak ada permintaan CSI.</p>
+					</div>
+				} else {
+					<div class="table-responsive">
+						<table class="table table-bordered table-striped table-sm">
+							<thead class="thead-light">
+								<tr>
+									<th>No</th>
+									<th>CSI</th>
+									<th>SN</th>
+									<th>Model</th>
+									<th>App</th>
+									<th>Diajukan Oleh</th>
+									<th>Tanggal</th>
+									<th>Status</th>
+									if canApprove {
+										<th>Aksi</th>
+									}
+								</tr>
+							</thead>
+							<tbody>
+								for i, r := range requests {
+									<tr>
+										<td>{ fmt.Sprintf("%d", i+1) }</td>
+										<td>
+										<a href={ templ.SafeURL(fmt.Sprintf("/approval/view?id=%d", r.ID)) }>
+											<strong>{ r.DeviceID }</strong>
+										</a>
+									</td>
+										<td>{ r.SN }</td>
+										<td>{ r.Model }</td>
+										<td>{ r.App }</td>
+										<td>{ r.CreatedBy }</td>
+										<td>{ r.CreatedDt }</td>
+										<td>
+											if r.Status == "PENDING" {
+												<span class="badge badge-warning">PENDING</span>
+											} else if r.Status == "APPROVED" {
+												<span class="badge badge-success">APPROVED</span>
+											} else if r.Status == "REJECTED" {
+												<span class="badge badge-danger">REJECTED</span>
+											}
+										</td>
+										if canApprove {
+											<td>
+												if r.Status == "PENDING" {
+													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/approve?id=%d", r.ID)) } style="display:inline;">
+														<button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve CSI request for ' + '{ r.DeviceID }' + '?')">
+															<i class="fas fa-check"></i> Approve
+														</button>
+													</form>
+													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/reject?id=%d", r.ID)) } style="display:inline;">
+														<button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Reject and delete CSI request for ' + '{ r.DeviceID }' + '?')">
+															<i class="fas fa-times"></i> Reject
+														</button>
+													</form>
+												}
+											</td>
+										}
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}

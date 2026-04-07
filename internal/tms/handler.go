@@ -27,6 +27,7 @@ import (
 	"github.com/verifone/veristoretools3/templates/layouts"
 	vsTmpl "github.com/verifone/veristoretools3/templates/veristore"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm"
 )
 
 // paramCacheEntry holds pre-fetched parameter data with a timestamp.
@@ -52,6 +53,7 @@ type Handler struct {
 	copyrightURL     string
 	packageName      string // filter apps by package name (v2 appTmsPackageName)
 	adminRepo        *admin.Repository
+	approvalDB       *gorm.DB
 	queueClient      *asynq.Client
 	queueInspector   *asynq.Inspector
 	paramCache       sync.Map // key: "serialNum|appId" → *paramCacheEntry
@@ -61,7 +63,7 @@ type Handler struct {
 }
 
 // NewHandler creates a new veristore handler.
-func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client, queueInspector *asynq.Inspector, packageName string) *Handler {
+func NewHandler(service *Service, store sessions.Store, sessionName string, appName, appVersion string, adminRepo *admin.Repository, queueClient *asynq.Client, queueInspector *asynq.Inspector, packageName string, approvalDB *gorm.DB) *Handler {
 	return &Handler{
 		service:          service,
 		store:            store,
@@ -78,6 +80,7 @@ func NewHandler(service *Service, store sessions.Store, sessionName string, appN
 		copyrightURL:     "https://www.verifone.com",
 		packageName:      packageName,
 		adminRepo:        adminRepo,
+		approvalDB:       approvalDB,
 		queueClient:      queueClient,
 		queueInspector:   queueInspector,
 	}
@@ -356,37 +359,18 @@ func (h *Handler) Add(c echo.Context) error {
 	}
 
 	appId := c.FormValue("app")
+	appName := c.FormValue("appName")
 
-	// Step 1: Add terminal.
-	resp, err := h.service.AddTerminal(data)
-	if err != nil {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to add terminal: %v", err))
-		return c.Redirect(http.StatusFound, "/veristore/add")
-	}
+	// Save as a pending approval request instead of creating directly in TMS.
+	groupIDStr := strings.Join(data.GroupIDs, ",")
+	now := time.Now()
+	h.approvalDB.Exec(
+		"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_status, created_by, created_dt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)",
+		data.DeviceID, data.Vendor, data.Model, data.MerchantID, groupIDStr, data.SN, appId, appName, data.MoveConf, mw.GetCurrentUserName(c), now,
+	)
 
-	if resp.ResultCode != 0 {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Add terminal failed: %s", resp.Desc))
-		return c.Redirect(http.StatusFound, "/veristore/add")
-	}
-
-	// Step 2: Add app parameter to the terminal (like v2).
-	if appId != "" {
-		paramResp, paramErr := h.service.AddParameter(data.DeviceID, appId)
-		if paramErr != nil {
-			// Terminal was created but app assignment failed — delete terminal and report error.
-			h.service.DeleteTerminals([]string{data.DeviceID})
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to assign app: %v", paramErr))
-			return c.Redirect(http.StatusFound, "/veristore/add")
-		}
-		if paramResp.ResultCode != 0 {
-			h.service.DeleteTerminals([]string{data.DeviceID})
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("App assignment failed: %s", paramResp.Desc))
-			return c.Redirect(http.StatusFound, "/veristore/add")
-		}
-	}
-
-	mw.LogActivityFromContext(c, mw.LogVeristoreAddCSI, "Add csi "+data.DeviceID)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Add CSI berhasil!")
+	mw.LogActivityFromContext(c, mw.LogVeristoreRequestCSI, "Request add CSI: "+data.DeviceID)
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Permintaan CSI "+data.DeviceID+" berhasil diajukan, menunggu persetujuan.")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 

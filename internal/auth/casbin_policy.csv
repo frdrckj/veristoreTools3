@@ -213,6 +213,14 @@ p, TMS OPERATOR, /faq/:action, *
 p, TMS OPERATOR, /backup/:action, *
 
 # ---------------------------------------------------------------------------
+# CSI Approval
+# ---------------------------------------------------------------------------
+p, ADMIN, /approval/:action, *
+p, TMS ADMIN, /approval/:action, *
+p, TMS SUPERVISOR, /approval/index, GET
+p, TMS OPERATOR, /approval/index, GET
+
+# ---------------------------------------------------------------------------
 # Tools (ADMIN + TMS ADMIN only)
 # ---------------------------------------------------------------------------
 p, ADMIN, /tools/:action, *

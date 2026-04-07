@@ -1,0 +1,118 @@
+package approval
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+templ ApprovalDetailPage(page layouts.PageData, r RequestView, canApprove bool) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">
+					<i class="fas fa-file-alt mr-1"></i>
+					Detail Permintaan CSI
+				</h3>
+			</div>
+			<div class="card-body">
+				<table class="table table-bordered">
+					<tbody>
+						<tr>
+							<th style="width: 200px;">CSI (Device ID)</th>
+							<td>{ r.DeviceID }</td>
+						</tr>
+						<tr>
+							<th>Serial Number</th>
+							<td>
+								if r.SN != "" {
+									{ r.SN }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Vendor</th>
+							<td>{ r.Vendor }</td>
+						</tr>
+						<tr>
+							<th>Model</th>
+							<td>{ r.Model }</td>
+						</tr>
+						<tr>
+							<th>Merchant ID</th>
+							<td>{ r.MerchantID }</td>
+						</tr>
+						<tr>
+							<th>Group IDs</th>
+							<td>
+								if r.GroupIDs != "" {
+									{ r.GroupIDs }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>App</th>
+							<td>
+								if r.App != "" {
+									{ r.App }
+								} else {
+									<span class="text-muted">-</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Message Service</th>
+							<td>
+								if r.MoveConf == 1 {
+									Yes
+								} else {
+									No
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Status</th>
+							<td>
+								if r.Status == "PENDING" {
+									<span class="badge badge-warning">PENDING</span>
+								} else if r.Status == "APPROVED" {
+									<span class="badge badge-success">APPROVED</span>
+								} else if r.Status == "REJECTED" {
+									<span class="badge badge-danger">REJECTED</span>
+								}
+							</td>
+						</tr>
+						<tr>
+							<th>Diajukan Oleh</th>
+							<td>{ r.CreatedBy }</td>
+						</tr>
+						<tr>
+							<th>Tanggal Pengajuan</th>
+							<td>{ r.CreatedDt }</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="card-footer">
+				<a href="/approval/index" class="btn btn-default">
+					<i class="fas fa-arrow-left"></i> Kembali
+				</a>
+				if canApprove && r.Status == "PENDING" {
+					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/approve?id=%d", r.ID)) } style="display:inline;">
+						<button type="submit" class="btn btn-success" onclick="return confirm('Approve CSI request?')">
+							<i class="fas fa-check"></i> Approve
+						</button>
+					</form>
+					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/reject?id=%d", r.ID)) } style="display:inline;">
+						<button type="submit" class="btn btn-danger" onclick="return confirm('Reject and delete this request?')">
+							<i class="fas fa-times"></i> Reject
+						</button>
+					</form>
+				}
+			</div>
+		</div>
+	}
+}

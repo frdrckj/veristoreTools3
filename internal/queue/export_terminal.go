@@ -523,7 +523,12 @@ func (h *ExportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		// Try TMS detail data first.
 		if row.Data != nil {
 			sn = tms.ToString(row.Data["sn"])
-			appVersion = tms.ToString(row.Data["appVersion"])
+			// App version is nested in terminalShowApps array, not a top-level field.
+			if apps, ok := row.Data["terminalShowApps"].([]interface{}); ok && len(apps) > 0 {
+				if app, ok := apps[0].(map[string]interface{}); ok {
+					appVersion = tms.ToString(app["version"])
+				}
+			}
 		}
 
 		// Override with verification report data if available.
