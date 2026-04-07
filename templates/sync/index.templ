@@ -137,17 +137,6 @@ templ IndexPage(page layouts.PageData, syncs []SyncData, pagination components.P
 				<h3 class="card-title">Sinkronisasi Data CSI</h3>
 				<div class="card-tools">
 					<div class="d-flex align-items-center">
-						<form method="POST" action="/sync-terminal/create" class="d-inline mr-1">
-							<button
-								type="submit"
-								class={ "btn btn-sm btn-success", templ.KV("disabled", syncProcess) }
-								if syncProcess {
-									disabled
-								}
-							>
-								Sekarang
-							</button>
-						</form>
 						<a href="/sync-terminal/index" class="btn btn-sm btn-success mr-1" title="Refresh">
 							<i class="fas fa-sync"></i>
 						</a>

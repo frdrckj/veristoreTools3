@@ -341,28 +341,41 @@ func addMissingColumns(srcDB, dstDB *gorm.DB, table string, srcCols, dstCols []s
 	}
 }
 
-// relaxNotNull changes NOT NULL columns (except PKs) to allow NULL so inserts from the other DB won't fail.
+// relaxNotNull changes NOT NULL columns to allow NULL so inserts from the other DB won't fail.
+// Skips primary keys, unique keys, auto-increment, and indexed columns to avoid breaking table structure.
 func relaxNotNull(db *gorm.DB, table string, columns []string) {
 	var dbName string
 	db.Raw("SELECT DATABASE()").Scan(&dbName)
 
 	for _, col := range columns {
-		var colType, isNullable, colKey string
+		var colType, isNullable, colKey, extra, colDefault string
+		var colDefaultPtr *string
 		row := db.Raw(
-			"SELECT COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+			"SELECT COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, EXTRA, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?",
 			dbName, table, col,
 		).Row()
 		if row == nil {
 			continue
 		}
-		if err := row.Scan(&colType, &isNullable, &colKey); err != nil {
+		if err := row.Scan(&colType, &isNullable, &colKey, &extra, &colDefaultPtr); err != nil {
 			continue
 		}
-		// Skip PKs and columns already nullable.
-		if colKey == "PRI" || isNullable == "YES" {
+		if colDefaultPtr != nil {
+			colDefault = *colDefaultPtr
+		}
+
+		// Skip any column that has a key, auto_increment, or is already nullable.
+		if colKey != "" || isNullable == "YES" || strings.Contains(extra, "auto_increment") {
 			continue
 		}
-		alterSQL := fmt.Sprintf("ALTER TABLE `%s` MODIFY COLUMN `%s` %s NULL", table, col, colType)
+
+		// Preserve DEFAULT value in the ALTER statement.
+		defaultClause := ""
+		if colDefaultPtr != nil {
+			defaultClause = fmt.Sprintf(" DEFAULT '%s'", strings.ReplaceAll(colDefault, "'", "\\'"))
+		}
+
+		alterSQL := fmt.Sprintf("ALTER TABLE `%s` MODIFY COLUMN `%s` %s NULL%s", table, col, colType, defaultClause)
 		db.Exec(alterSQL)
 	}
 }
