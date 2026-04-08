@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -20,7 +19,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/verifone/veristoretools3/internal/admin"
-	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/tms"
 )
 
@@ -269,26 +267,53 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 
 	// ------------------------------------------------------------------
-	// Phase 2: Save each row as a pending CSI approval request.
-	// The actual TMS creation happens when an admin approves the request.
+	// Phase 2: Filter existing CSIs, then save new ones as approval requests.
 	// ------------------------------------------------------------------
+
+	// Build a set of existing CSIs from the local terminal table (synced from TMS).
+	var existingCSIs []string
+	h.db.Table("terminal").Where("term_serial_num != ''").Pluck("term_serial_num", &existingCSIs)
+	existingSet := make(map[string]bool, len(existingCSIs))
+	for _, csi := range existingCSIs {
+		existingSet[strings.ToUpper(csi)] = true
+	}
+
+	// Also check for pending approval requests to avoid duplicates.
+	var pendingCSIs []string
+	h.db.Table("csi_request").Where("req_status = 'PENDING'").Pluck("req_device_id", &pendingCSIs)
+	for _, csi := range pendingCSIs {
+		existingSet[strings.ToUpper(csi)] = true
+	}
+
 	now := time.Now()
 	var savedCount int
+	var existCount int
+	var failCount int
 	var resultLines []string
 
 	for i, j := range jobs {
-		groupIDStr := strings.Join(j.GroupIDs, ",")
-		err := h.db.Exec(
-			"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_template_sn, req_source, req_status, created_by, created_dt) VALUES (?, '', '', ?, ?, '', '', '', 0, ?, 'import', 'PENDING', ?, ?)",
-			j.SerialNum, j.MerchantID, groupIDStr, j.TemplateSN, payload.User, now,
-		).Error
+		upperCSI := strings.ToUpper(j.SerialNum)
 
-		if err != nil {
-			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): FAILED - %v", j.RowNum, j.SerialNum, err))
-			logger.Warn().Err(err).Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("failed to create approval request")
+		if existingSet[upperCSI] {
+			existCount++
+			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): SKIPPED - CSI already exists in TMS or pending approval", j.RowNum, j.SerialNum))
+			logger.Info().Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("CSI already exists, skipping")
 		} else {
-			savedCount++
-			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK - pending approval", j.RowNum, j.SerialNum))
+			groupIDStr := strings.Join(j.GroupIDs, ",")
+			err := h.db.Exec(
+				"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_template_sn, req_source, req_status, created_by, created_dt) VALUES (?, '', '', ?, ?, '', '', '', 0, ?, 'import', 'PENDING', ?, ?)",
+				j.SerialNum, j.MerchantID, groupIDStr, j.TemplateSN, payload.User, now,
+			).Error
+
+			if err != nil {
+				failCount++
+				resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): FAILED - %v", j.RowNum, j.SerialNum, err))
+				logger.Warn().Err(err).Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("failed to create approval request")
+			} else {
+				savedCount++
+				existingSet[upperCSI] = true // prevent duplicates within same import
+				resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK - pending approval", j.RowNum, j.SerialNum))
+			}
 		}
 
 		if payload.ImportID > 0 {
@@ -296,11 +321,17 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		}
 	}
 
-	logger.Info().Int("saved", savedCount).Int("total", totalJobs).Msg("import complete — all rows saved as pending approval requests")
+	logger.Info().
+		Int("saved", savedCount).
+		Int("existing", existCount).
+		Int("failed", failCount).
+		Int("total", totalJobs).
+		Msg("import complete")
 
 	// Write result file.
 	if payload.ImportID > 0 {
-		resultContent := strings.Join(resultLines, "\n")
+		header := fmt.Sprintf("Import Result: %d new (pending approval), %d already exist, %d failed\n\n", savedCount, existCount, failCount)
+		resultContent := header + strings.Join(resultLines, "\n")
 		resultPath := fmt.Sprintf("static/import/import_result_%d.txt", payload.ImportID)
 		if err := os.WriteFile(resultPath, []byte(resultContent), 0644); err != nil {
 			logger.Warn().Err(err).Msg("failed to write import result file")
@@ -311,13 +342,18 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 
 	return nil
+}
 
-	// ------------------------------------------------------------------
-	// Legacy Phase 2 (disabled — replaced by approval flow above):
-	// Process rows concurrently using a worker pool.
-	// ------------------------------------------------------------------
-
+/* legacyImportPhase2 — disabled, replaced by approval flow.
+func (h *ImportTerminalHandler) legacyImportPhase2() {
 	// Cache tab names once (shared across all workers).
+	var ctx context.Context
+	var payload ImportTerminalPayload
+	var jobs []importJob
+	var totalRows, totalJobs int
+	var session string
+	var logger = log.With().Logger()
+	_ = ctx; _ = payload; _ = jobs; _ = totalRows; _ = totalJobs; _ = session; _ = logger
 	tabNames := tms.GetAllTabNames(h.db)
 
 	// Cache operationMark once for the entire import (saves 1 call/terminal).
@@ -501,6 +537,7 @@ sendLoop:
 
 	return nil
 }
+*/
 
 // buildTemplateCache pre-resolves all unique template SNs to their old-API
 // int IDs. This is done once before the worker pool starts, so all workers

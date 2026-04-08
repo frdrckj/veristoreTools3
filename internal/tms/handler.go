@@ -1980,10 +1980,10 @@ func (h *Handler) Import(c echo.Context) error {
 				}
 
 				// Check if import result .txt file exists for download.
-				base := strings.TrimSuffix(latest.ImpFilename, filepath.Ext(latest.ImpFilename))
-				resultFile := filepath.Join("static", "import", "import_result_"+base+".txt")
+				resultFile := fmt.Sprintf("static/import/import_result_%d.txt", latest.ImpID)
 				if _, err := os.Stat(resultFile); err == nil {
 					data.ResultFileExists = true
+					data.ResultFileID = latest.ImpID
 				}
 			}
 		}
@@ -2012,7 +2012,8 @@ func (h *Handler) Import(c echo.Context) error {
 	}
 	defer src.Close()
 
-	filename := fmt.Sprintf("csi_%s%s", time.Now().Format("20060102_1504"), ext)
+	origName := strings.TrimSuffix(file.Filename, ext)
+	filename := fmt.Sprintf("%s_%s%s", origName, time.Now().Format("20060102_1504"), ext)
 	destPath := filepath.Join("static", "import", filename)
 	dst, err := os.Create(destPath)
 	if err != nil {
@@ -2244,14 +2245,13 @@ func (h *Handler) ImportResult(c echo.Context) error {
 		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", report.TmsRptFile)
 	}
 
-	// Otherwise serve the per-row import result .txt file (matching V2).
+	// Otherwise serve the per-row import result .txt file.
 	latest, err := h.adminRepo.FindLatestImport()
 	if err != nil || latest == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "no import record found")
 	}
 
-	base := strings.TrimSuffix(latest.ImpFilename, filepath.Ext(latest.ImpFilename))
-	resultName := "import_result_" + base + ".txt"
+	resultName := fmt.Sprintf("import_result_%d.txt", latest.ImpID)
 	resultPath := filepath.Join("static", "import", resultName)
 
 	if _, err := os.Stat(resultPath); os.IsNotExist(err) {
