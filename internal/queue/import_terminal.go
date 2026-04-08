@@ -311,7 +311,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 		if existingSet[upperCSI] {
 			existCount++
-			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): SKIPPED - CSI already exists in TMS or pending approval", j.RowNum, j.SerialNum))
+			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): SKIPPED - CSI already exists in TMS", j.RowNum, j.SerialNum))
 			logger.Info().Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("CSI already exists, skipping")
 		} else {
 			groupIDStr := strings.Join(j.GroupIDs, ",")
@@ -327,7 +327,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			} else {
 				savedCount++
 				existingSet[upperCSI] = true // prevent duplicates within same import
-				resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK - pending approval", j.RowNum, j.SerialNum))
+				resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK - sent to approval", j.RowNum, j.SerialNum))
 			}
 		}
 
@@ -345,7 +345,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	// Write result file.
 	if payload.ImportID > 0 {
-		header := fmt.Sprintf("Import Result: %d new (pending approval), %d already exist, %d failed\n\n", savedCount, existCount, failCount)
+		header := fmt.Sprintf("Import Result: %d new (sent to approval), %d already exist in TMS, %d failed\n\n", savedCount, existCount, failCount)
 		resultContent := header + strings.Join(resultLines, "\n")
 		resultPath := fmt.Sprintf("static/import/import_result_%d.txt", payload.ImportID)
 		if err := os.WriteFile(resultPath, []byte(resultContent), 0644); err != nil {
