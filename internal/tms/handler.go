@@ -338,8 +338,14 @@ func (h *Handler) Add(c echo.Context) error {
 	}
 
 	// POST - process form.
+	deviceID := strings.TrimSpace(c.FormValue("deviceId"))
+	if deviceID == "" {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "CSI tidak boleh kosong")
+		return c.Redirect(http.StatusFound, "/veristore/add")
+	}
+
 	data := AddTerminalRequest{
-		DeviceID:   c.FormValue("deviceId"),
+		DeviceID:   deviceID,
 		Vendor:     c.FormValue("vendor"),
 		Model:      c.FormValue("model"),
 		MerchantID: c.FormValue("merchantId"),
