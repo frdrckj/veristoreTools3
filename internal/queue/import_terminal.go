@@ -270,24 +270,9 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	// Phase 2: Filter existing CSIs, then save new ones as approval requests.
 	// ------------------------------------------------------------------
 
-	// Build a set of existing CSIs from multiple sources.
+	// Build a set of existing CSIs from TMS veristore only.
 	existingSet := make(map[string]bool)
 
-	// 1. Local terminal table (synced from TMS).
-	var localCSIs []string
-	h.db.Table("terminal").Where("term_serial_num != ''").Pluck("term_serial_num", &localCSIs)
-	for _, csi := range localCSIs {
-		existingSet[strings.ToUpper(csi)] = true
-	}
-
-	// 2. Pending/approved approval requests.
-	var requestCSIs []string
-	h.db.Table("csi_request").Where("req_status IN ('PENDING','APPROVED')").Pluck("req_device_id", &requestCSIs)
-	for _, csi := range requestCSIs {
-		existingSet[strings.ToUpper(csi)] = true
-	}
-
-	// 3. Fetch all CSIs from TMS API (covers CSIs not yet synced locally).
 	logger.Info().Msg("fetching all TMS terminal CSIs for duplicate check")
 	for page := 1; ; page++ {
 		resp, err := h.tmsService.Client().GetTerminalListWithSize(page, 100)
@@ -313,7 +298,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			break
 		}
 	}
-	logger.Info().Int("existing_count", len(existingSet)).Msg("duplicate check set built")
+	logger.Info().Int("tms_existing_count", len(existingSet)).Msg("TMS duplicate check set built")
 
 	now := time.Now()
 	var savedCount int

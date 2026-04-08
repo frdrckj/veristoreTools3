@@ -350,11 +350,12 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 				highestAppID := ""
 				for _, app := range apps {
 					aPkg := fmt.Sprintf("%v", app["packageName"])
+					aVer := fmt.Sprintf("%v", app["version"])
+					aID := fmt.Sprintf("%v", app["id"])
+					logger.Debug().Str("csi", j.DeviceID).Str("pkg", aPkg).Str("ver", aVer).Str("id", aID).Str("want_pkg", payload.PackageName).Str("want_ver", payload.AppVersion).Msg("checking app")
 					if payload.PackageName != "" && aPkg != payload.PackageName {
 						continue
 					}
-					aVer := fmt.Sprintf("%v", app["version"])
-					aID := fmt.Sprintf("%v", app["id"])
 					if aVer == payload.AppVersion {
 						requestedFound = true
 						requestedAppID = aID
@@ -363,6 +364,9 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 						highestVer = aVer
 						highestAppID = aID
 					}
+				}
+				if !requestedFound {
+					logger.Debug().Str("csi", j.DeviceID).Int("app_count", len(apps)).Str("highest_ver", highestVer).Msg("requested version not in pushed list")
 				}
 
 				// If the requested version isn't even in the pushed list, skip.

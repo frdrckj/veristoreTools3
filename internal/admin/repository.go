@@ -129,7 +129,13 @@ func (r *Repository) FindTodayCSIs() []string {
 	var logs []ActivityLog
 	r.db.Where(
 		"act_log_action IN ? AND DATE(created_dt) = CURDATE()",
-		[]string{"VERISTORE ADD CSI", "VERISTORE DUPLICATE CSI", "VERISTORE IMPORT CSI"},
+		[]string{
+			"VERISTORE ADD CSI",
+			"VERISTORE DUPLICATE CSI",
+			"VERISTORE IMPORT CSI",
+			"VERISTORE APPROVE CSI",
+			"VERISTORE REQUEST CSI",
+		},
 	).Find(&logs)
 
 	seen := map[string]bool{}
@@ -148,6 +154,15 @@ func (r *Repository) FindTodayCSIs() []string {
 			csi = parts[len(parts)-1]
 		case strings.HasPrefix(detail, "Import data csi "):
 			csi = strings.TrimPrefix(detail, "Import data csi ")
+		case strings.HasPrefix(detail, "Approve CSI request: "):
+			csi = strings.TrimPrefix(detail, "Approve CSI request: ")
+		case strings.HasPrefix(detail, "Request add CSI: "):
+			csi = strings.TrimPrefix(detail, "Request add CSI: ")
+		case strings.HasPrefix(detail, "Request copy CSI: "):
+			// "Request copy CSI: SOURCE → DEST"
+			if idx := strings.Index(detail, "→"); idx >= 0 {
+				csi = strings.TrimSpace(detail[idx+len("→"):])
+			}
 		}
 		csi = strings.TrimSpace(csi)
 		if csi != "" && !seen[csi] {
