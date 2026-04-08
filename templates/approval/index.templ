@@ -2,6 +2,7 @@ package approval
 
 import (
 	"fmt"
+	"github.com/verifone/veristoretools3/templates/components"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
 
@@ -23,14 +24,24 @@ type RequestView struct {
 	CreatedDt  string
 }
 
-templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove bool) {
+templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove bool, pagination components.PaginationData) {
 	@layouts.Base(page) {
 		<div class="card">
-			<div class="card-header">
+			<div class="card-header d-flex justify-content-between align-items-center">
 				<h3 class="card-title">
 					<i class="fas fa-check-circle mr-1"></i>
 					Persetujuan CSI
 				</h3>
+				if canApprove {
+					<div>
+						<button class="btn btn-success btn-sm" id="bulkApproveBtn" style="display:none;" onclick="submitBulkAction('approve')">
+							<i class="fas fa-check"></i> Approve Selected (<span id="selectedCount">0</span>)
+						</button>
+						<button class="btn btn-danger btn-sm" id="bulkRejectBtn" style="display:none;" onclick="submitBulkAction('reject')">
+							<i class="fas fa-times"></i> Reject Selected (<span id="selectedCount2">0</span>)
+						</button>
+					</div>
+				}
 			</div>
 			<div class="card-body">
 				if requests == nil || len(requests) == 0 {
@@ -43,6 +54,11 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 						<table class="table table-bordered table-striped table-sm">
 							<thead class="thead-light">
 								<tr>
+									if canApprove {
+										<th style="width:40px;">
+											<input type="checkbox" id="selectAllPending" onclick="toggleSelectAll(this)"/>
+										</th>
+									}
 									<th>No</th>
 									<th>CSI</th>
 									<th>SN</th>
@@ -60,12 +76,19 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 							<tbody>
 								for i, r := range requests {
 									<tr>
-										<td>{ fmt.Sprintf("%d", i+1) }</td>
+										if canApprove {
+											<td>
+												if r.Status == "PENDING" {
+													<input type="checkbox" class="req-checkbox" value={ fmt.Sprintf("%d", r.ID) } onchange="updateSelection()"/>
+												}
+											</td>
+										}
+										<td>{ fmt.Sprintf("%d", (pagination.CurrentPage-1)*pagination.PerPage+i+1) }</td>
 										<td>
-										<a href={ templ.SafeURL(fmt.Sprintf("/approval/view?id=%d", r.ID)) }>
-											<strong>{ r.DeviceID }</strong>
-										</a>
-									</td>
+											<a href={ templ.SafeURL(fmt.Sprintf("/approval/view?id=%d", r.ID)) }>
+												<strong>{ r.DeviceID }</strong>
+											</a>
+										</td>
 										<td>{ r.SN }</td>
 										<td>{ r.Model }</td>
 										<td>{ r.App }</td>
@@ -91,13 +114,13 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 											<td>
 												if r.Status == "PENDING" {
 													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/approve?id=%d", r.ID)) } style="display:inline;">
-														<button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve CSI request for ' + '{ r.DeviceID }' + '?')">
-															<i class="fas fa-check"></i> Approve
+														<button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve this CSI?')">
+															<i class="fas fa-check"></i>
 														</button>
 													</form>
 													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/reject?id=%d", r.ID)) } style="display:inline;">
-														<button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Reject and delete CSI request for ' + '{ r.DeviceID }' + '?')">
-															<i class="fas fa-times"></i> Reject
+														<button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Reject this CSI?')">
+															<i class="fas fa-times"></i>
 														</button>
 													</form>
 												}
@@ -108,8 +131,132 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 							</tbody>
 						</table>
 					</div>
+					<div class="d-flex justify-content-between align-items-center mt-2">
+						<div class="text-muted" id="selectionInfo" style="display:none;">
+							<strong><span id="totalSelected">0</span></strong> permintaan dipilih
+						</div>
+						<div>
+							@components.Pagination(pagination)
+						</div>
+					</div>
 				}
 			</div>
 		</div>
+
+		<!-- Hidden forms for bulk actions -->
+		<form method="POST" action="/approval/bulk-approve" id="bulkApproveForm" style="display:none;">
+			<input type="hidden" name="selectedIds" id="bulkApproveIds"/>
+		</form>
+		<form method="POST" action="/approval/bulk-reject" id="bulkRejectForm" style="display:none;">
+			<input type="hidden" name="selectedIds" id="bulkRejectIds"/>
+		</form>
+
+		<script>
+			// Persistent selection across pages using sessionStorage.
+			var STORAGE_KEY = 'approval_selected_ids';
+
+			function getSelectedIds() {
+				try {
+					return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '{}');
+				} catch(e) { return {}; }
+			}
+
+			function saveSelectedIds(ids) {
+				sessionStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+			}
+
+			function toggleSelectAll(masterCb) {
+				var cbs = document.querySelectorAll('.req-checkbox');
+				var ids = getSelectedIds();
+				cbs.forEach(function(cb) {
+					cb.checked = masterCb.checked;
+					if (masterCb.checked) {
+						ids[cb.value] = true;
+					} else {
+						delete ids[cb.value];
+					}
+				});
+				saveSelectedIds(ids);
+				updateUI();
+			}
+
+			function updateSelection() {
+				var ids = getSelectedIds();
+				var cbs = document.querySelectorAll('.req-checkbox');
+				cbs.forEach(function(cb) {
+					if (cb.checked) {
+						ids[cb.value] = true;
+					} else {
+						delete ids[cb.value];
+					}
+				});
+				saveSelectedIds(ids);
+				updateUI();
+			}
+
+			function updateUI() {
+				var ids = getSelectedIds();
+				var count = Object.keys(ids).length;
+
+				var approveBtn = document.getElementById('bulkApproveBtn');
+				var rejectBtn = document.getElementById('bulkRejectBtn');
+				var info = document.getElementById('selectionInfo');
+				var countEl = document.getElementById('selectedCount');
+				var countEl2 = document.getElementById('selectedCount2');
+				var totalEl = document.getElementById('totalSelected');
+
+				if (count > 0) {
+					if (approveBtn) approveBtn.style.display = '';
+					if (rejectBtn) rejectBtn.style.display = '';
+					if (info) info.style.display = '';
+				} else {
+					if (approveBtn) approveBtn.style.display = 'none';
+					if (rejectBtn) rejectBtn.style.display = 'none';
+					if (info) info.style.display = 'none';
+				}
+				if (countEl) countEl.textContent = count;
+				if (countEl2) countEl2.textContent = count;
+				if (totalEl) totalEl.textContent = count;
+
+				// Sync master checkbox.
+				var masterCb = document.getElementById('selectAllPending');
+				var cbs = document.querySelectorAll('.req-checkbox');
+				if (masterCb && cbs.length > 0) {
+					var allChecked = true;
+					cbs.forEach(function(cb) { if (!cb.checked) allChecked = false; });
+					masterCb.checked = allChecked;
+				}
+			}
+
+			function submitBulkAction(action) {
+				var ids = getSelectedIds();
+				var idList = Object.keys(ids).join(',');
+				if (!idList) { alert('Tidak ada permintaan yang dipilih'); return; }
+
+				var confirmMsg = action === 'approve'
+					? 'Approve ' + Object.keys(ids).length + ' permintaan CSI?'
+					: 'Reject ' + Object.keys(ids).length + ' permintaan CSI?';
+				if (!confirm(confirmMsg)) return;
+
+				if (action === 'approve') {
+					document.getElementById('bulkApproveIds').value = idList;
+					document.getElementById('bulkApproveForm').submit();
+				} else {
+					document.getElementById('bulkRejectIds').value = idList;
+					document.getElementById('bulkRejectForm').submit();
+				}
+				// Clear selection after action.
+				sessionStorage.removeItem(STORAGE_KEY);
+			}
+
+			// On page load, restore checkbox state from sessionStorage.
+			(function() {
+				var ids = getSelectedIds();
+				document.querySelectorAll('.req-checkbox').forEach(function(cb) {
+					if (ids[cb.value]) cb.checked = true;
+				});
+				updateUI();
+			})();
+		</script>
 	}
 }

@@ -384,6 +384,8 @@ func main() {
 	protected.GET("/approval/view", approvalHandler.View)
 	protected.POST("/approval/approve", approvalHandler.Approve)
 	protected.POST("/approval/reject", approvalHandler.Reject)
+	protected.POST("/approval/bulk-approve", approvalHandler.BulkApprove)
+	protected.POST("/approval/bulk-reject", approvalHandler.BulkReject)
 
 	// Tools
 	toolsHandler := tools.NewHandler(db, v2DB, sessionStore, sessionName, appName, appVersion)

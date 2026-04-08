@@ -40,6 +40,24 @@ func (r *Repository) FindAll() ([]CsiRequest, error) {
 	return requests, err
 }
 
+// FindPaginated returns paginated CSI requests with total count.
+func (r *Repository) FindPaginated(page, perPage int) ([]CsiRequest, int64, error) {
+	var total int64
+	r.db.Model(&CsiRequest{}).Count(&total)
+
+	var requests []CsiRequest
+	offset := (page - 1) * perPage
+	err := r.db.Order("req_id DESC").Limit(perPage).Offset(offset).Find(&requests).Error
+	return requests, total, err
+}
+
+// FindByIDs returns requests matching the given IDs.
+func (r *Repository) FindByIDs(ids []int) ([]CsiRequest, error) {
+	var requests []CsiRequest
+	err := r.db.Where("req_id IN ?", ids).Find(&requests).Error
+	return requests, err
+}
+
 // UpdateStatus updates the status and approval info.
 func (r *Repository) UpdateStatus(req *CsiRequest) error {
 	return r.db.Save(req).Error
