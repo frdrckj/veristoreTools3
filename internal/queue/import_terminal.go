@@ -270,20 +270,50 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	// Phase 2: Filter existing CSIs, then save new ones as approval requests.
 	// ------------------------------------------------------------------
 
-	// Build a set of existing CSIs from the local terminal table (synced from TMS).
-	var existingCSIs []string
-	h.db.Table("terminal").Where("term_serial_num != ''").Pluck("term_serial_num", &existingCSIs)
-	existingSet := make(map[string]bool, len(existingCSIs))
-	for _, csi := range existingCSIs {
+	// Build a set of existing CSIs from multiple sources.
+	existingSet := make(map[string]bool)
+
+	// 1. Local terminal table (synced from TMS).
+	var localCSIs []string
+	h.db.Table("terminal").Where("term_serial_num != ''").Pluck("term_serial_num", &localCSIs)
+	for _, csi := range localCSIs {
 		existingSet[strings.ToUpper(csi)] = true
 	}
 
-	// Also check for pending approval requests to avoid duplicates.
-	var pendingCSIs []string
-	h.db.Table("csi_request").Where("req_status = 'PENDING'").Pluck("req_device_id", &pendingCSIs)
-	for _, csi := range pendingCSIs {
+	// 2. Pending/approved approval requests.
+	var requestCSIs []string
+	h.db.Table("csi_request").Where("req_status IN ('PENDING','APPROVED')").Pluck("req_device_id", &requestCSIs)
+	for _, csi := range requestCSIs {
 		existingSet[strings.ToUpper(csi)] = true
 	}
+
+	// 3. Fetch all CSIs from TMS API (covers CSIs not yet synced locally).
+	logger.Info().Msg("fetching all TMS terminal CSIs for duplicate check")
+	for page := 1; ; page++ {
+		resp, err := h.tmsService.Client().GetTerminalListWithSize(page, 100)
+		if err != nil || resp == nil || resp.ResultCode != 0 || resp.Data == nil {
+			break
+		}
+		tl, ok := resp.Data["terminalList"].([]interface{})
+		if !ok || len(tl) == 0 {
+			break
+		}
+		for _, t := range tl {
+			if m, ok := t.(map[string]interface{}); ok {
+				if did, ok := m["deviceId"].(string); ok && did != "" {
+					existingSet[strings.ToUpper(did)] = true
+				}
+			}
+		}
+		totalPage := 0
+		if tp, ok := resp.Data["totalPage"]; ok {
+			totalPage, _ = tms.ToInt(tp)
+		}
+		if page >= totalPage {
+			break
+		}
+	}
+	logger.Info().Int("existing_count", len(existingSet)).Msg("duplicate check set built")
 
 	now := time.Now()
 	var savedCount int

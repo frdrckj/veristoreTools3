@@ -73,6 +73,11 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 				} else if data.LastComplete {
 					<div class="alert alert-success" style="font-size: 1.1rem;">
 						Last import completed: { data.LastFilename } ({ data.Progress })
+						if data.ResultFileExists {
+							<a href="/veristore/import-result" class="btn btn-sm btn-danger ml-2">
+								<i class="fas fa-list-alt"></i> Import Result
+							</a>
+						}
 					</div>
 					<div class="row">
 						<div class="col-md-8 offset-md-2">

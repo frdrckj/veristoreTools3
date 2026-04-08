@@ -432,11 +432,9 @@ sendLoop:
 	var allTMSCount int64
 	var deleted int64
 
-	if payload.IsPartial {
-		// Partial mode: skip Phase 3 & 4 — only sync today's CSIs, don't
-		// fetch all TMS terminals or delete stale ones.
-		logger.Info().Msg("partial mode: skipping Phase 3 (full TMS sync) and Phase 4 (stale cleanup)")
-	} else {
+	{
+		// Both full and partial modes run Phase 3 (sync all TMS terminals to local DB).
+		// Phase 4 (delete stale) only runs in full mode.
 		// ------------------------------------------------------------------
 		// Phase 3: Ensure ALL TMS terminals exist in local DB (not just the
 		// ones matching the report's app version). This fetches the full
@@ -453,15 +451,17 @@ sendLoop:
 
 		// ------------------------------------------------------------------
 		// Phase 4: Remove terminals that are no longer in TMS.
-		// Targets terminals with last_synced_at NULL (V2-imported, never
-		// synced) or older than this sync's start time.
+		// Only in full mode — partial mode skips deletion to avoid removing
+		// terminals that simply weren't in the partial report.
 		// ------------------------------------------------------------------
-		phase4Start := time.Now()
-		deleted, err = h.termRepo.DeleteStaleSynced(syncStartTime)
-		if err != nil {
-			logger.Warn().Err(err).Msg("failed to clean up stale terminals")
-		} else if deleted > 0 {
-			logger.Info().Int64("deleted", deleted).Str("phase4_elapsed", time.Since(phase4Start).Round(time.Millisecond).String()).Msg("removed stale terminals no longer in TMS")
+		if !payload.IsPartial {
+			phase4Start := time.Now()
+			deleted, err = h.termRepo.DeleteStaleSynced(syncStartTime)
+			if err != nil {
+				logger.Warn().Err(err).Msg("failed to clean up stale terminals")
+			} else if deleted > 0 {
+				logger.Info().Int64("deleted", deleted).Str("phase4_elapsed", time.Since(phase4Start).Round(time.Millisecond).String()).Msg("removed stale terminals no longer in TMS")
+			}
 		}
 	}
 
