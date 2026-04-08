@@ -981,54 +981,21 @@ func (h *Handler) Copy(c echo.Context) error {
 
 	// On POST, source comes from hidden field.
 	sourceSn = c.FormValue("sourceSn")
-	destSn := c.FormValue("destSn")
+	destSn := strings.TrimSpace(c.FormValue("destSn"))
 
 	if sourceSn == "" || destSn == "" {
 		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{"Source SN and New CSI are required"}, sourceSn))
 	}
 
-	resp, err := h.service.CopyTerminal(sourceSn, destSn)
-	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Failed to copy terminal: %v", err)}, sourceSn))
-	}
+	// Save as a pending approval request instead of copying directly.
+	now := time.Now()
+	h.approvalDB.Exec(
+		"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_template_sn, req_source, req_status, created_by, created_dt) VALUES (?, '', '', '', '', '', '', '', 0, ?, 'copy', 'PENDING', ?, ?)",
+		destSn, sourceSn, mw.GetCurrentUserName(c), now,
+	)
 
-	if resp.ResultCode != 0 {
-		return shared.Render(c, http.StatusOK, vsTmpl.CopyPage(page, []string{fmt.Sprintf("Copy failed: %s", resp.Desc)}, sourceSn))
-	}
-
-	// Save TID notes for both source and destination CSIs so that
-	// checkTidDuplicate can detect conflicts immediately.
-	user := mw.GetCurrentUserFullname(c)
-
-	// Find the app ID for the source terminal to fetch its params.
-	sourceDetail, detailErr := h.service.GetTerminalDetail(sourceSn)
-	if detailErr == nil && sourceDetail.ResultCode == 0 && sourceDetail.Data != nil {
-		sourceAppId := ""
-		if apps, ok := sourceDetail.Data["terminalShowApps"].([]interface{}); ok {
-			bestVer := ""
-			for _, a := range apps {
-				am, ok := a.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				ver := fmt.Sprintf("%v", am["version"])
-				id := fmt.Sprintf("%v", am["id"])
-				if bestVer == "" || compareAppVersions(ver, bestVer) > 0 {
-					bestVer = ver
-					sourceAppId = id
-				}
-			}
-		}
-		if sourceAppId != "" {
-			sourceParams := h.getCachedParams(sourceSn, sourceAppId)
-			h.saveTidNotesFromParams(sourceSn, sourceParams, user)
-			// Destination has same params as source after copy.
-			h.saveTidNotesFromParams(destSn, sourceParams, user)
-		}
-	}
-
-	mw.LogActivityFromContext(c, mw.LogVeristoreCopyCSI, "Copy csi "+sourceSn+" to "+destSn)
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Copy CSI berhasil!")
+	mw.LogActivityFromContext(c, mw.LogVeristoreRequestCSI, "Request copy CSI: "+sourceSn+" → "+destSn)
+	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Permintaan copy CSI "+sourceSn+" → "+destSn+" berhasil diajukan, menunggu persetujuan.")
 	return c.Redirect(http.StatusFound, "/veristore/terminal")
 }
 

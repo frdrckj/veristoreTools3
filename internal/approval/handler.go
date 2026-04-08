@@ -175,7 +175,7 @@ func (h *Handler) Approve(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/approval/index")
 	}
 
-	if req.Source == "import" && req.TemplateSN != "" {
+	if (req.Source == "import" || req.Source == "copy") && req.TemplateSN != "" {
 		// Import-sourced request: copy terminal from template.
 		resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
 		if err != nil {
@@ -296,7 +296,7 @@ func (h *Handler) BulkApprove(c echo.Context) error {
 		}
 
 		var success bool
-		if req.Source == "import" && req.TemplateSN != "" {
+		if (req.Source == "import" || req.Source == "copy") && req.TemplateSN != "" {
 			resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
 			success = err == nil && resp.ResultCode == 0
 		} else {

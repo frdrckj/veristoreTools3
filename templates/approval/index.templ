@@ -95,6 +95,8 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 										<td>
 											if r.Source == "import" {
 												<span class="badge badge-info">Import</span>
+											} else if r.Source == "copy" {
+												<span class="badge badge-primary">Copy</span>
 											} else {
 												<span class="badge badge-secondary">Manual</span>
 											}

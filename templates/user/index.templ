@@ -105,9 +105,9 @@ templ UserTablePartial(users []UserData, pagination components.PaginationData, q
 						<td colspan="6" class="text-center text-muted">No users found</td>
 					</tr>
 				}
-				for _, u := range users {
+				for i, u := range users {
 					<tr>
-						<td>{ strconv.Itoa(u.UserID) }</td>
+						<td>{ strconv.Itoa(i + 1) }</td>
 						<td>{ u.UserFullname }</td>
 						<td>{ u.UserName }</td>
 						<td>{ u.UserPrivileges }</td>
