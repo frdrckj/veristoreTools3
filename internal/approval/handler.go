@@ -80,6 +80,8 @@ func (h *Handler) Index(c echo.Context) error {
 			MerchantID: r.MerchantID,
 			SN:         r.SN,
 			App:        appDisplay,
+			TemplateSN: r.TemplateSN,
+			Source:     r.Source,
 			Status:     r.Status,
 			CreatedBy:  r.CreatedBy,
 			CreatedDt:  r.CreatedDt.Format("2006-01-02 15:04:05"),
@@ -122,6 +124,8 @@ func (h *Handler) View(c echo.Context) error {
 		SN:         req.SN,
 		App:        appDisplay,
 		MoveConf:   req.MoveConf,
+		TemplateSN: req.TemplateSN,
+		Source:     req.Source,
 		Status:     req.Status,
 		CreatedBy:  req.CreatedBy,
 		CreatedDt:  req.CreatedDt.Format("2006-01-02 15:04:05"),
@@ -151,45 +155,57 @@ func (h *Handler) Approve(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/approval/index")
 	}
 
-	// Parse group IDs from stored string.
-	var groupIDs []string
-	if req.GroupIDs != "" {
-		groupIDs = strings.Split(req.GroupIDs, ",")
-	}
-
-	// Step 1: Add terminal to TMS.
-	addReq := tms.AddTerminalRequest{
-		DeviceID:   req.DeviceID,
-		Vendor:     req.Vendor,
-		Model:      req.Model,
-		MerchantID: req.MerchantID,
-		GroupIDs:   groupIDs,
-		SN:         req.SN,
-		MoveConf:   req.MoveConf,
-	}
-
-	resp, err := h.tmsService.AddTerminal(addReq)
-	if err != nil {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to add terminal to TMS: %v", err))
-		return c.Redirect(http.StatusFound, "/approval/index")
-	}
-	if resp.ResultCode != 0 {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("TMS error: %s", resp.Desc))
-		return c.Redirect(http.StatusFound, "/approval/index")
-	}
-
-	// Step 2: Add app parameter if specified.
-	if req.App != "" {
-		paramResp, paramErr := h.tmsService.AddParameter(req.DeviceID, req.App)
-		if paramErr != nil {
-			h.tmsService.DeleteTerminals([]string{req.DeviceID})
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to assign app: %v", paramErr))
+	if req.Source == "import" && req.TemplateSN != "" {
+		// Import-sourced request: copy terminal from template.
+		resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
+		if err != nil {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to copy terminal from %s: %v", req.TemplateSN, err))
 			return c.Redirect(http.StatusFound, "/approval/index")
 		}
-		if paramResp.ResultCode != 0 {
-			h.tmsService.DeleteTerminals([]string{req.DeviceID})
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("App assignment failed: %s", paramResp.Desc))
+		if resp.ResultCode != 0 {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("TMS error: %s", resp.Desc))
 			return c.Redirect(http.StatusFound, "/approval/index")
+		}
+	} else {
+		// Manual request: add terminal directly.
+		var groupIDs []string
+		if req.GroupIDs != "" {
+			groupIDs = strings.Split(req.GroupIDs, ",")
+		}
+
+		addReq := tms.AddTerminalRequest{
+			DeviceID:   req.DeviceID,
+			Vendor:     req.Vendor,
+			Model:      req.Model,
+			MerchantID: req.MerchantID,
+			GroupIDs:   groupIDs,
+			SN:         req.SN,
+			MoveConf:   req.MoveConf,
+		}
+
+		resp, err := h.tmsService.AddTerminal(addReq)
+		if err != nil {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to add terminal to TMS: %v", err))
+			return c.Redirect(http.StatusFound, "/approval/index")
+		}
+		if resp.ResultCode != 0 {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("TMS error: %s", resp.Desc))
+			return c.Redirect(http.StatusFound, "/approval/index")
+		}
+
+		// Add app parameter if specified.
+		if req.App != "" {
+			paramResp, paramErr := h.tmsService.AddParameter(req.DeviceID, req.App)
+			if paramErr != nil {
+				h.tmsService.DeleteTerminals([]string{req.DeviceID})
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to assign app: %v", paramErr))
+				return c.Redirect(http.StatusFound, "/approval/index")
+			}
+			if paramResp.ResultCode != 0 {
+				h.tmsService.DeleteTerminals([]string{req.DeviceID})
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("App assignment failed: %s", paramResp.Desc))
+				return c.Redirect(http.StatusFound, "/approval/index")
+			}
 		}
 	}
 

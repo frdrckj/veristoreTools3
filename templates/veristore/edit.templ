@@ -166,6 +166,15 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 							el.value = cached.values[el.name];
 						}
 					});
+					// Sync checkbox visual state with hidden input values.
+					// Checkboxes use a hidden input (name="param_...") + checkbox (id="cb_...") pair.
+					panel.querySelectorAll('input[type="hidden"][id^="hidden_"]').forEach(function(hidden) {
+						var cbId = hidden.id.replace('hidden_', 'cb_');
+						var cb = document.getElementById(cbId);
+						if (cb) {
+							cb.checked = (hidden.value === '1');
+						}
+					});
 				}
 
 				function toggleGroup(el) {

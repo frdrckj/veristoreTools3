@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS `csi_request` (
   `req_app` varchar(50) DEFAULT '',
   `req_app_name` varchar(100) DEFAULT '',
   `req_move_conf` int DEFAULT 0,
+  `req_template_sn` varchar(50) DEFAULT '',
+  `req_source` varchar(20) DEFAULT 'manual',
   `req_status` varchar(20) NOT NULL DEFAULT 'PENDING',
   `created_by` varchar(100) NOT NULL,
   `created_dt` datetime NOT NULL,

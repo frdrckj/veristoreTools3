@@ -16,6 +16,8 @@ type RequestView struct {
 	SN         string
 	App        string
 	MoveConf   int
+	TemplateSN string
+	Source     string
 	Status     string
 	CreatedBy  string
 	CreatedDt  string
@@ -46,6 +48,7 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 									<th>SN</th>
 									<th>Model</th>
 									<th>App</th>
+									<th>Sumber</th>
 									<th>Diajukan Oleh</th>
 									<th>Tanggal</th>
 									<th>Status</th>
@@ -66,6 +69,13 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 										<td>{ r.SN }</td>
 										<td>{ r.Model }</td>
 										<td>{ r.App }</td>
+										<td>
+											if r.Source == "import" {
+												<span class="badge badge-info">Import</span>
+											} else {
+												<span class="badge badge-secondary">Manual</span>
+											}
+										</td>
 										<td>{ r.CreatedBy }</td>
 										<td>{ r.CreatedDt }</td>
 										<td>

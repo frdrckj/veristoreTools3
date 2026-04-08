@@ -269,10 +269,52 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 	}
 
 	// ------------------------------------------------------------------
-	// Phase 2: Process rows concurrently using a worker pool.
-	// Optimized pipeline: resolve IDs once, fetch tabs concurrently,
-	// reuse pre-fetched data across steps. Reduces API calls from
-	// ~20 per terminal to ~6 per terminal.
+	// Phase 2: Save each row as a pending CSI approval request.
+	// The actual TMS creation happens when an admin approves the request.
+	// ------------------------------------------------------------------
+	now := time.Now()
+	var savedCount int
+	var resultLines []string
+
+	for i, j := range jobs {
+		groupIDStr := strings.Join(j.GroupIDs, ",")
+		err := h.db.Exec(
+			"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_template_sn, req_source, req_status, created_by, created_dt) VALUES (?, '', '', ?, ?, '', '', '', 0, ?, 'import', 'PENDING', ?, ?)",
+			j.SerialNum, j.MerchantID, groupIDStr, j.TemplateSN, payload.User, now,
+		).Error
+
+		if err != nil {
+			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): FAILED - %v", j.RowNum, j.SerialNum, err))
+			logger.Warn().Err(err).Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("failed to create approval request")
+		} else {
+			savedCount++
+			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK - pending approval", j.RowNum, j.SerialNum))
+		}
+
+		if payload.ImportID > 0 {
+			h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(i+1), strconv.Itoa(totalRows))
+		}
+	}
+
+	logger.Info().Int("saved", savedCount).Int("total", totalJobs).Msg("import complete — all rows saved as pending approval requests")
+
+	// Write result file.
+	if payload.ImportID > 0 {
+		resultContent := strings.Join(resultLines, "\n")
+		resultPath := fmt.Sprintf("static/import/import_result_%d.txt", payload.ImportID)
+		if err := os.WriteFile(resultPath, []byte(resultContent), 0644); err != nil {
+			logger.Warn().Err(err).Msg("failed to write import result file")
+		} else {
+			logger.Info().Str("result_file", resultPath).Msg("wrote import result file")
+		}
+		h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+	}
+
+	return nil
+
+	// ------------------------------------------------------------------
+	// Legacy Phase 2 (disabled — replaced by approval flow above):
+	// Process rows concurrently using a worker pool.
 	// ------------------------------------------------------------------
 
 	// Cache tab names once (shared across all workers).
