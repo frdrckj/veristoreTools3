@@ -29,6 +29,9 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 						<div class="card-body">
 							if isEdit && merchantData != nil {
 								<input type="hidden" name="id" value={ merchantDataGet(merchantData, "id") }/>
+								<input type="hidden" id="editStateId" value={ merchantDataGet(merchantData, "stateId") }/>
+								<input type="hidden" id="editCityId" value={ merchantDataGet(merchantData, "cityId") }/>
+								<input type="hidden" id="editDistrictId" value={ merchantDataGet(merchantData, "districtId") }/>
 							}
 							<div class="form-group">
 								<label for="merchantName">Merchant Name <span class="text-danger">*</span></label>
@@ -219,13 +222,17 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 			});
 
 			// Cascading dropdown: Country → State → City → District
-			function loadOptions(url, params, targetId, placeholder) {
+			function loadOptions(url, params, targetId, placeholder, selectedValue) {
 				var sel = document.getElementById(targetId);
 				sel.innerHTML = '<option value="">' + placeholder + '</option>';
 				if (!params) return;
 				var qs = Object.keys(params).map(function(k) { return k + '=' + params[k]; }).join('&');
 				fetch(url + '?' + qs).then(function(r) { return r.text(); }).then(function(html) {
 					sel.innerHTML = html;
+					if (selectedValue) {
+						sel.value = selectedValue;
+						sel.dispatchEvent(new Event('change'));
+					}
 				});
 			}
 
@@ -244,7 +251,11 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 				var v = this.value;
 				document.getElementById('districtId').innerHTML = '<option value="">-- Select District --</option>';
 				if (v) {
-					loadOptions('/veristore/city', {stateId: v}, 'cityId', '-- Select City --');
+					var editCity = document.getElementById('editCityId');
+					var cityVal = (editCity && editCity.value) ? editCity.value : null;
+					loadOptions('/veristore/city', {stateId: v}, 'cityId', '-- Select City --', cityVal);
+					// Clear editCityId so it's only used once (first load).
+					if (editCity) editCity.value = '';
 				} else {
 					document.getElementById('cityId').innerHTML = '<option value="">-- Select City --</option>';
 				}
@@ -253,15 +264,30 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 			document.getElementById('cityId').addEventListener('change', function() {
 				var v = this.value;
 				if (v) {
-					loadOptions('/veristore/district', {cityId: v}, 'districtId', '-- Select District --');
+					var editDistrict = document.getElementById('editDistrictId');
+					var districtVal = (editDistrict && editDistrict.value) ? editDistrict.value : null;
+					loadOptions('/veristore/district', {cityId: v}, 'districtId', '-- Select District --', districtVal);
+					// Clear editDistrictId so it's only used once.
+					if (editDistrict) editDistrict.value = '';
 				} else {
 					document.getElementById('districtId').innerHTML = '<option value="">-- Select District --</option>';
 				}
 			});
 
-			// Default country to Indonesia on add (not edit).
+			// Initialize: default country on add, or cascade existing values on edit.
 			(function() {
 				var sel = document.getElementById('countryId');
+				var editState = document.getElementById('editStateId');
+				var editCity = document.getElementById('editCityId');
+				var editDistrict = document.getElementById('editDistrictId');
+
+				if (editState && editState.value) {
+					// Edit mode: load states with pre-selected value.
+					// The state change listener will cascade to city, and city will cascade to district.
+					loadOptions('/veristore/state', {countryId: sel.value}, 'stateId', '-- Select State --', editState.value);
+					return;
+				}
+
 				if (!sel.value) {
 					for (var i = 0; i < sel.options.length; i++) {
 						if (sel.options[i].text.toLowerCase().indexOf('indonesia') >= 0) {
@@ -270,9 +296,6 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 							break;
 						}
 					}
-				} else {
-					// Edit mode: load states for existing country
-					sel.dispatchEvent(new Event('change'));
 				}
 			})();
 		</script>
