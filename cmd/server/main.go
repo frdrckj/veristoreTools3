@@ -391,6 +391,7 @@ func main() {
 	toolsHandler := tools.NewHandler(db, v2DB, sessionStore, sessionName, appName, appVersion)
 	protected.GET("/tools/index", toolsHandler.Index)
 	protected.POST("/tools/sync", toolsHandler.SyncDatabase)
+	protected.GET("/tools/download-log", toolsHandler.DownloadLog)
 
 	// -----------------------------------------------------------------------
 	// 15. API routes (basic auth)

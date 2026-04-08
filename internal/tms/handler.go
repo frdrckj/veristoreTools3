@@ -2935,34 +2935,52 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/veristore/group")
 }
 
-// AddGroupTerminal handles GET/POST /veristore/group/terminal - HTMX search terminals for group.
+// AddGroupTerminal handles GET /veristore/group/terminal - AJAX terminal search for group modal.
 func (h *Handler) AddGroupTerminal(c echo.Context) error {
 	if err := h.requireTmsSession(c); err != nil {
 		return err
 	}
 
 	search := c.QueryParam("q")
-	if search == "" {
-		search = c.FormValue("q")
+	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
+	if pageNum < 1 {
+		pageNum = 1
 	}
 
-	resp, err := h.service.GetGroupTerminalSearch(search)
+	currentUser := mw.GetCurrentUserName(c)
+
+	var resp *TMSResponse
+	var err error
+	if search != "" {
+		// Search mode: use search API.
+		resp, err = h.service.SearchTerminals(pageNum, search, 0, currentUser)
+	} else {
+		// Default: show all terminals paginated.
+		resp, err = h.service.GetTerminalList(pageNum)
+	}
+
 	if err != nil {
 		return c.String(http.StatusInternalServerError, fmt.Sprintf("Error: %v", err))
 	}
 
 	var terminals []map[string]interface{}
-	if resp.ResultCode == 0 && resp.Data != nil {
-		if tl, ok := resp.Data["terminals"].([]interface{}); ok {
+	var totalPage int
+	if resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+		if tl, ok := resp.Data["terminalList"].([]interface{}); ok {
 			for _, t := range tl {
 				if m, ok := t.(map[string]interface{}); ok {
+					// Map field names to match what the template expects.
+					m["terminalId"] = fmt.Sprintf("%v", m["id"])
 					terminals = append(terminals, m)
 				}
 			}
 		}
+		if tp, ok := resp.Data["totalPage"]; ok {
+			totalPage, _ = toInt(tp)
+		}
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.GroupTerminalSearchPartial(terminals))
+	return shared.Render(c, http.StatusOK, vsTmpl.GroupTerminalSearchPartial(terminals, pageNum, totalPage, search))
 }
 
 // ---------------------------------------------------------------------------

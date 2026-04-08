@@ -56,32 +56,17 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 							<!-- Terminal Selector -->
 							<div class="form-group">
 								<label>Terminals</label>
-								<div class="input-group input-group-sm mb-2">
-									<input
-										type="text"
-										id="terminalSearch"
-										class="form-control"
-										placeholder="Search terminals to add..."
-										hx-get="/veristore/group/terminal"
-										hx-target="#terminalSearchResults"
-										hx-trigger="keyup changed delay:500ms"
-										hx-include="#terminalSearch"
-										name="q"
-									/>
-									<div class="input-group-append">
-										<button type="button" class="btn btn-default" onclick="document.getElementById('terminalSearch').dispatchEvent(new Event('keyup'))">
-											<i class="fas fa-search"></i>
-										</button>
-									</div>
-								</div>
-								<div id="terminalSearchResults"></div>
+								<button type="button" class="btn btn-sm btn-success mb-2" data-toggle="modal" data-target="#addTerminalModal">
+									<i class="fas fa-plus"></i> Add Terminal
+								</button>
 								<!-- Selected terminals table -->
-								<table class="table table-bordered table-sm mt-2" id="selectedTerminals">
+								<table class="table table-bordered table-sm" id="selectedTerminals">
 									<thead>
 										<tr>
-											<th>Terminal ID</th>
 											<th>SN</th>
 											<th>Device ID</th>
+											<th>Model</th>
+											<th>Merchant</th>
 											<th style="width: 60px;">Remove</th>
 										</tr>
 									</thead>
@@ -89,9 +74,10 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 										if len(terminals) > 0 {
 											for _, t := range terminals {
 												<tr id={ fmt.Sprintf("terminal-row-%s", mapGet(t, "terminalId")) }>
-													<td>{ mapGet(t, "terminalId") }</td>
 													<td>{ mapGet(t, "sn") }</td>
 													<td>{ mapGet(t, "deviceId") }</td>
+													<td>{ mapGet(t, "model") }</td>
+													<td>{ mapGet(t, "merchantName") }</td>
 													<td>
 														<button type="button" class="btn btn-xs btn-danger" onclick={ removeTerminalRow(mapGet(t, "terminalId")) }>
 															<i class="fas fa-times"></i>
@@ -105,7 +91,7 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 											}
 										} else {
 											<tr id="noTerminals">
-												<td colspan="4" class="text-center text-muted">No terminals added yet</td>
+												<td colspan="5" class="text-center text-muted">No terminals added yet</td>
 											</tr>
 										}
 									</tbody>
@@ -128,15 +114,225 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 				</div>
 			</div>
 		</div>
+		<!-- Add Terminal Modal -->
+		<div class="modal fade" id="addTerminalModal" tabindex="-1" role="dialog">
+			<div class="modal-dialog modal-lg" role="document">
+				<div class="modal-content">
+					<div class="modal-header">
+						<h5 class="modal-title">Add Group Terminal</h5>
+						<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+							<span aria-hidden="true">&times;</span>
+						</button>
+					</div>
+					<div class="modal-body">
+						<div class="input-group mb-3">
+							<input type="text" id="modalTerminalSearch" class="form-control" placeholder="Search Keyword"/>
+							<div class="input-group-append">
+								<button type="button" class="btn btn-primary" onclick="searchTerminals()">
+									<i class="fas fa-search"></i>
+								</button>
+							</div>
+						</div>
+						<div id="modalSearchResults">
+							<p class="text-muted text-center">Enter a keyword to search terminals</p>
+						</div>
+					</div>
+					<div class="modal-footer d-flex justify-content-between">
+						<span class="text-muted" id="modalSelectedCount" style="display:none;">
+							<strong><span id="modalCount">0</span></strong> terminal dipilih
+						</span>
+						<div>
+							<button type="button" class="btn btn-success" onclick="joinSelected()">
+								<i class="fas fa-plus"></i> Join
+							</button>
+							<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
 		<script>
-			function addTerminal(id, sn, deviceId) {
+			// Persistent modal selection across pages.
+			var _modalSelected = {}; // id → {sn, deviceId, model, merchant}
+			var _modalSelectAllMode = false; // true = select all across all pages
+
+			function searchTerminals() {
+				_modalSelectAllMode = false;
+				_modalSelected = {};
+				loadGroupTerminalPage(1, document.getElementById('modalTerminalSearch').value || '');
+			}
+			function loadGroupTerminalPage(page, search) {
+				// Save current page checkbox state before loading new page.
+				if (!_modalSelectAllMode) _saveModalCheckboxes();
+				var results = document.getElementById('modalSearchResults');
+				results.innerHTML = '<p class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
+				fetch('/veristore/group/terminal?page=' + page + '&q=' + encodeURIComponent(search))
+					.then(function(r) { return r.text(); })
+					.then(function(html) {
+						results.innerHTML = html;
+						if (_modalSelectAllMode) {
+							// In select-all mode, check everything on every page and save it.
+							document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
+								cb.checked = true;
+								_modalSelected[cb.value] = {
+									sn: cb.getAttribute('data-sn'),
+									deviceId: cb.getAttribute('data-deviceid'),
+									model: cb.getAttribute('data-model'),
+									merchant: cb.getAttribute('data-merchant')
+								};
+							});
+							var header = document.getElementById('modalSelectAll');
+							if (header) header.checked = true;
+						} else {
+							_restoreModalCheckboxes();
+						}
+						_updateModalCount();
+
+						// If select-all mode, auto-load next pages to collect all terminal data.
+						if (_modalSelectAllMode) {
+							var nextBtn = document.querySelector('#modalSearchResults .page-link[onclick*="' + (page+1) + '"]');
+							// Check if there are more pages by looking at pagination.
+							var totalPagesEl = document.querySelector('#modalSearchResults .page-item.active .page-link');
+							var lastPageEl = document.querySelectorAll('#modalSearchResults .page-item .page-link');
+							var hasMore = false;
+							lastPageEl.forEach(function(el) {
+								var p = parseInt(el.textContent);
+								if (!isNaN(p) && p > page) hasMore = true;
+							});
+							if (hasMore) {
+								// Fetch next page silently to collect all IDs.
+								_fetchAllPages(page + 1, search);
+							}
+						}
+					});
+			}
+			function _fetchAllPages(page, search) {
+				fetch('/veristore/group/terminal?page=' + page + '&q=' + encodeURIComponent(search))
+					.then(function(r) { return r.text(); })
+					.then(function(html) {
+						var temp = document.createElement('div');
+						temp.innerHTML = html;
+						var cbs = temp.querySelectorAll('.modal-terminal-cb');
+						if (cbs.length === 0) { _updateModalCount(); return; }
+						cbs.forEach(function(cb) {
+							_modalSelected[cb.value] = {
+								sn: cb.getAttribute('data-sn'),
+								deviceId: cb.getAttribute('data-deviceid'),
+								model: cb.getAttribute('data-model'),
+								merchant: cb.getAttribute('data-merchant')
+							};
+						});
+						_updateModalCount();
+						// Check if there are more pages.
+						var paginationLinks = temp.querySelectorAll('.page-item .page-link');
+						var hasMore = false;
+						paginationLinks.forEach(function(el) {
+							var p = parseInt(el.textContent);
+							if (!isNaN(p) && p > page) hasMore = true;
+						});
+						if (hasMore) _fetchAllPages(page + 1, search);
+					});
+			}
+			function toggleModalSelectAll(checked) {
+				if (checked) {
+					_modalSelectAllMode = true;
+					// Check all on current page immediately.
+					document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
+						cb.checked = true;
+						_modalSelected[cb.value] = {
+							sn: cb.getAttribute('data-sn'),
+							deviceId: cb.getAttribute('data-deviceid'),
+							model: cb.getAttribute('data-model'),
+							merchant: cb.getAttribute('data-merchant')
+						};
+					});
+					_updateModalCount();
+					// Fetch remaining pages in background to collect all IDs.
+					var search = document.getElementById('modalTerminalSearch').value || '';
+					_fetchAllPages(2, search);
+				} else {
+					_modalSelectAllMode = false;
+					_modalSelected = {};
+					document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
+						cb.checked = false;
+					});
+					_updateModalCount();
+				}
+			}
+			function _saveModalCheckboxes() {
+				document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
+					if (cb.checked) {
+						_modalSelected[cb.value] = {
+							sn: cb.getAttribute('data-sn'),
+							deviceId: cb.getAttribute('data-deviceid'),
+							model: cb.getAttribute('data-model'),
+							merchant: cb.getAttribute('data-merchant')
+						};
+					} else {
+						delete _modalSelected[cb.value];
+					}
+				});
+			}
+			function _restoreModalCheckboxes() {
+				document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
+					if (_modalSelected[cb.value]) cb.checked = true;
+				});
+				var header = document.getElementById('modalSelectAll');
+				if (header) {
+					var all = document.querySelectorAll('#modalSearchResults .modal-terminal-cb');
+					var allChecked = all.length > 0;
+					all.forEach(function(cb) { if (!cb.checked) allChecked = false; });
+					header.checked = allChecked;
+				}
+			}
+			function _updateModalCount() {
+				var count = Object.keys(_modalSelected).length;
+				var el = document.getElementById('modalSelectedCount');
+				var countEl = document.getElementById('modalCount');
+				if (el && countEl) {
+					countEl.textContent = count;
+					el.style.display = count > 0 ? '' : 'none';
+				}
+			}
+			// Hook checkbox changes in modal for live count + disable select-all mode on manual uncheck.
+			document.addEventListener('change', function(e) {
+				if (e.target.classList && e.target.classList.contains('modal-terminal-cb')) {
+					if (!e.target.checked) _modalSelectAllMode = false;
+					_updateModalCount();
+				}
+			});
+
+			document.getElementById('modalTerminalSearch')?.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter') { e.preventDefault(); searchTerminals(); }
+			});
+			// Auto-load terminal list when modal opens.
+			window.addEventListener('load', function() {
+				if (typeof $ !== 'undefined') {
+					$('#addTerminalModal').on('shown.bs.modal', function() {
+						if (!document.querySelector('#modalSearchResults table')) {
+							searchTerminals();
+						}
+					});
+				}
+			});
+			function joinSelected() {
+				_saveModalCheckboxes();
+				Object.keys(_modalSelected).forEach(function(id) {
+					var t = _modalSelected[id];
+					addTerminal(id, t.sn, t.deviceId, t.model, t.merchant);
+				});
+				_modalSelected = {};
+				_updateModalCount();
+				if (typeof $ !== 'undefined') $('#addTerminalModal').modal('hide');
+			}
+			function addTerminal(id, sn, deviceId, model, merchant) {
 				if (document.getElementById('terminal-row-' + id)) return;
 				var noRow = document.getElementById('noTerminals');
 				if (noRow) noRow.remove();
 				var tbody = document.querySelector('#selectedTerminals tbody');
 				var row = document.createElement('tr');
 				row.id = 'terminal-row-' + id;
-				row.innerHTML = '<td>' + id + '</td><td>' + sn + '</td><td>' + deviceId + '</td>' +
+				row.innerHTML = '<td>' + (sn || '') + '</td><td>' + (deviceId || '') + '</td><td>' + (model || '') + '</td><td>' + (merchant || '') + '</td>' +
 					'<td><button type="button" class="btn btn-xs btn-danger" onclick="removeTerminal(\'' + id + '\')"><i class="fas fa-times"></i></button></td>' +
 					'<input type="hidden" name="terminalIds[]" value="' + id + '">';
 				tbody.appendChild(row);
@@ -146,7 +342,7 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 				if (row) row.remove();
 				if (document.querySelectorAll('#selectedTerminals tbody tr').length === 0) {
 					var tbody = document.querySelector('#selectedTerminals tbody');
-					tbody.innerHTML = '<tr id="noTerminals"><td colspan="4" class="text-center text-muted">No terminals added yet</td></tr>';
+					tbody.innerHTML = '<tr id="noTerminals"><td colspan="5" class="text-center text-muted">No terminals added yet</td></tr>';
 				}
 			}
 		</script>
@@ -169,33 +365,85 @@ func removeTerminalRow(id string) templ.ComponentScript {
 	}
 }
 
-// GroupTerminalSearchPartial renders the terminal search results for group terminal selector.
-templ GroupTerminalSearchPartial(terminals []map[string]interface{}) {
+// GroupTerminalSearchPartial renders the terminal search results as a table with checkboxes and pagination.
+templ GroupTerminalSearchPartial(terminals []map[string]interface{}, currentPage, totalPages int, search string) {
 	if len(terminals) > 0 {
-		<div class="list-group" style="max-height: 200px; overflow-y: auto;">
-			for _, t := range terminals {
-				<a
-					href="#"
-					class="list-group-item list-group-item-action py-1"
-					onclick={ addTerminalScript(mapGet(t, "terminalId"), mapGet(t, "sn"), mapGet(t, "deviceId")) }
-				>
-					<small>
-						<strong>{ mapGet(t, "sn") }</strong> - { mapGet(t, "deviceId") }
-					</small>
-				</a>
-			}
+		<div style="max-height: 350px; overflow-y: auto;">
+			<table class="table table-bordered table-sm table-striped mb-0">
+				<thead class="thead-light">
+					<tr>
+						<th style="width: 40px;">
+							<input type="checkbox" id="modalSelectAll" onclick="toggleModalSelectAll(this.checked)"/>
+						</th>
+						<th>SN</th>
+						<th>Device ID</th>
+						<th>Model</th>
+						<th>Merchant</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, t := range terminals {
+						<tr>
+							<td>
+								<input
+									type="checkbox"
+									class="modal-terminal-cb"
+									value={ mapGet(t, "terminalId") }
+									data-sn={ mapGet(t, "sn") }
+									data-deviceid={ mapGet(t, "deviceId") }
+									data-model={ mapGet(t, "model") }
+									data-merchant={ mapGet(t, "merchantName") }
+								/>
+							</td>
+							<td>{ mapGet(t, "sn") }</td>
+							<td>{ mapGet(t, "deviceId") }</td>
+							<td>{ mapGet(t, "model") }</td>
+							<td>{ mapGet(t, "merchantName") }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
 		</div>
+		if totalPages > 1 {
+			<div class="d-flex justify-content-center mt-2">
+				<nav>
+					<ul class="pagination pagination-sm mb-0">
+						if currentPage > 1 {
+							<li class="page-item">
+								<a class="page-link" href="#" onclick={ groupTerminalPageScript(currentPage-1, search) }>&laquo;</a>
+							</li>
+						}
+						for i := 1; i <= totalPages; i++ {
+							if i == currentPage {
+								<li class="page-item active">
+									<span class="page-link">{ fmt.Sprintf("%d", i) }</span>
+								</li>
+							} else if i <= 3 || i > totalPages-2 || (i >= currentPage-1 && i <= currentPage+1) {
+								<li class="page-item">
+									<a class="page-link" href="#" onclick={ groupTerminalPageScript(i, search) }>{ fmt.Sprintf("%d", i) }</a>
+								</li>
+							}
+						}
+						if currentPage < totalPages {
+							<li class="page-item">
+								<a class="page-link" href="#" onclick={ groupTerminalPageScript(currentPage+1, search) }>&raquo;</a>
+							</li>
+						}
+					</ul>
+				</nav>
+			</div>
+		}
 	} else {
 		<div class="text-muted text-center py-2">
-			<small>No terminals found</small>
+			No terminals found
 		</div>
 	}
 }
 
-// addTerminalScript generates a JS expression for adding a terminal.
-func addTerminalScript(id, sn, deviceId string) templ.ComponentScript {
+func groupTerminalPageScript(page int, search string) templ.ComponentScript {
 	return templ.ComponentScript{
-		Name: "addTerminal",
-		Call: fmt.Sprintf("addTerminal('%s','%s','%s')", id, sn, deviceId),
+		Name: "loadGroupTerminalPage",
+		Call: fmt.Sprintf("loadGroupTerminalPage(%d,'%s')", page, search),
 	}
 }
+

@@ -2,6 +2,8 @@ package tools
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
@@ -87,4 +89,16 @@ func (h *Handler) SyncDatabase(c echo.Context) error {
 
 	page.Flashes = map[string][]string{shared.FlashSuccess: {"Database sync completed successfully!"}}
 	return shared.Render(c, http.StatusOK, toolsTmpl.ToolsPage(page, views))
+}
+
+// DownloadLog serves the TMS business log file as a download.
+func (h *Handler) DownloadLog(c echo.Context) error {
+	logPath := "/host-logs/store-use-business.log"
+
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Log file not found. Make sure the log path is mounted in Docker.")
+		return c.Redirect(http.StatusFound, "/tools/index")
+	}
+
+	return c.Attachment(logPath, filepath.Base(logPath))
 }

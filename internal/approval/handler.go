@@ -94,7 +94,8 @@ func (h *Handler) Index(c echo.Context) error {
 		})
 	}
 
-	canApprove := mw.GetCurrentUserPrivileges(c) == "ADMIN" || mw.GetCurrentUserPrivileges(c) == "TMS ADMIN"
+	priv := mw.GetCurrentUserPrivileges(c)
+	canApprove := priv == "ADMIN" || priv == "TMS ADMIN" || priv == "TMS SUPERVISOR"
 
 	totalPages := int(total) / perPage
 	if int(total)%perPage > 0 {
@@ -149,7 +150,8 @@ func (h *Handler) View(c echo.Context) error {
 		CreatedDt:  req.CreatedDt.Format("2006-01-02 15:04:05"),
 	}
 
-	canApprove := mw.GetCurrentUserPrivileges(c) == "ADMIN" || mw.GetCurrentUserPrivileges(c) == "TMS ADMIN"
+	priv := mw.GetCurrentUserPrivileges(c)
+	canApprove := priv == "ADMIN" || priv == "TMS ADMIN" || priv == "TMS SUPERVISOR"
 
 	return shared.Render(c, http.StatusOK, approval.ApprovalDetailPage(page, view, canApprove))
 }

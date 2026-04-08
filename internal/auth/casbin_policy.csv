@@ -217,7 +217,7 @@ p, TMS OPERATOR, /backup/:action, *
 # ---------------------------------------------------------------------------
 p, ADMIN, /approval/:action, *
 p, TMS ADMIN, /approval/:action, *
-p, TMS SUPERVISOR, /approval/index, GET
+p, TMS SUPERVISOR, /approval/:action, *
 p, TMS OPERATOR, /approval/index, GET
 
 # ---------------------------------------------------------------------------
