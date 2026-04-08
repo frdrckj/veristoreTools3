@@ -60,7 +60,11 @@ func (r *Repository) FindByIDs(ids []int) ([]CsiRequest, error) {
 
 // UpdateStatus updates the status and approval info.
 func (r *Repository) UpdateStatus(req *CsiRequest) error {
-	return r.db.Save(req).Error
+	return r.db.Model(&CsiRequest{}).Where("req_id = ?", req.ReqID).Updates(map[string]interface{}{
+		"req_status":  req.Status,
+		"approved_by": req.ApprovedBy,
+		"approved_dt": req.ApprovedDt,
+	}).Error
 }
 
 // Delete removes a CSI request by ID.
