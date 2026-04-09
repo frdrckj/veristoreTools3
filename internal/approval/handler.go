@@ -3,6 +3,7 @@ package approval
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
+	"github.com/verifone/veristoretools3/internal/queue"
 	"github.com/verifone/veristoretools3/internal/shared"
 	"github.com/verifone/veristoretools3/internal/tms"
 	"github.com/verifone/veristoretools3/templates/approval"
@@ -19,24 +21,36 @@ import (
 
 // Handler handles HTTP requests for the CSI approval page.
 type Handler struct {
-	repo        *Repository
-	tmsService  *tms.Service
-	store       sessions.Store
+	repo          *Repository
+	tmsService    *tms.Service
+	importHandler *queue.ImportTerminalHandler
+	store         sessions.Store
 	sessionName string
 	appName     string
 	appVersion  string
 }
 
 // NewHandler creates a new approval handler.
-func NewHandler(repo *Repository, tmsService *tms.Service, store sessions.Store, sessionName, appName, appVersion string) *Handler {
+func NewHandler(repo *Repository, tmsService *tms.Service, importHandler *queue.ImportTerminalHandler, store sessions.Store, sessionName, appName, appVersion string) *Handler {
 	return &Handler{
-		repo:        repo,
-		tmsService:  tmsService,
-		store:       store,
+		repo:          repo,
+		tmsService:    tmsService,
+		importHandler: importHandler,
+		store:         store,
 		sessionName: sessionName,
 		appName:     appName,
 		appVersion:  appVersion,
 	}
+}
+
+// requireTmsSession checks if the user has an active TMS session.
+func (h *Handler) requireTmsSession(c echo.Context) error {
+	currentUser := mw.GetCurrentUserName(c)
+	if h.tmsService.GetUserSession(currentUser) == "" {
+		redirect := c.Request().URL.String()
+		return c.Redirect(http.StatusFound, "/veristore/login?redirect="+url.QueryEscape(redirect))
+	}
+	return nil
 }
 
 func (h *Handler) pageData(c echo.Context, title string) layouts.PageData {
@@ -58,6 +72,9 @@ func (h *Handler) pageData(c echo.Context, title string) layouts.PageData {
 
 // Index shows the list of CSI requests with pagination.
 func (h *Handler) Index(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
 	page := h.pageData(c, "Persetujuan CSI")
 
 	perPage := 10
@@ -175,7 +192,19 @@ func (h *Handler) Approve(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/approval/index")
 	}
 
-	if (req.Source == "import" || req.Source == "copy") && req.TemplateSN != "" {
+	if req.Source == "import" && req.TemplateSN != "" && h.importHandler != nil {
+		// Full import pipeline: copy + parameter update from Excel row data.
+		var groupIDs []string
+		if req.GroupIDs != "" {
+			groupIDs = strings.Split(req.GroupIDs, ",")
+		}
+		errMsg := h.importHandler.ImportSingleFromApproval(req.DeviceID, req.TemplateSN, req.MerchantID, groupIDs, req.RowData)
+		if errMsg != "" {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: %s", req.DeviceID, errMsg))
+			return c.Redirect(http.StatusFound, "/approval/index")
+		}
+	} else if req.Source == "copy" && req.TemplateSN != "" {
+		// Copy: just copy terminal from template (no parameter changes).
 		resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
 		if err != nil {
 			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: Copy dari %s gagal - %v", req.DeviceID, req.TemplateSN, err))
@@ -303,7 +332,18 @@ func (h *Handler) BulkApprove(c echo.Context) error {
 		var success bool
 		var failReason string
 
-		if (req.Source == "import" || req.Source == "copy") && req.TemplateSN != "" {
+		if req.Source == "import" && req.TemplateSN != "" && h.importHandler != nil {
+			var groupIDs []string
+			if req.GroupIDs != "" {
+				groupIDs = strings.Split(req.GroupIDs, ",")
+			}
+			errMsg := h.importHandler.ImportSingleFromApproval(req.DeviceID, req.TemplateSN, req.MerchantID, groupIDs, req.RowData)
+			if errMsg != "" {
+				failReason = fmt.Sprintf("%s: %s", req.DeviceID, errMsg)
+			} else {
+				success = true
+			}
+		} else if req.Source == "copy" && req.TemplateSN != "" {
 			resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
 			if err != nil {
 				failReason = fmt.Sprintf("%s: Copy gagal - %v", req.DeviceID, err)

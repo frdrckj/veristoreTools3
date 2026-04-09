@@ -315,9 +315,11 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			logger.Info().Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("CSI already exists, skipping")
 		} else {
 			groupIDStr := strings.Join(j.GroupIDs, ",")
+			// Serialize the full Excel row as JSON so approval can apply parameter changes.
+			rowJSON, _ := json.Marshal(j.Row)
 			err := h.db.Exec(
-				"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_template_sn, req_source, req_status, created_by, created_dt) VALUES (?, '', '', ?, ?, '', '', '', 0, ?, 'import', 'PENDING', ?, ?)",
-				j.SerialNum, j.MerchantID, groupIDStr, j.TemplateSN, payload.User, now,
+				"INSERT INTO csi_request (req_device_id, req_vendor, req_model, req_merchant_id, req_group_ids, req_sn, req_app, req_app_name, req_move_conf, req_template_sn, req_row_data, req_source, req_status, created_by, created_dt) VALUES (?, '', '', ?, ?, '', '', '', 0, ?, ?, 'import', 'PENDING', ?, ?)",
+				j.SerialNum, j.MerchantID, groupIDStr, j.TemplateSN, string(rowJSON), payload.User, now,
 			).Error
 
 			if err != nil {
@@ -708,6 +710,51 @@ func (h *ImportTerminalHandler) importSingleTerminalFast(
 
 	logger.Info().Int("row", j.RowNum).Str("serial", j.SerialNum).Msg("terminal imported successfully")
 	return ""
+}
+
+// ImportSingleFromApproval runs the full import pipeline for a single CSI request
+// that was approved. It copies the terminal from the template, fetches parameters,
+// applies Excel row data, and updates device details.
+// Returns "" on success, or an error message on failure.
+func (h *ImportTerminalHandler) ImportSingleFromApproval(csi, templateSN, merchantID string, groupIDs []string, rowDataJSON string) string {
+	logger := log.With().Str("task", "import:approval").Str("csi", csi).Logger()
+
+	session := h.tmsService.GetSession()
+	if session == "" {
+		return "Tidak ada sesi TMS aktif. Login ke TMS terlebih dahulu."
+	}
+
+	// Deserialize row data.
+	var row []string
+	if rowDataJSON != "" {
+		_ = json.Unmarshal([]byte(rowDataJSON), &row)
+	}
+
+	// Resolve template SN → ID.
+	sourceId, err := h.tmsClient.GetIdFromSN(session, templateSN)
+	if err != nil {
+		return "Template " + templateSN + " tidak ditemukan: " + err.Error()
+	}
+
+	// Build job.
+	j := importJob{
+		RowNum:     1,
+		TemplateSN: templateSN,
+		SerialNum:  csi,
+		MerchantID: merchantID,
+		GroupIDs:   groupIDs,
+		Row:        row,
+	}
+
+	// Build dependencies.
+	tabNames := tms.GetAllTabNames(h.db)
+	operationMark, _ := h.tmsClient.GetOperationMark(session)
+	groupMap := h.buildGroupMap(session)
+	templateCache := map[string]int{templateSN: sourceId}
+
+	// Run the full pipeline.
+	ctx := context.Background()
+	return h.importSingleTerminalFast(ctx, session, j, tabNames, operationMark, groupMap, templateCache, &logger)
 }
 
 // buildGroupMap fetches the TMS group list and returns a lowercase name → ID map.

@@ -15,6 +15,7 @@ type CsiRequest struct {
 	AppName     string     `gorm:"column:req_app_name"`
 	MoveConf    int        `gorm:"column:req_move_conf"`
 	TemplateSN  string     `gorm:"column:req_template_sn"`
+	RowData     string     `gorm:"column:req_row_data"`
 	Source      string     `gorm:"column:req_source"`
 	Status      string     `gorm:"column:req_status"`
 	CreatedBy   string     `gorm:"column:created_by"`

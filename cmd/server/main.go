@@ -379,9 +379,10 @@ func main() {
 	protected.GET("/scheduler/index", schedulerHandler.Index)
 	protected.POST("/scheduler/update", schedulerHandler.Update)
 
-	// CSI Approval
+	// CSI Approval (importTermHandler needed for full import pipeline on approve)
+	importTermHandler := queue.NewImportTerminalHandler(tmsService, tmsClient, adminRepo, db)
 	approvalRepo := approvalPkg.NewRepository(db)
-	approvalHandler := approvalPkg.NewHandler(approvalRepo, tmsService, sessionStore, sessionName, appName, appVersion)
+	approvalHandler := approvalPkg.NewHandler(approvalRepo, tmsService, importTermHandler, sessionStore, sessionName, appName, appVersion)
 	protected.GET("/approval/index", approvalHandler.Index)
 	protected.GET("/approval/view", approvalHandler.View)
 	protected.POST("/approval/approve", approvalHandler.Approve)
@@ -404,7 +405,7 @@ func main() {
 	// -----------------------------------------------------------------------
 	// 16. Instantiate queue task handlers
 	// -----------------------------------------------------------------------
-	importTermHandler := queue.NewImportTerminalHandler(tmsService, tmsClient, adminRepo, db)
+	// importTermHandler already created above for approval handler.
 	exportTermHandler := queue.NewExportTerminalHandler(tmsService, tmsClient, adminRepo, db, cfg.Export.OutputDir)
 	importMerchHandler := queue.NewImportMerchantHandler(tmsService, tmsClient, adminRepo, db)
 	syncParamHandler := queue.NewSyncParameterHandler(tmsService, tmsClient, terminalRepo, adminRepo, syncRepo, db, cfg.TMS.SyncBatchSize)
