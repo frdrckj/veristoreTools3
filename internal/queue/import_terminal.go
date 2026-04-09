@@ -313,6 +313,10 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			existCount++
 			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): SKIPPED - CSI already exists in TMS", j.RowNum, j.SerialNum))
 			logger.Info().Str("csi", j.SerialNum).Int("row", j.RowNum).Msg("CSI already exists, skipping")
+		} else if tidErr := h.validateRowTIDs(j.Row, j.SerialNum); tidErr != "" {
+			failCount++
+			resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): FAILED - %s", j.RowNum, j.SerialNum, tidErr))
+			logger.Warn().Str("csi", j.SerialNum).Int("row", j.RowNum).Str("error", tidErr).Msg("TID validation failed")
 		} else {
 			groupIDStr := strings.Join(j.GroupIDs, ",")
 			// Serialize the full Excel row as JSON so approval can apply parameter changes.
@@ -979,6 +983,67 @@ func paramValue(paraList []map[string]interface{}, dataName string) string {
 			return fmt.Sprintf("%v", p["value"])
 		}
 	}
+	return ""
+}
+
+// validateRowTIDs checks TID/MID from the raw Excel row during import phase.
+// Excel column pairs (0-based index):
+//   TID Reguler 1: 10, MID Reguler 1: 11
+//   TID Reguler 2: 12, MID Reguler 2: 13
+//   TID Ciltap 3: 14, MID Ciltap 3: 15
+//   TID Ciltap 6: 17, MID Ciltap 6: 18 (16 = Plan Code)
+//   ... etc
+func (h *ImportTerminalHandler) validateRowTIDs(row []string, serialNum string) string {
+	// TID/MID pairs: (tidIndex, midIndex, label)
+	type tidMidPair struct {
+		tidIdx int
+		midIdx int
+		label  string
+	}
+	pairs := []tidMidPair{
+		{10, 11, "Reguler Debit/Credit 1"},
+		{12, 13, "Reguler Debit/Credit 2"},
+		{14, 15, "Ciltap 3"},
+		{17, 18, "Ciltap 6"},
+		{20, 21, "Ciltap 9"},
+		{23, 24, "Ciltap 12"},
+		{26, 27, "Ciltap 18"},
+		{29, 30, "Ciltap 24"},
+		{32, 33, "Ciltap 36"},
+		{35, 36, "QR"},
+	}
+
+	var tids []string
+	for _, p := range pairs {
+		tid := cellValue(row, p.tidIdx)
+		mid := cellValue(row, p.midIdx)
+
+		// If TID provided, MID must also be provided and vice versa.
+		if tid != "" && tid != "0" && (mid == "" || mid == "0") {
+			return fmt.Sprintf("%s: TID %s diisi tetapi MID kosong", p.label, tid)
+		}
+		if mid != "" && mid != "0" && (tid == "" || tid == "0") {
+			return fmt.Sprintf("%s: MID %s diisi tetapi TID kosong", p.label, mid)
+		}
+
+		if tid != "" && tid != "0" {
+			tids = append(tids, tid)
+		}
+	}
+
+	if len(tids) == 0 {
+		return ""
+	}
+
+	// Check TID uniqueness against tid_note table (conflict with other CSIs).
+	var conflicting admin.TidNote
+	err := h.db.Where("tid_note_serial_num != ? AND tid_note_data IN ?", serialNum, tids).
+		First(&conflicting).Error
+	if err == nil {
+		return fmt.Sprintf("TID %s sudah digunakan pada CSI %s",
+			safeDeref(conflicting.TidNoteData), conflicting.TidNoteSerialNum)
+	}
+
 	return ""
 }
 
