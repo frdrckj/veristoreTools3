@@ -1,7 +1,6 @@
 package verificationreport
 
 import (
-	"fmt"
 	"strconv"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
@@ -144,23 +143,6 @@ templ ViewPage(page layouts.PageData, r ReportData) {
 						</table>
 					</div>
 				</div>
-			</div>
-			<div class="card-footer">
-				<a
-					href={ templ.SafeURL(fmt.Sprintf("/verificationreport/update?id=%d", r.VfiRptID)) }
-					class="btn btn-warning"
-				>
-					<i class="fas fa-edit"></i> Edit
-				</a>
-				<form
-					method="POST"
-					action={ templ.SafeURL(fmt.Sprintf("/verificationreport/delete?id=%d", r.VfiRptID)) }
-					style="display:inline;"
-				>
-					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this report?')">
-						<i class="fas fa-trash"></i> Delete
-					</button>
-				</form>
 			</div>
 		</div>
 	}
