@@ -140,6 +140,20 @@ func (r *Repository) FindTodayCSIs() []string {
 
 	seen := map[string]bool{}
 	var csis []string
+
+	// Also get CSIs from csi_request table approved today (covers bulk approvals).
+	var approvedCSIs []string
+	r.db.Table("csi_request").
+		Where("req_status = 'APPROVED' AND DATE(approved_dt) = CURDATE()").
+		Pluck("req_device_id", &approvedCSIs)
+	for _, csi := range approvedCSIs {
+		csi = strings.TrimSpace(csi)
+		if csi != "" && !seen[csi] {
+			seen[csi] = true
+			csis = append(csis, csi)
+		}
+	}
+
 	for _, l := range logs {
 		if l.ActLogDetail == nil {
 			continue
@@ -159,7 +173,6 @@ func (r *Repository) FindTodayCSIs() []string {
 		case strings.HasPrefix(detail, "Request add CSI: "):
 			csi = strings.TrimPrefix(detail, "Request add CSI: ")
 		case strings.HasPrefix(detail, "Request copy CSI: "):
-			// "Request copy CSI: SOURCE → DEST"
 			if idx := strings.Index(detail, "→"); idx >= 0 {
 				csi = strings.TrimSpace(detail[idx+len("→"):])
 			}

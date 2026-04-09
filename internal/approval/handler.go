@@ -176,18 +176,20 @@ func (h *Handler) Approve(c echo.Context) error {
 	}
 
 	if (req.Source == "import" || req.Source == "copy") && req.TemplateSN != "" {
-		// Import-sourced request: copy terminal from template.
 		resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
 		if err != nil {
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to copy terminal from %s: %v", req.TemplateSN, err))
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: Copy dari %s gagal - %v", req.DeviceID, req.TemplateSN, err))
 			return c.Redirect(http.StatusFound, "/approval/index")
 		}
 		if resp.ResultCode != 0 {
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("TMS error: %s", resp.Desc))
+			errMsg := resp.Desc
+			if strings.Contains(strings.ToLower(errMsg), "duplicate") {
+				errMsg = "CSI " + req.DeviceID + " sudah ada di TMS (duplikat)"
+			}
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: %s", req.DeviceID, errMsg))
 			return c.Redirect(http.StatusFound, "/approval/index")
 		}
 	} else {
-		// Manual request: add terminal directly.
 		var groupIDs []string
 		if req.GroupIDs != "" {
 			groupIDs = strings.Split(req.GroupIDs, ",")
@@ -205,25 +207,28 @@ func (h *Handler) Approve(c echo.Context) error {
 
 		resp, err := h.tmsService.AddTerminal(addReq)
 		if err != nil {
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to add terminal to TMS: %v", err))
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: %v", req.DeviceID, err))
 			return c.Redirect(http.StatusFound, "/approval/index")
 		}
 		if resp.ResultCode != 0 {
-			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("TMS error: %s", resp.Desc))
+			errMsg := resp.Desc
+			if strings.Contains(strings.ToLower(errMsg), "duplicate") {
+				errMsg = "CSI " + req.DeviceID + " sudah ada di TMS (duplikat)"
+			}
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: %s", req.DeviceID, errMsg))
 			return c.Redirect(http.StatusFound, "/approval/index")
 		}
 
-		// Add app parameter if specified.
 		if req.App != "" {
 			paramResp, paramErr := h.tmsService.AddParameter(req.DeviceID, req.App)
 			if paramErr != nil {
 				h.tmsService.DeleteTerminals([]string{req.DeviceID})
-				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to assign app: %v", paramErr))
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: Assign app gagal - %v", req.DeviceID, paramErr))
 				return c.Redirect(http.StatusFound, "/approval/index")
 			}
 			if paramResp.ResultCode != 0 {
 				h.tmsService.DeleteTerminals([]string{req.DeviceID})
-				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("App assignment failed: %s", paramResp.Desc))
+				shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Gagal approve CSI %s: Assign app gagal - %s", req.DeviceID, paramResp.Desc))
 				return c.Redirect(http.StatusFound, "/approval/index")
 			}
 		}
@@ -286,7 +291,7 @@ func (h *Handler) BulkApprove(c echo.Context) error {
 
 	requests, _ := h.repo.FindByIDs(ids)
 	var approved int
-	var failed int
+	var failedDetails []string
 	now := time.Now()
 	approver := mw.GetCurrentUserName(c)
 
@@ -296,9 +301,21 @@ func (h *Handler) BulkApprove(c echo.Context) error {
 		}
 
 		var success bool
+		var failReason string
+
 		if (req.Source == "import" || req.Source == "copy") && req.TemplateSN != "" {
 			resp, err := h.tmsService.CopyTerminal(req.TemplateSN, req.DeviceID)
-			success = err == nil && resp.ResultCode == 0
+			if err != nil {
+				failReason = fmt.Sprintf("%s: Copy gagal - %v", req.DeviceID, err)
+			} else if resp.ResultCode != 0 {
+				errMsg := resp.Desc
+				if strings.Contains(strings.ToLower(errMsg), "duplicate") {
+					errMsg = "sudah ada di TMS (duplikat)"
+				}
+				failReason = fmt.Sprintf("%s: %s", req.DeviceID, errMsg)
+			} else {
+				success = true
+			}
 		} else {
 			var groupIDs []string
 			if req.GroupIDs != "" {
@@ -309,12 +326,20 @@ func (h *Handler) BulkApprove(c echo.Context) error {
 				MerchantID: req.MerchantID, GroupIDs: groupIDs, SN: req.SN, MoveConf: req.MoveConf,
 			}
 			resp, err := h.tmsService.AddTerminal(addReq)
-			if err == nil && resp.ResultCode == 0 {
+			if err != nil {
+				failReason = fmt.Sprintf("%s: %v", req.DeviceID, err)
+			} else if resp.ResultCode != 0 {
+				errMsg := resp.Desc
+				if strings.Contains(strings.ToLower(errMsg), "duplicate") {
+					errMsg = "sudah ada di TMS (duplikat)"
+				}
+				failReason = fmt.Sprintf("%s: %s", req.DeviceID, errMsg)
+			} else {
 				if req.App != "" {
 					paramResp, paramErr := h.tmsService.AddParameter(req.DeviceID, req.App)
 					if paramErr != nil || paramResp.ResultCode != 0 {
 						h.tmsService.DeleteTerminals([]string{req.DeviceID})
-						success = false
+						failReason = fmt.Sprintf("%s: Assign app gagal", req.DeviceID)
 					} else {
 						success = true
 					}
@@ -331,16 +356,20 @@ func (h *Handler) BulkApprove(c echo.Context) error {
 			h.repo.UpdateStatus(&req)
 			approved++
 		} else {
-			failed++
+			failedDetails = append(failedDetails, failReason)
 		}
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreApproveCSI, fmt.Sprintf("Bulk approve %d CSI requests", approved))
 	msg := fmt.Sprintf("%d permintaan berhasil di-approve.", approved)
-	if failed > 0 {
-		msg += fmt.Sprintf(" %d gagal.", failed)
+	if len(failedDetails) > 0 {
+		msg += fmt.Sprintf(" %d gagal: %s", len(failedDetails), strings.Join(failedDetails, "; "))
 	}
-	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, msg)
+	if len(failedDetails) > 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashWarning, msg)
+	} else {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, msg)
+	}
 	return c.Redirect(http.StatusFound, "/approval/index")
 }
 

@@ -57,7 +57,7 @@ templ TechnicianIndexPage(page layouts.PageData, techs []TechnicianData, paginat
 	@layouts.Base(page) {
 		<div class="card">
 			<div class="card-header">
-				<h3 class="card-title">Technicians</h3>
+				<h3 class="card-title">Teknisi</h3>
 				<div class="card-tools">
 					<div class="d-flex align-items-center">
 						<form
@@ -115,9 +115,9 @@ templ TechnicianTablePartial(techs []TechnicianData, pagination components.Pagin
 						<td colspan="7" class="text-center text-muted">No technicians found</td>
 					</tr>
 				}
-				for _, t := range techs {
+				for i, t := range techs {
 					<tr>
-						<td>{ strconv.Itoa(t.TechID) }</td>
+						<td>{ strconv.Itoa((pagination.CurrentPage-1)*pagination.PerPage + i + 1) }</td>
 						<td>{ t.TechName }</td>
 						<td>{ t.TechNumber }</td>
 						<td>{ t.TechCompany }</td>

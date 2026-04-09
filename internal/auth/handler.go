@@ -107,6 +107,12 @@ func (h *Handler) Login(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/user/login")
 	}
 
+	// Check if user is active (status = 10).
+	if u.Status == nil || *u.Status != 10 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Akun Anda tidak aktif. Hubungi administrator.")
+		return c.Redirect(http.StatusFound, "/user/login")
+	}
+
 	session, err := h.store.Get(c.Request(), h.sessionName)
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Session error")

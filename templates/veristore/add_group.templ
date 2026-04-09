@@ -59,7 +59,7 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 								<button type="button" class="btn btn-sm btn-success mb-2" data-toggle="modal" data-target="#addTerminalModal">
 									<i class="fas fa-plus"></i> Add Terminal
 								</button>
-								<!-- Selected terminals table -->
+								<!-- Selected terminals table with client-side pagination -->
 								<table class="table table-bordered table-sm" id="selectedTerminals">
 									<thead>
 										<tr>
@@ -73,20 +73,22 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 									<tbody>
 										if len(terminals) > 0 {
 											for _, t := range terminals {
-												<tr id={ fmt.Sprintf("terminal-row-%s", mapGet(t, "terminalId")) }>
+												<tr class="terminal-row" id={ fmt.Sprintf("terminal-row-%s", mapGet(t, "terminalId")) } data-terminal-id={ mapGet(t, "terminalId") }>
 													<td>{ mapGet(t, "sn") }</td>
 													<td>{ mapGet(t, "deviceId") }</td>
 													<td>{ mapGet(t, "model") }</td>
 													<td>{ mapGet(t, "merchantName") }</td>
 													<td>
-														<button type="button" class="btn btn-xs btn-danger" onclick={ removeTerminalRow(mapGet(t, "terminalId")) }>
+														<button
+															type="button"
+															class="btn btn-xs btn-danger remove-terminal-btn"
+															data-id={ mapGet(t, "terminalId") }
+															onclick="removeTerminal(this.getAttribute('data-id')); return false;"
+														>
 															<i class="fas fa-times"></i>
 														</button>
 													</td>
 													<input type="hidden" name="terminalIds[]" value={ mapGet(t, "terminalId") }/>
-													if isEdit {
-														<input type="hidden" name="oldTerminalIds[]" value={ mapGet(t, "terminalId") }/>
-													}
 												</tr>
 											}
 										} else {
@@ -96,7 +98,19 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 										}
 									</tbody>
 								</table>
+								<div id="terminalPagination" class="d-flex justify-content-between align-items-center mt-1">
+									<small class="text-muted" id="terminalPageInfo"></small>
+									<nav>
+										<ul class="pagination pagination-sm mb-0" id="terminalPageLinks"></ul>
+									</nav>
+								</div>
 							</div>
+							<!-- Old terminal IDs preserved outside the table for edit diff -->
+							if isEdit && len(terminals) > 0 {
+								for _, t := range terminals {
+									<input type="hidden" name="oldTerminalIds[]" value={ mapGet(t, "terminalId") }/>
+								}
+							}
 						</div>
 						<div class="card-footer">
 							if isEdit {
@@ -260,7 +274,7 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 				}
 			}
 			function _saveModalCheckboxes() {
-				document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
+				document.querySelectorAll('#modalSearchResults .modal-terminal-cb:not(:disabled)').forEach(function(cb) {
 					if (cb.checked) {
 						_modalSelected[cb.value] = {
 							sn: cb.getAttribute('data-sn'),
@@ -274,12 +288,20 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 				});
 			}
 			function _restoreModalCheckboxes() {
+				var existingIds = _getExistingTerminalIds();
 				document.querySelectorAll('#modalSearchResults .modal-terminal-cb').forEach(function(cb) {
-					if (_modalSelected[cb.value]) cb.checked = true;
+					if (_modalSelected[cb.value] || existingIds[cb.value]) {
+						cb.checked = true;
+						if (existingIds[cb.value]) {
+							// Mark as already in group — disable to prevent duplicate add.
+							cb.disabled = true;
+							cb.closest('tr').classList.add('table-success');
+						}
+					}
 				});
 				var header = document.getElementById('modalSelectAll');
 				if (header) {
-					var all = document.querySelectorAll('#modalSearchResults .modal-terminal-cb');
+					var all = document.querySelectorAll('#modalSearchResults .modal-terminal-cb:not(:disabled)');
 					var allChecked = all.length > 0;
 					all.forEach(function(cb) { if (!cb.checked) allChecked = false; });
 					header.checked = allChecked;
@@ -331,19 +353,95 @@ templ AddGroupPage(page layouts.PageData, errors []string, terminals []map[strin
 				if (noRow) noRow.remove();
 				var tbody = document.querySelector('#selectedTerminals tbody');
 				var row = document.createElement('tr');
+				row.className = 'terminal-row';
 				row.id = 'terminal-row-' + id;
+				row.setAttribute('data-terminal-id', id);
 				row.innerHTML = '<td>' + (sn || '') + '</td><td>' + (deviceId || '') + '</td><td>' + (model || '') + '</td><td>' + (merchant || '') + '</td>' +
 					'<td><button type="button" class="btn btn-xs btn-danger" onclick="removeTerminal(\'' + id + '\')"><i class="fas fa-times"></i></button></td>' +
 					'<input type="hidden" name="terminalIds[]" value="' + id + '">';
 				tbody.appendChild(row);
+				_paginateTerminals();
 			}
 			function removeTerminal(id) {
 				var row = document.getElementById('terminal-row-' + id);
 				if (row) row.remove();
-				if (document.querySelectorAll('#selectedTerminals tbody tr').length === 0) {
+				var rows = document.querySelectorAll('#selectedTerminals tbody .terminal-row');
+				if (rows.length === 0) {
 					var tbody = document.querySelector('#selectedTerminals tbody');
 					tbody.innerHTML = '<tr id="noTerminals"><td colspan="5" class="text-center text-muted">No terminals added yet</td></tr>';
+					document.getElementById('terminalPagination').style.display = 'none';
+				} else {
+					_paginateTerminals();
 				}
+			}
+
+			// Client-side pagination for the terminal list.
+			var _termPage = 1;
+			var _termPerPage = 10;
+			function _paginateTerminals(page) {
+				if (typeof page === 'number' && page > 0) _termPage = page;
+				// Re-index: collect all terminal rows currently in the DOM.
+				var rows = Array.from(document.querySelectorAll('#selectedTerminals tbody .terminal-row'));
+				var total = rows.length;
+				var totalPages = Math.max(1, Math.ceil(total / _termPerPage));
+
+				// Clamp current page.
+				if (_termPage > totalPages) _termPage = totalPages;
+				if (_termPage < 1) _termPage = 1;
+
+				var start = (_termPage - 1) * _termPerPage;
+				var end = start + _termPerPage;
+
+				// Show/hide rows based on current page.
+				rows.forEach(function(row, i) {
+					row.style.display = (i >= start && i < end) ? '' : 'none';
+				});
+
+				var info = document.getElementById('terminalPageInfo');
+				var links = document.getElementById('terminalPageLinks');
+				var pag = document.getElementById('terminalPagination');
+
+				// Hide pagination entirely if all rows fit on one page.
+				if (total <= _termPerPage) {
+					pag.style.display = 'none';
+					// Make sure all rows are visible.
+					rows.forEach(function(row) { row.style.display = ''; });
+					return;
+				}
+
+				pag.style.display = '';
+				info.textContent = 'Showing ' + (start+1) + '-' + Math.min(end, total) + ' of ' + total;
+				var html = '';
+				if (_termPage > 1) html += '<li class="page-item"><a class="page-link" href="#" onclick="_paginateTerminals(' + (_termPage-1) + ');return false;">&laquo;</a></li>';
+				for (var p = 1; p <= totalPages; p++) {
+					if (p === _termPage) {
+						html += '<li class="page-item active"><span class="page-link">' + p + '</span></li>';
+					} else {
+						html += '<li class="page-item"><a class="page-link" href="#" onclick="_paginateTerminals(' + p + ');return false;">' + p + '</a></li>';
+					}
+				}
+				if (_termPage < totalPages) html += '<li class="page-item"><a class="page-link" href="#" onclick="_paginateTerminals(' + (_termPage+1) + ');return false;">&raquo;</a></li>';
+				links.innerHTML = html;
+			}
+			// Init pagination on load.
+			window.addEventListener('load', function() { _paginateTerminals(1); });
+
+			// Event delegation for remove buttons (works for both server-rendered and dynamically added rows).
+			document.addEventListener('click', function(e) {
+				var btn = e.target.closest('.remove-terminal-btn');
+				if (btn) {
+					var id = btn.getAttribute('data-id');
+					if (id) removeTerminal(id);
+				}
+			});
+
+			// Track existing terminal IDs for pre-checking in modal.
+			function _getExistingTerminalIds() {
+				var ids = {};
+				document.querySelectorAll('#selectedTerminals input[name="terminalIds[]"]').forEach(function(inp) {
+					ids[inp.value] = true;
+				});
+				return ids;
 			}
 		</script>
 	}

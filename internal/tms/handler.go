@@ -2065,18 +2065,7 @@ func (h *Handler) Import(c echo.Context) error {
 	}
 
 	// Get current user.
-	user := ""
-	if u, ok := c.Get("user").(string); ok {
-		user = u
-	}
-	if user == "" {
-		sess, _ := h.store.Get(c.Request(), h.sessionName)
-		if sess != nil {
-			if u, ok := sess.Values["username"].(string); ok {
-				user = u
-			}
-		}
-	}
+	user := mw.GetCurrentUserName(c)
 
 	// Enqueue background import job.
 	payload := map[string]interface{}{
@@ -2399,18 +2388,7 @@ func (h *Handler) ImportMerchant(c echo.Context) error {
 	}
 
 	// Get current user.
-	user := ""
-	if u, ok := c.Get("user").(string); ok {
-		user = u
-	}
-	if user == "" {
-		sess, _ := h.store.Get(c.Request(), h.sessionName)
-		if sess != nil {
-			if u, ok := sess.Values["username"].(string); ok {
-				user = u
-			}
-		}
-	}
+	user := mw.GetCurrentUserName(c)
 
 	// Enqueue background import job.
 	payload := map[string]interface{}{
@@ -2881,6 +2859,7 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 	}
 
 	groupId, _ := strconv.Atoi(c.FormValue("id"))
+	groupName := c.FormValue("name")
 	if groupId == 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Group ID is required")
 		return c.Redirect(http.StatusFound, "/veristore/group")
@@ -2892,10 +2871,15 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/veristore/group")
 	}
 
+	logName := groupName
+	if logName == "" {
+		logName = fmt.Sprintf("%d", groupId)
+	}
+
 	if resp.ResultCode != 0 {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Delete group failed: %s", resp.Desc))
 	} else {
-		mw.LogActivityFromContext(c, mw.LogVeristoreDelGroup, fmt.Sprintf("Delete group %d", groupId))
+		mw.LogActivityFromContext(c, mw.LogVeristoreDelGroup, "Delete group "+logName)
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Delete Group berhasil!")
 	}
 

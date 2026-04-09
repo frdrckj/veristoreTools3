@@ -85,6 +85,7 @@ templ GroupTablePartial(groups []map[string]interface{}, pagination components.P
 								style="display:inline;"
 							>
 								<input type="hidden" name="id" value={ mapGet(g, "id") }/>
+								<input type="hidden" name="name" value={ mapGet(g, "groupName") }/>
 								<button
 									type="submit"
 									class="btn btn-xs btn-danger"

@@ -235,7 +235,7 @@ func (h *Handler) TechnicianIndex(c echo.Context) error {
 		HTMXTarget:  "tech-table-container",
 	}
 
-	page := h.pageData(c, "Technicians")
+	page := h.pageData(c, "Teknisi")
 	techData := toTechnicianDataSlice(techs)
 
 	if shared.IsHTMX(c) {

@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"fmt"
 	"strconv"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
@@ -110,23 +109,17 @@ templ ViewPage(page layouts.PageData, t TerminalData, params []ParamData) {
 					</div>
 				}
 			</div>
-			<div class="card-footer">
-				<a
-					href={ templ.SafeURL(fmt.Sprintf("/terminal/update?id=%d", t.TermID)) }
-					class="btn btn-warning"
-				>
-					<i class="fas fa-edit"></i> Edit
-				</a>
-				<form
-					method="POST"
-					action={ templ.SafeURL(fmt.Sprintf("/terminal/delete?id=%d", t.TermID)) }
-					style="display:inline;"
-				>
-					<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this terminal?')">
-						<i class="fas fa-trash"></i> Delete
-					</button>
-				</form>
-			</div>
+			// Edit and Delete disabled — terminal data is managed via TMS sync.
+			// <div class="card-footer">
+			// 	<a href={ templ.SafeURL(fmt.Sprintf("/terminal/update?id=%d", t.TermID)) } class="btn btn-warning">
+			// 		<i class="fas fa-edit"></i> Edit
+			// 	</a>
+			// 	<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/terminal/delete?id=%d", t.TermID)) } style="display:inline;">
+			// 		<button type="submit" class="btn btn-danger" onclick="return confirm('Delete this terminal?')">
+			// 			<i class="fas fa-trash"></i> Delete
+			// 		</button>
+			// 	</form>
+			// </div>
 		</div>
 	}
 }
