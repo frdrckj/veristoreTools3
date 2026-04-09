@@ -74,6 +74,42 @@ func (s *Service) ChangePassword(userID int, oldPassword, newPassword string) er
 	return s.repo.Update(u)
 }
 
+// EditUser updates a user's editable fields (fullname, username, privileges, email).
+func (s *Service) EditUser(userID int, fullname, username, privileges, email string) error {
+	u, err := s.repo.FindByID(userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	u.UserFullname = fullname
+	u.UserName = username
+	u.UserPrivileges = privileges
+	if email != "" {
+		u.Email = &email
+	} else {
+		u.Email = nil
+	}
+	now := time.Now()
+	u.UpdatedAt = intPtr(int(now.Unix()))
+
+	return s.repo.Update(u)
+}
+
+// ResetPassword sets a new password for a user (admin action, no old password required).
+func (s *Service) ResetPassword(userID int, newPassword string) error {
+	u, err := s.repo.FindByID(userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	u.Password = shared.HashPasswordSHA256(newPassword, s.salt)
+	now := time.Now()
+	u.UserLastChangePassword = &now
+	u.UpdatedAt = intPtr(int(now.Unix()))
+
+	return s.repo.Update(u)
+}
+
 // ToggleActivation toggles the user's status between active (10) and inactive (0).
 // This mirrors v2's UserStatus::ACTIVE (10) and UserStatus::INACTIVE (0).
 func (s *Service) ToggleActivation(userID int) error {

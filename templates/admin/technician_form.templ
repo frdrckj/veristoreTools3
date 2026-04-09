@@ -76,9 +76,13 @@ templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, e
 									class="form-control"
 									id="tech_number"
 									name="tech_number"
-									placeholder="ID Number (KTP)"
-									maxlength="100"
+									placeholder="16 digit nomor KTP"
+									maxlength="16"
+									minlength="16"
+									pattern="[0-9]{16}"
+									title="ID Number (KTP) harus 16 digit angka"
 									value={ t.TechNumber }
+									oninput="this.value = this.value.replace(/[^0-9]/g, '')"
 									required
 								/>
 							</div>

@@ -209,6 +209,8 @@ func main() {
 	protected.POST("/user/create", userHandler.Create)
 	protected.POST("/user/delete", userHandler.Delete)
 	protected.POST("/user/activate", userHandler.Activate)
+	protected.POST("/user/edit", userHandler.EditUser)
+	protected.POST("/user/reset-password", userHandler.ResetPassword)
 	protected.GET("/user/change-password", userHandler.ChangePassword)
 	protected.POST("/user/change-password", userHandler.ChangePassword)
 	protected.GET("/user/get-app-type", userHandler.GetAppType)

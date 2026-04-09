@@ -274,6 +274,57 @@ func (h *Handler) Activate(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/user/index")
 }
 
+// EditUser handles POST /user/edit - Update user details (admin only).
+func (h *Handler) EditUser(c echo.Context) error {
+	id, _ := strconv.Atoi(c.FormValue("id"))
+	if id == 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Invalid user ID")
+		return c.Redirect(http.StatusFound, "/user/index")
+	}
+
+	fullname := c.FormValue("fullname")
+	username := c.FormValue("username")
+	privileges := c.FormValue("privileges")
+	email := c.FormValue("email")
+
+	if err := h.service.EditUser(id, fullname, username, privileges, email); err != nil {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to update user: %v", err))
+	} else {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "User berhasil diupdate!")
+	}
+
+	return c.Redirect(http.StatusFound, fmt.Sprintf("/user/view?id=%d", id))
+}
+
+// ResetPassword handles POST /user/reset-password - Admin resets a user's password.
+func (h *Handler) ResetPassword(c echo.Context) error {
+	id, _ := strconv.Atoi(c.FormValue("id"))
+	if id == 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Invalid user ID")
+		return c.Redirect(http.StatusFound, "/user/index")
+	}
+
+	password := c.FormValue("password")
+	confirmPassword := c.FormValue("confirmPassword")
+
+	if password != confirmPassword {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Password tidak sama!")
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/user/view?id=%d", id))
+	}
+	if len(password) < 6 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Password minimal 6 karakter!")
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/user/view?id=%d", id))
+	}
+
+	if err := h.service.ResetPassword(id, password); err != nil {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to reset password: %v", err))
+	} else {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Password berhasil direset!")
+	}
+
+	return c.Redirect(http.StatusFound, fmt.Sprintf("/user/view?id=%d", id))
+}
+
 // ChangePassword handles both GET (show form) and POST (process change) for
 // changing the current user's password.
 func (h *Handler) ChangePassword(c echo.Context) error {
