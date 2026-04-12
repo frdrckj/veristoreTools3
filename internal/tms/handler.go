@@ -1961,29 +1961,23 @@ func (h *Handler) Import(c echo.Context) error {
 				data.LastFilename = latest.ImpFilename
 				data.Progress = cur + " / " + tot
 
-				// Pop IMPRS notification (consumed once) to show before redirect.
-				// Format: "prefix|success|fail|suffix"
-				if resultMsg := h.adminRepo.PopImportResult(); resultMsg != "" {
-					data.ResultMessage = resultMsg // keep raw for non-empty check
-					parts := strings.Split(resultMsg, "|")
-					if len(parts) == 4 {
-						data.ResultPrefix = parts[0]
-						data.ResultSuccess = parts[1]
-						data.ResultFail = parts[2]
-						data.ResultSuffix = parts[3]
-						data.ResultIsError = parts[2] != ""
-					} else {
-						// Legacy fallback
-						data.ResultPrefix = resultMsg
-						data.ResultIsError = strings.Contains(resultMsg, "gagal")
-					}
-				}
-
-				// Check if import result .txt file exists for download.
+				// Check if import result .txt file exists and read summary from first line.
 				resultFile := fmt.Sprintf("static/import/import_result_%d.txt", latest.ImpID)
-				if _, err := os.Stat(resultFile); err == nil {
+				if content, err := os.ReadFile(resultFile); err == nil {
 					data.ResultFileExists = true
 					data.ResultFileID = latest.ImpID
+					// Parse success/fail counts from first line.
+					firstLine := strings.SplitN(string(content), "\n", 2)[0]
+					var successCount, failedCount int
+					// Try new format first: "Import Result: X success, Y failed"
+					if _, err := fmt.Sscanf(firstLine, "Import Result: %d success, %d failed", &successCount, &failedCount); err != nil {
+						// Fallback: old format "Import Result: X new (sent to approval), Y already exist in TMS, Z failed"
+						var existCount int
+						fmt.Sscanf(firstLine, "Import Result: %d new (sent to approval), %d already exist in TMS, %d failed", &successCount, &existCount, &failedCount)
+						failedCount += existCount
+					}
+					data.SuccessCount = successCount
+					data.FailCount = failedCount
 				}
 			}
 		}

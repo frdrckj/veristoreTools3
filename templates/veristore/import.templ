@@ -1,6 +1,9 @@
 package veristore
 
-import "github.com/verifone/veristoretools3/templates/layouts"
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
 
 // ImportData holds the state for the import page.
 type ImportData struct {
@@ -18,6 +21,8 @@ type ImportData struct {
 	ResultSuccess    string // e.g. "10 CSI berhasil"
 	ResultFail       string // e.g. "3 CSI gagal" (empty if none)
 	ResultSuffix     string // e.g. "(5 baris dilewati)" or "dari total 100 CSI."
+	SuccessCount     int
+	FailCount        int
 }
 
 // ImportPage renders the terminal import page with status tracking.
@@ -71,14 +76,51 @@ templ ImportPage(page layouts.PageData, data ImportData) {
 						</a>
 					}
 				} else if data.LastComplete {
-					<div class="alert alert-success" style="font-size: 1.1rem;">
-						Last import completed: { data.LastFilename } ({ data.Progress })
-						if data.ResultFileExists {
-							<a href="/veristore/import-result" class="btn btn-sm btn-danger ml-2">
-								<i class="fas fa-list-alt"></i> Import Result
-							</a>
-						}
-					</div>
+					if data.FailCount > 0 && data.SuccessCount == 0 {
+						<div class="alert alert-danger" style="font-size: 1.1rem;">
+							Last import completed: { data.LastFilename } ({ data.Progress })
+							<br/>
+							<small>
+								<strong>{ fmt.Sprintf("%d", data.SuccessCount) }</strong> success,
+								<strong>{ fmt.Sprintf("%d", data.FailCount) }</strong> failed
+							</small>
+							if data.ResultFileExists {
+								<a href="/veristore/import-result" class="btn btn-sm btn-default ml-2">
+									<i class="fas fa-list-alt"></i> Import Result
+								</a>
+							}
+						</div>
+					} else if data.FailCount > 0 && data.SuccessCount > 0 {
+						<div class="alert alert-warning" style="font-size: 1.1rem;">
+							Last import completed: { data.LastFilename } ({ data.Progress })
+							<br/>
+							<small>
+								<strong>{ fmt.Sprintf("%d", data.SuccessCount) }</strong> success,
+								<strong>{ fmt.Sprintf("%d", data.FailCount) }</strong> failed
+							</small>
+							if data.ResultFileExists {
+								<a href="/veristore/import-result" class="btn btn-sm btn-default ml-2">
+									<i class="fas fa-list-alt"></i> Import Result
+								</a>
+							}
+						</div>
+					} else {
+						<div class="alert alert-success" style="font-size: 1.1rem;">
+							Last import completed: { data.LastFilename } ({ data.Progress })
+							if data.SuccessCount > 0 || data.FailCount > 0 {
+								<br/>
+								<small>
+									<strong>{ fmt.Sprintf("%d", data.SuccessCount) }</strong> success,
+									<strong>{ fmt.Sprintf("%d", data.FailCount) }</strong> failed
+								</small>
+							}
+							if data.ResultFileExists {
+								<a href="/veristore/import-result" class="btn btn-sm btn-default ml-2">
+									<i class="fas fa-list-alt"></i> Import Result
+								</a>
+							}
+						</div>
+					}
 					<div class="row">
 						<div class="col-md-8 offset-md-2">
 							<div class="card card-primary">

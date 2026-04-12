@@ -333,7 +333,7 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			} else {
 				savedCount++
 				existingSet[upperCSI] = true // prevent duplicates within same import
-				resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK - sent to approval", j.RowNum, j.SerialNum))
+				resultLines = append(resultLines, fmt.Sprintf("Row %d (%s): OK", j.RowNum, j.SerialNum))
 			}
 		}
 
@@ -349,9 +349,10 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 		Int("total", totalJobs).
 		Msg("import complete")
 
-	// Write result file.
+	// Write result file and store summary for notification.
 	if payload.ImportID > 0 {
-		header := fmt.Sprintf("Import Result: %d new (sent to approval), %d already exist in TMS, %d failed\n\n", savedCount, existCount, failCount)
+		totalFailed := failCount + existCount
+		header := fmt.Sprintf("Import Result: %d success, %d failed\n\n", savedCount, totalFailed)
 		resultContent := header + strings.Join(resultLines, "\n")
 		resultPath := fmt.Sprintf("static/import/import_result_%d.txt", payload.ImportID)
 		if err := os.WriteFile(resultPath, []byte(resultContent), 0644); err != nil {
@@ -360,6 +361,18 @@ func (h *ImportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			logger.Info().Str("result_file", resultPath).Msg("wrote import result file")
 		}
 		h.adminRepo.UpdateImportProgress(payload.ImportID, strconv.Itoa(totalRows), strconv.Itoa(totalRows))
+
+		// Store summary in queue_log for display on the import page.
+		successDisplay := savedCount
+		failDisplay := failCount + existCount // already exist counts as failed
+		summary := fmt.Sprintf("%d success, %d failed|%d|%d", successDisplay, failDisplay, successDisplay, failDisplay)
+		createTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
+		_ = h.adminRepo.CreateQueueLog(&admin.QueueLog{
+			CreateTime:  createTime,
+			ExecTime:    createTime,
+			ProcessName: "IMRS",
+			ServiceName: &summary,
+		})
 	}
 
 	return nil
