@@ -24,7 +24,7 @@ type RequestView struct {
 	CreatedDt  string
 }
 
-templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove bool, pagination components.PaginationData) {
+templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover bool, syncInProgress bool, pagination components.PaginationData) {
 	@layouts.Base(page) {
 		<div class="card">
 			<div class="card-header d-flex justify-content-between align-items-center">
@@ -32,12 +32,15 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 					<i class="fas fa-check-circle mr-1"></i>
 					Persetujuan CSI
 				</h3>
-				if canApprove {
+				if isApprover {
 					<div>
-						<button class="btn btn-success btn-sm" id="bulkApproveBtn" style="display:none;" onclick="submitBulkAction('approve')">
+						if syncInProgress {
+							<span class="badge badge-warning"><i class="fas fa-sync fa-spin"></i> Update &amp; Sync sedang berjalan...</span>
+						}
+						<button class="btn btn-success btn-sm" id="bulkApproveBtn" style="display:none;" onclick="submitBulkAction('approve')" disabled?={ syncInProgress }>
 							<i class="fas fa-check"></i> Approve Selected (<span id="selectedCount">0</span>)
 						</button>
-						<button class="btn btn-danger btn-sm" id="bulkRejectBtn" style="display:none;" onclick="submitBulkAction('reject')">
+						<button class="btn btn-danger btn-sm" id="bulkRejectBtn" style="display:none;" onclick="submitBulkAction('reject')" disabled?={ syncInProgress }>
 							<i class="fas fa-times"></i> Reject Selected (<span id="selectedCount2">0</span>)
 						</button>
 					</div>
@@ -54,21 +57,18 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 						<table class="table table-bordered table-striped table-sm">
 							<thead class="thead-light">
 								<tr>
-									if canApprove {
+									if isApprover {
 										<th style="width:40px;">
-											<input type="checkbox" id="selectAllPending" onclick="toggleSelectAll(this)"/>
+											<input type="checkbox" id="selectAllPending" onclick="toggleSelectAll(this)" disabled?={ syncInProgress }/>
 										</th>
 									}
 									<th>No</th>
 									<th>CSI</th>
-									<th>SN</th>
-									<th>Model</th>
-									<th>App</th>
 									<th>Sumber</th>
 									<th>Diajukan Oleh</th>
 									<th>Tanggal</th>
 									<th>Status</th>
-									if canApprove {
+									if isApprover {
 										<th>Aksi</th>
 									}
 								</tr>
@@ -76,10 +76,10 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 							<tbody>
 								for i, r := range requests {
 									<tr>
-										if canApprove {
+										if isApprover {
 											<td>
 												if r.Status == "PENDING" {
-													<input type="checkbox" class="req-checkbox" value={ fmt.Sprintf("%d", r.ID) } onchange="updateSelection()"/>
+													<input type="checkbox" class="req-checkbox" value={ fmt.Sprintf("%d", r.ID) } onchange="updateSelection()" disabled?={ syncInProgress }/>
 												}
 											</td>
 										}
@@ -89,9 +89,6 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 												<strong>{ r.DeviceID }</strong>
 											</a>
 										</td>
-										<td>{ r.SN }</td>
-										<td>{ r.Model }</td>
-										<td>{ r.App }</td>
 										<td>
 											if r.Source == "import" {
 												<span class="badge badge-info">Import</span>
@@ -112,16 +109,16 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 												<span class="badge badge-danger">REJECTED</span>
 											}
 										</td>
-										if canApprove {
+										if isApprover {
 											<td>
 												if r.Status == "PENDING" {
 													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/approve?id=%d", r.ID)) } style="display:inline;">
-														<button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve this CSI?')">
+														<button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve this CSI?')" disabled?={ syncInProgress }>
 															<i class="fas fa-check"></i>
 														</button>
 													</form>
 													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/reject?id=%d", r.ID)) } style="display:inline;">
-														<button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Reject this CSI?')">
+														<button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Reject this CSI?')" disabled?={ syncInProgress }>
 															<i class="fas fa-times"></i>
 														</button>
 													</form>
@@ -168,18 +165,24 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 			}
 
 			function toggleSelectAll(masterCb) {
-				var cbs = document.querySelectorAll('.req-checkbox');
-				var ids = getSelectedIds();
-				cbs.forEach(function(cb) {
-					cb.checked = masterCb.checked;
-					if (masterCb.checked) {
-						ids[cb.value] = true;
-					} else {
-						delete ids[cb.value];
-					}
-				});
-				saveSelectedIds(ids);
-				updateUI();
+				if (masterCb.checked) {
+					// Fetch all pending IDs from server and select them all.
+					fetch('/approval/pending-ids')
+						.then(function(r) { return r.json(); })
+						.then(function(allIds) {
+							var ids = {};
+							allIds.forEach(function(id) { ids[id] = true; });
+							saveSelectedIds(ids);
+							// Check all visible checkboxes on current page.
+							document.querySelectorAll('.req-checkbox').forEach(function(cb) { cb.checked = true; });
+							updateUI();
+						});
+				} else {
+					// Deselect all.
+					saveSelectedIds({});
+					document.querySelectorAll('.req-checkbox').forEach(function(cb) { cb.checked = false; });
+					updateUI();
+				}
 			}
 
 			function updateSelection() {
@@ -259,6 +262,13 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, canApprove boo
 				});
 				updateUI();
 			})();
+
+			// Auto-refresh when sync is in progress (check every 5 seconds).
+			if (document.querySelector('.badge-warning .fa-sync')) {
+				setInterval(function() {
+					window.location.reload();
+				}, 5000);
+			}
 		</script>
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
+	"github.com/verifone/veristoretools3/internal/admin"
 	mw "github.com/verifone/veristoretools3/internal/middleware"
 	"github.com/verifone/veristoretools3/internal/queue"
 	"github.com/verifone/veristoretools3/internal/shared"
@@ -24,6 +25,7 @@ type Handler struct {
 	repo          *Repository
 	tmsService    *tms.Service
 	importHandler *queue.ImportTerminalHandler
+	adminRepo     *admin.Repository
 	store         sessions.Store
 	sessionName string
 	appName     string
@@ -31,11 +33,12 @@ type Handler struct {
 }
 
 // NewHandler creates a new approval handler.
-func NewHandler(repo *Repository, tmsService *tms.Service, importHandler *queue.ImportTerminalHandler, store sessions.Store, sessionName, appName, appVersion string) *Handler {
+func NewHandler(repo *Repository, tmsService *tms.Service, importHandler *queue.ImportTerminalHandler, adminRepo *admin.Repository, store sessions.Store, sessionName, appName, appVersion string) *Handler {
 	return &Handler{
 		repo:          repo,
 		tmsService:    tmsService,
 		importHandler: importHandler,
+		adminRepo:     adminRepo,
 		store:         store,
 		sessionName: sessionName,
 		appName:     appName,
@@ -86,7 +89,7 @@ func (h *Handler) Index(c echo.Context) error {
 	requests, total, err := h.repo.FindPaginated(pageNum, perPage)
 	if err != nil {
 		page.Flashes = map[string][]string{shared.FlashError: {fmt.Sprintf("Failed to load requests: %v", err)}}
-		return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, nil, false, components.PaginationData{}))
+		return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, nil, false, false, components.PaginationData{}))
 	}
 
 	var views []approval.RequestView
@@ -112,7 +115,8 @@ func (h *Handler) Index(c echo.Context) error {
 	}
 
 	priv := mw.GetCurrentUserPrivileges(c)
-	canApprove := priv == "ADMIN" || priv == "TMS ADMIN" || priv == "TMS SUPERVISOR"
+	isApprover := priv == "ADMIN" || priv == "TMS ADMIN" || priv == "TMS SUPERVISOR"
+	syncInProgress := h.adminRepo.HasPendingSync() || h.adminRepo.HasPendingImport()
 
 	totalPages := int(total) / perPage
 	if int(total)%perPage > 0 {
@@ -127,7 +131,7 @@ func (h *Handler) Index(c echo.Context) error {
 		BaseURL:     "/approval/index",
 	}
 
-	return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, views, canApprove, pagination))
+	return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, views, isApprover, syncInProgress, pagination))
 }
 
 // View shows the detail of a CSI request.
@@ -150,13 +154,51 @@ func (h *Handler) View(c echo.Context) error {
 	if appDisplay == "" {
 		appDisplay = req.App
 	}
+
+	// Resolve merchant ID to name.
+	merchantDisplay := req.MerchantID
+	if req.MerchantID != "" {
+		mid, _ := strconv.Atoi(req.MerchantID)
+		if mid > 0 {
+			resp, err := h.tmsService.GetMerchantDetail(mid)
+			if err == nil && resp.ResultCode == 0 && resp.Data != nil {
+				if m, ok := resp.Data["merchant"].(map[string]interface{}); ok {
+					if name, ok := m["merchantName"].(string); ok && name != "" {
+						merchantDisplay = name
+					}
+				}
+			}
+		}
+	}
+
+	// Resolve group IDs to names.
+	groupDisplay := req.GroupIDs
+	if req.GroupIDs != "" {
+		var groupNames []string
+		for _, gid := range strings.Split(req.GroupIDs, ",") {
+			gid = strings.TrimSpace(gid)
+			gidInt, _ := strconv.Atoi(gid)
+			if gidInt > 0 {
+				resp, err := h.tmsService.GetGroupDetail(gidInt)
+				if err == nil && resp.ResultCode == 0 && resp.Data != nil {
+					if name, ok := resp.Data["groupName"].(string); ok && name != "" {
+						groupNames = append(groupNames, name)
+						continue
+					}
+				}
+			}
+			groupNames = append(groupNames, gid)
+		}
+		groupDisplay = strings.Join(groupNames, ", ")
+	}
+
 	view := approval.RequestView{
 		ID:         req.ReqID,
 		DeviceID:   req.DeviceID,
 		Vendor:     req.Vendor,
 		Model:      req.Model,
-		MerchantID: req.MerchantID,
-		GroupIDs:   req.GroupIDs,
+		MerchantID: merchantDisplay,
+		GroupIDs:   groupDisplay,
 		SN:         req.SN,
 		App:        appDisplay,
 		MoveConf:   req.MoveConf,
@@ -448,4 +490,14 @@ func (h *Handler) BulkReject(c echo.Context) error {
 	mw.LogActivityFromContext(c, mw.LogVeristoreRejectCSI, fmt.Sprintf("Bulk reject %d CSI requests", rejected))
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, fmt.Sprintf("%d permintaan ditolak.", rejected))
 	return c.Redirect(http.StatusFound, "/approval/index")
+}
+
+// PendingIDs returns all pending request IDs as JSON (for select-all across pages).
+func (h *Handler) PendingIDs(c echo.Context) error {
+	requests, _ := h.repo.FindPending()
+	var ids []int
+	for _, r := range requests {
+		ids = append(ids, r.ReqID)
+	}
+	return c.JSON(http.StatusOK, ids)
 }

@@ -382,13 +382,14 @@ func main() {
 	// CSI Approval (importTermHandler needed for full import pipeline on approve)
 	importTermHandler := queue.NewImportTerminalHandler(tmsService, tmsClient, adminRepo, db)
 	approvalRepo := approvalPkg.NewRepository(db)
-	approvalHandler := approvalPkg.NewHandler(approvalRepo, tmsService, importTermHandler, sessionStore, sessionName, appName, appVersion)
+	approvalHandler := approvalPkg.NewHandler(approvalRepo, tmsService, importTermHandler, adminRepo, sessionStore, sessionName, appName, appVersion)
 	protected.GET("/approval/index", approvalHandler.Index)
 	protected.GET("/approval/view", approvalHandler.View)
 	protected.POST("/approval/approve", approvalHandler.Approve)
 	protected.POST("/approval/reject", approvalHandler.Reject)
 	protected.POST("/approval/bulk-approve", approvalHandler.BulkApprove)
 	protected.POST("/approval/bulk-reject", approvalHandler.BulkReject)
+	protected.GET("/approval/pending-ids", approvalHandler.PendingIDs)
 
 	// Tools
 	toolsHandler := tools.NewHandler(db, v2DB, sessionStore, sessionName, appName, appVersion)
