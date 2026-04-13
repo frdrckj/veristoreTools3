@@ -40,15 +40,53 @@ func (r *Repository) FindAll() ([]CsiRequest, error) {
 	return requests, err
 }
 
-// FindPaginated returns paginated CSI requests with total count.
-func (r *Repository) FindPaginated(page, perPage int) ([]CsiRequest, int64, error) {
+// ApprovalFilter holds filter parameters for the approval list.
+type ApprovalFilter struct {
+	CSI       string
+	Source    string
+	CreatedBy string
+	Status    string
+	DateFrom  string
+	DateTo    string
+}
+
+// FindPaginated returns paginated CSI requests with total count and filters.
+func (r *Repository) FindPaginated(page, perPage int, filter ApprovalFilter) ([]CsiRequest, int64, error) {
+	tx := r.db.Model(&CsiRequest{})
+
+	if filter.CSI != "" {
+		tx = tx.Where("req_device_id LIKE ?", "%"+filter.CSI+"%")
+	}
+	if filter.Source != "" {
+		tx = tx.Where("req_source = ?", filter.Source)
+	}
+	if filter.CreatedBy != "" {
+		tx = tx.Where("created_by LIKE ?", "%"+filter.CreatedBy+"%")
+	}
+	if filter.Status != "" {
+		tx = tx.Where("req_status = ?", filter.Status)
+	}
+	if filter.DateFrom != "" {
+		tx = tx.Where("DATE(created_dt) >= ?", filter.DateFrom)
+	}
+	if filter.DateTo != "" {
+		tx = tx.Where("DATE(created_dt) <= ?", filter.DateTo)
+	}
+
 	var total int64
-	r.db.Model(&CsiRequest{}).Count(&total)
+	tx.Count(&total)
 
 	var requests []CsiRequest
 	offset := (page - 1) * perPage
-	err := r.db.Order("req_id DESC").Limit(perPage).Offset(offset).Find(&requests).Error
+	err := tx.Order("req_id DESC").Limit(perPage).Offset(offset).Find(&requests).Error
 	return requests, total, err
+}
+
+// GetDistinctCreators returns distinct created_by values for the filter dropdown.
+func (r *Repository) GetDistinctCreators() []string {
+	var creators []string
+	r.db.Model(&CsiRequest{}).Distinct("created_by").Where("created_by != ''").Pluck("created_by", &creators)
+	return creators
 }
 
 // FindByIDs returns requests matching the given IDs.

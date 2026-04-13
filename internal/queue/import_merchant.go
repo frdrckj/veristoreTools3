@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,7 +158,40 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 		email := cellValue(row, 8)
 		if email == "" {
-			email = "dummy@sample.com"
+			email = "TMS@NIAGA.COM"
+		}
+
+		contact := cellValue(row, 7)
+		cellPhone := cellValue(row, 9)
+		telePhone := cellValue(row, 10)
+
+		// Validate fields matching add merchant rules.
+		// Contact: alphabet only.
+		if contact != "" {
+			cleaned := regexp.MustCompile(`[^A-Za-z\s.]`).ReplaceAllString(contact, "")
+			if cleaned != contact {
+				skipCount++
+				logger.Warn().Int("row", rowNum).Str("contact", contact).Msg("skipping row: contact name contains invalid characters (alphabet only)")
+				continue
+			}
+		}
+		// Mobile: max 15 digits, numeric only.
+		if cellPhone != "" {
+			cellPhone = regexp.MustCompile(`[^0-9]`).ReplaceAllString(cellPhone, "")
+			if len(cellPhone) > 15 {
+				skipCount++
+				logger.Warn().Int("row", rowNum).Str("cellPhone", cellPhone).Msg("skipping row: mobile number exceeds 15 digits")
+				continue
+			}
+		}
+		// Telephone: max 15 digits, numeric only.
+		if telePhone != "" {
+			telePhone = regexp.MustCompile(`[^0-9]`).ReplaceAllString(telePhone, "")
+			if len(telePhone) > 15 {
+				skipCount++
+				logger.Warn().Int("row", rowNum).Str("telePhone", telePhone).Msg("skipping row: telephone number exceeds 15 digits")
+				continue
+			}
 		}
 
 		jobs = append(jobs, importMerchantJob{
@@ -165,13 +199,13 @@ func (h *ImportMerchantHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 			MerchantName: merchantName,
 			StateID:      cellValue(row, 2),
 			CityID:       cellValue(row, 3),
-			TimeZone:     cellValue(row, 4), // Column E — matches v2
-			Address:      cellValue(row, 5), // Column F
-			PostCode:     cellValue(row, 6), // Column G — matches v2
-			Contact:      cellValue(row, 7),
+			TimeZone:     cellValue(row, 4),
+			Address:      cellValue(row, 5),
+			PostCode:     cellValue(row, 6),
+			Contact:      contact,
 			Email:        email,
-			CellPhone:    cellValue(row, 9),
-			TelePhone:    cellValue(row, 10),
+			CellPhone:    cellPhone,
+			TelePhone:    telePhone,
 		})
 	}
 

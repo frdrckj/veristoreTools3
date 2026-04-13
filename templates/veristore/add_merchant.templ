@@ -143,8 +143,9 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 											class="form-control"
 											id="contact"
 											name="contact"
-											placeholder="Contact Name"
+											placeholder="Contact Name (alphabet only)"
 											value={ merchantDataGet(merchantData, "contact") }
+											oninput="this.value = this.value.replace(/[^A-Za-z\s.]/g, '')"
 											required
 										/>
 									</div>
@@ -175,7 +176,7 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 											name="cellPhone"
 											placeholder="Mobile Phone Number"
 											minlength="10"
-											maxlength="40"
+											maxlength="15"
 											value={ merchantDataGet(merchantData, "cellPhone") }
 											oninput="this.value = this.value.replace(/[^0-9]/g, '')"
 											required
@@ -192,7 +193,7 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 									name="telePhone"
 									placeholder="Telephone Number"
 									minlength="10"
-									maxlength="40"
+									maxlength="15"
 									value={ merchantDataGet(merchantData, "telePhone") }
 									oninput="this.value = this.value.replace(/[^0-9]/g, '')"
 								/>
@@ -216,6 +217,11 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 		</div>
 		<script>
 			document.querySelector('.merchant-form')?.addEventListener('submit', function() {
+				// Auto-fill email with default if empty.
+				var emailField = document.getElementById('email');
+				if (emailField && emailField.value.trim() === '') {
+					emailField.value = 'TMS@NIAGA.COM';
+				}
 				this.querySelectorAll('input[type="text"], input[type="email"], textarea').forEach(function(el) {
 					el.value = el.value.toUpperCase();
 				});

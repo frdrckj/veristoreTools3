@@ -75,9 +75,6 @@ func (h *Handler) pageData(c echo.Context, title string) layouts.PageData {
 
 // Index shows the list of CSI requests with pagination.
 func (h *Handler) Index(c echo.Context) error {
-	if err := h.requireTmsSession(c); err != nil {
-		return err
-	}
 	page := h.pageData(c, "Persetujuan CSI")
 
 	perPage := 10
@@ -86,10 +83,19 @@ func (h *Handler) Index(c echo.Context) error {
 		pageNum = 1
 	}
 
-	requests, total, err := h.repo.FindPaginated(pageNum, perPage)
+	filter := ApprovalFilter{
+		CSI:       c.QueryParam("csi"),
+		Source:    c.QueryParam("source"),
+		CreatedBy: c.QueryParam("createdBy"),
+		Status:    c.QueryParam("status"),
+		DateFrom:  c.QueryParam("dateFrom"),
+		DateTo:    c.QueryParam("dateTo"),
+	}
+
+	requests, total, err := h.repo.FindPaginated(pageNum, perPage, filter)
 	if err != nil {
 		page.Flashes = map[string][]string{shared.FlashError: {fmt.Sprintf("Failed to load requests: %v", err)}}
-		return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, nil, false, false, components.PaginationData{}))
+		return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, nil, false, false, components.PaginationData{}, approval.FilterData{}, nil))
 	}
 
 	var views []approval.RequestView
@@ -123,15 +129,48 @@ func (h *Handler) Index(c echo.Context) error {
 		totalPages++
 	}
 
+	// Build query string for pagination links.
+	qs := ""
+	if filter.CSI != "" {
+		qs += "&csi=" + filter.CSI
+	}
+	if filter.Source != "" {
+		qs += "&source=" + filter.Source
+	}
+	if filter.CreatedBy != "" {
+		qs += "&createdBy=" + filter.CreatedBy
+	}
+	if filter.Status != "" {
+		qs += "&status=" + filter.Status
+	}
+	if filter.DateFrom != "" {
+		qs += "&dateFrom=" + filter.DateFrom
+	}
+	if filter.DateTo != "" {
+		qs += "&dateTo=" + filter.DateTo
+	}
+
 	pagination := components.PaginationData{
 		CurrentPage: pageNum,
 		TotalPages:  totalPages,
 		Total:       total,
 		PerPage:     perPage,
 		BaseURL:     "/approval/index",
+		QueryString: qs,
 	}
 
-	return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, views, isApprover, syncInProgress, pagination))
+	filterData := approval.FilterData{
+		CSI:       filter.CSI,
+		Source:    filter.Source,
+		CreatedBy: filter.CreatedBy,
+		Status:    filter.Status,
+		DateFrom:  filter.DateFrom,
+		DateTo:    filter.DateTo,
+	}
+
+	creators := h.repo.GetDistinctCreators()
+
+	return shared.Render(c, http.StatusOK, approval.ApprovalPage(page, views, isApprover, syncInProgress, pagination, filterData, creators))
 }
 
 // View shows the detail of a CSI request.

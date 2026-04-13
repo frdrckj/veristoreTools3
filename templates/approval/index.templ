@@ -24,7 +24,31 @@ type RequestView struct {
 	CreatedDt  string
 }
 
-templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover bool, syncInProgress bool, pagination components.PaginationData) {
+func approveAction(id int) templ.ComponentScript {
+	return templ.ComponentScript{
+		Name: "approveCSI",
+		Call: fmt.Sprintf("approveCSI(%d)", id),
+	}
+}
+
+func rejectAction(id int) templ.ComponentScript {
+	return templ.ComponentScript{
+		Name: "rejectCSI",
+		Call: fmt.Sprintf("rejectCSI(%d)", id),
+	}
+}
+
+// FilterData holds current filter values for the approval list.
+type FilterData struct {
+	CSI       string
+	Source    string
+	CreatedBy string
+	Status    string
+	DateFrom  string
+	DateTo    string
+}
+
+templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover bool, syncInProgress bool, pagination components.PaginationData, filter FilterData, creators []string) {
 	@layouts.Base(page) {
 		<div class="card">
 			<div class="card-header d-flex justify-content-between align-items-center">
@@ -47,13 +71,8 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover boo
 				}
 			</div>
 			<div class="card-body">
-				if requests == nil || len(requests) == 0 {
-					<div class="text-center text-muted py-4">
-						<i class="fas fa-inbox fa-3x mb-3"></i>
-						<p>Tidak ada permintaan CSI.</p>
-					</div>
-				} else {
-					<div class="table-responsive">
+				<div class="table-responsive">
+					<form id="approval-filter-form" method="GET" action="/approval/index">
 						<table class="table table-bordered table-striped table-sm">
 							<thead class="thead-light">
 								<tr>
@@ -72,8 +91,61 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover boo
 										<th>Aksi</th>
 									}
 								</tr>
+								<tr>
+									if isApprover {
+										<td></td>
+									}
+									<td></td>
+									// CSI filter
+									<td>
+										<input type="text" class="form-control form-control-sm" name="csi" placeholder="Search CSI..." value={ filter.CSI }/>
+									</td>
+									<td>
+										<select class="form-control form-control-sm" name="source" onchange="this.form.submit()">
+											<option value="">-- All --</option>
+											<option value="manual" selected?={ filter.Source == "manual" }>Manual</option>
+											<option value="copy" selected?={ filter.Source == "copy" }>Copy</option>
+											<option value="import" selected?={ filter.Source == "import" }>Import</option>
+										</select>
+									</td>
+									<td>
+										<input type="text" class="form-control form-control-sm" name="createdBy" placeholder="Search..." value={ filter.CreatedBy } list="creatorList"/>
+										<datalist id="creatorList">
+											for _, c := range creators {
+												<option value={ c }/>
+											}
+										</datalist>
+									</td>
+									<td>
+										<div class="d-flex">
+											<input type="date" class="form-control form-control-sm mr-1" name="dateFrom" id="filterDateFrom" value={ filter.DateFrom } style="width:130px;" min="2026-01-01" onchange="this.form.submit()"/>
+											<input type="date" class="form-control form-control-sm" name="dateTo" id="filterDateTo" value={ filter.DateTo } style="width:130px;" min="2026-01-01" onchange="this.form.submit()"/>
+										</div>
+									</td>
+									<td>
+										<div class="d-flex">
+											<select class="form-control form-control-sm mr-1" name="status" onchange="this.form.submit()">
+												<option value="">-- All --</option>
+												<option value="PENDING" selected?={ filter.Status == "PENDING" }>Pending</option>
+												<option value="APPROVED" selected?={ filter.Status == "APPROVED" }>Approved</option>
+												<option value="REJECTED" selected?={ filter.Status == "REJECTED" }>Rejected</option>
+											</select>
+											<button type="submit" class="btn btn-sm btn-primary">
+												<i class="fas fa-search"></i>
+											</button>
+										</div>
+									</td>
+									if isApprover {
+										<td></td>
+									}
+								</tr>
 							</thead>
 							<tbody>
+								if len(requests) == 0 {
+									<tr>
+										<td colspan="8" class="text-center text-muted">Tidak ada permintaan CSI.</td>
+									</tr>
+								}
 								for i, r := range requests {
 									<tr>
 										if isApprover {
@@ -112,16 +184,12 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover boo
 										if isApprover {
 											<td>
 												if r.Status == "PENDING" {
-													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/approve?id=%d", r.ID)) } style="display:inline;">
-														<button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve this CSI?')" disabled?={ syncInProgress }>
-															<i class="fas fa-check"></i>
-														</button>
-													</form>
-													<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/approval/reject?id=%d", r.ID)) } style="display:inline;">
-														<button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Reject this CSI?')" disabled?={ syncInProgress }>
-															<i class="fas fa-times"></i>
-														</button>
-													</form>
+													<button type="button" class="btn btn-sm btn-success" disabled?={ syncInProgress } onclick={ approveAction(r.ID) }>
+														<i class="fas fa-check"></i>
+													</button>
+													<button type="button" class="btn btn-sm btn-danger" disabled?={ syncInProgress } onclick={ rejectAction(r.ID) }>
+														<i class="fas fa-times"></i>
+													</button>
 												}
 											</td>
 										}
@@ -129,6 +197,7 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover boo
 								}
 							</tbody>
 						</table>
+					</form>
 					</div>
 					<div class="d-flex justify-content-between align-items-center mt-2">
 						<div class="text-muted" id="selectionInfo" style="display:none;">
@@ -138,7 +207,6 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover boo
 							@components.Pagination(pagination)
 						</div>
 					</div>
-				}
 			</div>
 		</div>
 
@@ -151,7 +219,33 @@ templ ApprovalPage(page layouts.PageData, requests []RequestView, isApprover boo
 		</form>
 
 		<script>
-			// Persistent selection across pages using sessionStorage.
+			// Approve/Reject via JS (avoids nested forms).
+			function approveCSI(id) {
+				if (!confirm('Approve this CSI?')) return;
+				var f = document.createElement('form');
+				f.method = 'POST';
+				f.action = '/approval/approve?id=' + id;
+				document.body.appendChild(f);
+				f.submit();
+			}
+			function rejectCSI(id) {
+				if (!confirm('Reject this CSI?')) return;
+				var f = document.createElement('form');
+				f.method = 'POST';
+				f.action = '/approval/reject?id=' + id;
+				document.body.appendChild(f);
+				f.submit();
+			}
+
+			// Set max date for date filters to today.
+			(function() {
+				var today = new Date().toISOString().split('T')[0];
+				var df = document.getElementById('filterDateFrom');
+				var dt = document.getElementById('filterDateTo');
+				if (dt) dt.max = today;
+				if (df) df.max = today;
+			})();
+
 			var STORAGE_KEY = 'approval_selected_ids';
 
 			function getSelectedIds() {
