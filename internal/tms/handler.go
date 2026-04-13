@@ -2531,14 +2531,34 @@ func (h *Handler) AddMerchant(c echo.Context) error {
 	}
 
 	resp, err := h.service.AddMerchant(data)
-	if err != nil {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to add merchant: %v", err))
-		return c.Redirect(http.StatusFound, "/veristore/merchant/add")
-	}
 
-	if resp.ResultCode != 0 {
-		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Add merchant failed: %s", resp.Desc))
-		return c.Redirect(http.StatusFound, "/veristore/merchant/add")
+	// On error, re-render form with user's data preserved.
+	if err != nil || resp.ResultCode != 0 {
+		errMsg := ""
+		if err != nil {
+			errMsg = fmt.Sprintf("Failed to add merchant: %v", err)
+		} else {
+			errMsg = fmt.Sprintf("Add merchant failed: %s", resp.Desc)
+		}
+		countries := h.loadCountries()
+		timeZones := h.loadTimeZones()
+		// Convert MerchantData to map for template.
+		merchantMap := map[string]interface{}{
+			"merchantName": data.MerchantName,
+			"address":      data.Address,
+			"postCode":     data.PostCode,
+			"timeZone":     data.TimeZone,
+			"contact":      data.Contact,
+			"email":        data.Email,
+			"cellPhone":    data.CellPhone,
+			"telePhone":    data.TelePhone,
+			"countryId":    data.CountryId,
+			"stateId":      data.StateId,
+			"cityId":       data.CityId,
+			"districtId":   data.DistrictId,
+		}
+		page.Flashes = map[string][]string{shared.FlashError: {errMsg}}
+		return shared.Render(c, http.StatusOK, vsTmpl.AddMerchantPage(page, merchantMap, countries, timeZones, false))
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddMerch, "Add merchant "+data.MerchantName)
@@ -2738,12 +2758,34 @@ func (h *Handler) AddGroup(c echo.Context) error {
 	}
 
 	resp, err := h.service.AddGroup(groupName, terminalIDs)
-	if err != nil {
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Failed to add group: %v", err)}, nil, false, 0, groupName))
-	}
 
-	if resp.ResultCode != 0 {
-		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{fmt.Sprintf("Add group failed: %s", resp.Desc)}, nil, false, 0, groupName))
+	if err != nil || resp.ResultCode != 0 {
+		errMsg := ""
+		if err != nil {
+			errMsg = fmt.Sprintf("Failed to add group: %v", err)
+		} else {
+			errMsg = fmt.Sprintf("Add group failed: %s", resp.Desc)
+		}
+		// Rebuild terminal list — fetch details from TMS for each terminal ID.
+		var terminals []map[string]interface{}
+		for _, tid := range terminalIDs {
+			tidStr := strconv.Itoa(tid)
+			detResp, detErr := h.service.client.GetTerminalDetailById(tidStr)
+			if detErr == nil && detResp != nil && detResp.ResultCode == 0 && detResp.Data != nil {
+				detResp.Data["terminalId"] = tidStr
+				terminals = append(terminals, detResp.Data)
+			} else {
+				// Fallback: just show the ID.
+				terminals = append(terminals, map[string]interface{}{
+					"terminalId": tidStr,
+					"sn":         "",
+					"deviceId":   tidStr,
+					"model":      "",
+					"merchantName": "",
+				})
+			}
+		}
+		return shared.Render(c, http.StatusOK, vsTmpl.AddGroupPage(page, []string{errMsg}, terminals, false, 0, groupName))
 	}
 
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddGroup, "Add group "+groupName)

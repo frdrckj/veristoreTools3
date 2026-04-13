@@ -21,3 +21,4 @@ static/sync/*
 !static/sync/.gitkeep
 *_templ.go
 deploy-package/
+app-update.tar.gz

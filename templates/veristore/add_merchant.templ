@@ -29,6 +29,8 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 						<div class="card-body">
 							if isEdit && merchantData != nil {
 								<input type="hidden" name="id" value={ merchantDataGet(merchantData, "id") }/>
+							}
+							if merchantData != nil && merchantDataGet(merchantData, "stateId") != "" {
 								<input type="hidden" id="editStateId" value={ merchantDataGet(merchantData, "stateId") }/>
 								<input type="hidden" id="editCityId" value={ merchantDataGet(merchantData, "cityId") }/>
 								<input type="hidden" id="editDistrictId" value={ merchantDataGet(merchantData, "districtId") }/>
