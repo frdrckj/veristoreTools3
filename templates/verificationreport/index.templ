@@ -115,6 +115,7 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 							type="date"
 							class="form-control form-control-sm"
 							name="dateTo"
+							id="reportDateTo"
 							value={ filter.DateTo }
 							style="max-width: 200px;"
 						/>
@@ -131,6 +132,7 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 						class="form-control form-control-sm"
 						name="csi"
 						placeholder="CSI"
+						maxlength="8"
 						value={ filter.CSI }
 					/>
 				</div>
@@ -145,6 +147,7 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 						class="form-control form-control-sm"
 						name="serialNum"
 						placeholder="Serial Number"
+						maxlength="10"
 						value={ filter.SerialNumber }
 					/>
 				</div>
@@ -298,6 +301,10 @@ templ ReportTablePartial(reports []ReportData, pagination components.PaginationD
 	</div>
 	<script>
 		(function() {
+			// Set max date for end period to today.
+			var dt = document.getElementById('reportDateTo');
+			if (dt) dt.max = new Date().toISOString().split('T')[0];
+
 			function initReportSelect2() {
 				if (typeof $ !== 'undefined' && $.fn.select2) {
 					$('#report-filter-form .report-select2').select2({
