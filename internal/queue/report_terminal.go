@@ -273,7 +273,27 @@ func (h *ReportTerminalHandler) ProcessTask(ctx context.Context, task *asynq.Tas
 
 	if len(allJobs) == 0 {
 		logger.Warn().Msg("no terminals found")
-		h.adminRepo.CompletePendingSyncs(payload.UserID)
+		// Still chain to sync:parameter if TriggerSync is true so Phase 3/4 can run
+		// (e.g., to sync all TMS terminals and delete today's removed CSIs).
+		if payload.TriggerSync {
+			logger.Info().Msg("chaining to sync:parameter despite no report matches (for Phase 3/4)")
+			syncPayload := SyncParameterPayload{
+				ReportName: "",
+				Session:    payload.Session,
+				UserID:     payload.UserID,
+				UserName:   payload.UserName,
+				AppVersion: payload.AppVersion,
+				IsPartial:  len(payload.PartialCSIs) > 0,
+			}
+			syncPayloadBytes, _ := json.Marshal(syncPayload)
+			syncTask := asynq.NewTask(TaskSyncParameter, syncPayloadBytes)
+			if _, err := h.queueClient.Enqueue(syncTask, asynq.Timeout(5*time.Hour), asynq.MaxRetry(0)); err != nil {
+				logger.Error().Err(err).Msg("failed to enqueue sync:parameter job")
+				h.adminRepo.FailPendingSyncs(payload.UserID)
+			}
+		} else {
+			h.adminRepo.CompletePendingSyncs(payload.UserID)
+		}
 		return nil
 	}
 

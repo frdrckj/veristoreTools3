@@ -162,10 +162,35 @@ p, TMS ADMIN, /scheduler/:action, *
 # User management (view)
 p, TMS SUPERVISOR, /user/:action, GET
 
-# Veristore (TMS)
-p, TMS SUPERVISOR, /veristore/:action, *
-p, TMS SUPERVISOR, /veristore/edit/:action, *
-p, TMS SUPERVISOR, /veristore/check/:action, *
+# Veristore (TMS) — view terminal list, export, report, import, login
+p, TMS SUPERVISOR, /veristore/terminal, GET
+p, TMS SUPERVISOR, /veristore/terminal-status, GET
+p, TMS SUPERVISOR, /veristore/export, GET
+p, TMS SUPERVISOR, /veristore/export, POST
+p, TMS SUPERVISOR, /veristore/exportresult, GET
+p, TMS SUPERVISOR, /veristore/exportreset, GET
+p, TMS SUPERVISOR, /veristore/report, GET
+p, TMS SUPERVISOR, /veristore/report, POST
+p, TMS SUPERVISOR, /veristore/login, GET
+p, TMS SUPERVISOR, /veristore/login, POST
+p, TMS SUPERVISOR, /veristore/operator, GET
+p, TMS SUPERVISOR, /veristore/verify-code, GET
+p, TMS SUPERVISOR, /veristore/model, GET
+p, TMS SUPERVISOR, /veristore/state, GET
+p, TMS SUPERVISOR, /veristore/city, GET
+p, TMS SUPERVISOR, /veristore/district, GET
+p, TMS SUPERVISOR, /veristore/merchants-api, GET
+p, TMS SUPERVISOR, /veristore/import, GET
+p, TMS SUPERVISOR, /veristore/import, POST
+p, TMS SUPERVISOR, /veristore/import-format, GET
+p, TMS SUPERVISOR, /veristore/import-result, GET
+p, TMS SUPERVISOR, /veristore/importreset, GET
+p, TMS SUPERVISOR, /veristore/import-merchant, GET
+p, TMS SUPERVISOR, /veristore/import-merchant, POST
+p, TMS SUPERVISOR, /veristore/import-format-merchant, GET
+p, TMS SUPERVISOR, /veristore/import-result-merchant, GET
+p, TMS SUPERVISOR, /veristore/check/:action, GET
+# Merchant & Group (full access)
 p, TMS SUPERVISOR, /veristore/merchant/:action, *
 p, TMS SUPERVISOR, /veristore/group/:action, *
 

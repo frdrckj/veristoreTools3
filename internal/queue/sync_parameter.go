@@ -128,6 +128,16 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	// ------------------------------------------------------------------
 	// Phase 1: Read Excel report from tms_report table.
 	// ------------------------------------------------------------------
+	var allTMSCount int64
+	var deleted int64
+	var successCount int64
+	var totalTerminals int
+	syncStartTime := time.Now()
+
+	if payload.ReportName == "" {
+		logger.Info().Msg("no report to parse — skipping Phase 1 & 2, running Phase 3 & 4 only")
+	} else {
+
 	report, err := h.adminRepo.FindTmsReportByName(payload.ReportName)
 	if err != nil || report == nil {
 		h.adminRepo.FailPendingSyncs(payload.UserID)
@@ -242,7 +252,6 @@ func (h *SyncParameterHandler) ProcessTask(ctx context.Context, task *asynq.Task
 	// Phase 3 (after workers finish) removes any local terminals
 	// that are no longer in the TMS report (e.g. deleted from TMS).
 	// ------------------------------------------------------------------
-	syncStartTime := time.Now()
 	tabNames := tms.GetAllTabNames(h.db)
 	// Fetch operationMark once — it's session-level, same for all terminals.
 	operationMark, err := h.tmsClient.GetOperationMark(session)
@@ -429,8 +438,7 @@ sendLoop:
 		return ctx.Err()
 	}
 
-	var allTMSCount int64
-	var deleted int64
+	} // end of Phase 1 & 2 (else block)
 
 	{
 		// Both full and partial modes run Phase 3 (sync all TMS terminals to local DB).
@@ -450,17 +458,29 @@ sendLoop:
 		}
 
 		// ------------------------------------------------------------------
-		// Phase 4: Remove terminals that are no longer in TMS.
-		// Only in full mode — partial mode skips deletion to avoid removing
-		// terminals that simply weren't in the partial report.
+		// Phase 4: Remove terminals.
+		// Full mode: delete all terminals no longer in TMS.
+		// Partial mode: delete only today's deleted/rejected CSIs from local DB.
 		// ------------------------------------------------------------------
+		phase4Start := time.Now()
 		if !payload.IsPartial {
-			phase4Start := time.Now()
 			deleted, err = h.termRepo.DeleteStaleSynced(syncStartTime)
 			if err != nil {
 				logger.Warn().Err(err).Msg("failed to clean up stale terminals")
 			} else if deleted > 0 {
 				logger.Info().Int64("deleted", deleted).Str("phase4_elapsed", time.Since(phase4Start).Round(time.Millisecond).String()).Msg("removed stale terminals no longer in TMS")
+			}
+		} else {
+			// Partial mode: delete today's deleted/rejected CSIs.
+			deletedCSIs := h.adminRepo.FindTodayDeletedCSIs()
+			logger.Info().Int("today_deleted_count", len(deletedCSIs)).Strs("csis", deletedCSIs).Msg("partial phase 4: found deleted/rejected CSIs")
+			if len(deletedCSIs) > 0 {
+				deleted, err = h.termRepo.DeleteBySerialNums(deletedCSIs)
+				if err != nil {
+					logger.Warn().Err(err).Msg("failed to clean up deleted CSIs")
+				} else if deleted > 0 {
+					logger.Info().Int64("deleted", deleted).Int("csis", len(deletedCSIs)).Str("phase4_elapsed", time.Since(phase4Start).Round(time.Millisecond).String()).Msg("removed today's deleted/rejected CSIs from local DB")
+				}
 			}
 		}
 	}

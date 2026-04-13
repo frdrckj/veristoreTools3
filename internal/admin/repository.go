@@ -186,6 +186,57 @@ func (r *Repository) FindTodayCSIs() []string {
 	return csis
 }
 
+// FindTodayDeletedCSIs returns CSIs that were deleted or rejected today.
+func (r *Repository) FindTodayDeletedCSIs() []string {
+	var logs []ActivityLog
+	r.db.Where(
+		"act_log_action IN ? AND DATE(created_dt) = CURDATE()",
+		[]string{
+			"VERISTORE DELETE CSI",
+			"VERISTORE REJECT CSI",
+		},
+	).Find(&logs)
+
+	seen := map[string]bool{}
+	var csis []string
+	for _, l := range logs {
+		if l.ActLogDetail == nil {
+			continue
+		}
+		detail := *l.ActLogDetail
+		var csi string
+		switch {
+		case strings.HasPrefix(detail, "Delete csi "):
+			csi = strings.TrimPrefix(detail, "Delete csi ")
+		case strings.HasPrefix(detail, "Reject CSI request: "):
+			csi = strings.TrimPrefix(detail, "Reject CSI request: ")
+		case strings.HasPrefix(detail, "Bulk reject "):
+			// Bulk reject doesn't have individual CSI names — skip.
+			continue
+		}
+		csi = strings.TrimSpace(csi)
+		if csi != "" && !seen[csi] {
+			seen[csi] = true
+			csis = append(csis, csi)
+		}
+	}
+
+	// Also get rejected CSIs from csi_request table today.
+	var rejectedCSIs []string
+	r.db.Table("csi_request").
+		Where("req_status = 'REJECTED' AND DATE(approved_dt) = CURDATE()").
+		Pluck("req_device_id", &rejectedCSIs)
+	for _, csi := range rejectedCSIs {
+		csi = strings.TrimSpace(csi)
+		if csi != "" && !seen[csi] {
+			seen[csi] = true
+			csis = append(csis, csi)
+		}
+	}
+
+	return csis
+}
+
 // ==================== Technician ====================
 
 // FindTechnicianByID retrieves a technician by ID.

@@ -263,3 +263,25 @@ func (r *Repository) DeleteStaleSynced(syncStart time.Time) (int64, error) {
 	result := r.db.Where("term_id IN ?", staleIDs).Delete(&Terminal{})
 	return result.RowsAffected, result.Error
 }
+
+// DeleteBySerialNums removes terminals matching the given serial numbers (CSI names).
+func (r *Repository) DeleteBySerialNums(serialNums []string) (int64, error) {
+	if len(serialNums) == 0 {
+		return 0, nil
+	}
+	// Find matching terminal IDs.
+	var ids []int
+	if err := r.db.Model(&Terminal{}).
+		Where("term_serial_num IN ?", serialNums).
+		Pluck("term_id", &ids).Error; err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	// Delete parameters first.
+	r.db.Where("param_term_id IN ?", ids).Delete(&TerminalParameter{})
+	// Delete terminals.
+	result := r.db.Where("term_id IN ?", ids).Delete(&Terminal{})
+	return result.RowsAffected, result.Error
+}
