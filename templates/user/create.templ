@@ -74,11 +74,17 @@ templ CreatePage(page layouts.PageData, privileges []string, successMsg string, 
 							</div>
 							<div class="form-group">
 								<label for="privileges">Privileges <span class="text-danger">*</span></label>
-								<select class="form-control select2" id="privileges" name="privileges" required>
+								<select class="form-control" id="privileges" name="privileges" required>
 									<option value="">-- Select Privileges --</option>
-									for _, p := range privileges {
-										<option value={ p }>{ p }</option>
-									}
+									<optgroup label="Verifikasi CSI">
+										<option value="ADMIN">ADMIN</option>
+										<option value="OPERATOR">OPERATOR</option>
+									</optgroup>
+									<optgroup label="Profiling">
+										<option value="TMS ADMIN">TMS ADMIN</option>
+										<option value="TMS SUPERVISOR">TMS SUPERVISOR</option>
+										<option value="TMS OPERATOR">TMS OPERATOR</option>
+									</optgroup>
 								</select>
 							</div>
 							<div class="form-group">
