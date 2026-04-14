@@ -225,9 +225,11 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 						<td>{ mapGet(t, "sn") }</td>
 						<td>{ mapGet(t, "model") }</td>
 						<td>
-							<a href="#" class="change-merchant-btn" data-device-id={ mapGet(t, "deviceId") } data-merchant-name={ mapGet(t, "merchantName") } data-model={ mapGet(t, "model") } title="Change Merchant">
-								<i class="fas fa-external-link-alt text-success"></i>
-							</a>
+							if !viewOnly {
+								<a href="#" class="change-merchant-btn" data-device-id={ mapGet(t, "deviceId") } data-merchant-name={ mapGet(t, "merchantName") } data-model={ mapGet(t, "model") } title="Change Merchant">
+									<i class="fas fa-external-link-alt text-success"></i>
+								</a>
+							}
 							{ mapGet(t, "merchantName") }
 						</td>
 						<td>
