@@ -67,7 +67,7 @@ func (h *Handler) Index(c echo.Context) error {
 
 	if c.Request().Method == http.MethodGet {
 		// Initial state: show search form only.
-		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
+		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions, ""))
 	}
 
 	// POST - determine which action based on form fields.
@@ -83,7 +83,7 @@ func (h *Handler) Index(c echo.Context) error {
 	// Otherwise, this is a CSI search.
 	if csiVal == "" {
 		page.Flashes = map[string][]string{shared.FlashError: {"CSI number is required"}}
-		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
+		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions, ""))
 	}
 
 	return h.handleSearch(c, page, csiVal, appVersions)
@@ -95,19 +95,19 @@ func (h *Handler) handleSearch(c echo.Context, page layouts.PageData, csi string
 
 	if appVersion == "" {
 		page.Flashes = map[string][]string{shared.FlashError: {"Versi App harus dipilih"}}
-		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
+		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions, ""))
 	}
 
 	result, err := h.service.SearchTerminalWithVersion(csi, appVersion)
 
 	if err != nil {
 		page.Flashes = map[string][]string{shared.FlashError: {fmt.Sprintf("Search failed: %v", err)}}
-		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
+		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions, appVersion))
 	}
 
 	if !result.Found {
 		page.Flashes = map[string][]string{shared.FlashInfo: {fmt.Sprintf("CSI %s tidak ditemukan!", csi)}}
-		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions))
+		return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, false, "", appVersions, appVersion))
 	}
 
 	// Terminal found: calculate activation password.
@@ -124,7 +124,7 @@ func (h *Handler) handleSearch(c echo.Context, page layouts.PageData, csi string
 	tmplResult := toTemplateResult(result)
 	tmplTechs := toTemplateTechnicians(technicians)
 
-	return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, tmplResult, tmplTechs, false, password, appVersions))
+	return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, tmplResult, tmplTechs, false, password, appVersions, appVersion))
 }
 
 // handleReportSubmission processes the verification report save POST request.
@@ -234,7 +234,7 @@ func (h *Handler) handleReportSubmission(c echo.Context, page layouts.PageData, 
 
 	mw.LogActivityFromContext(c, mw.LogVerifyTerminal, "Verifikasi CSI "+csi)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Verifikasi berhasil disimpan!")
-	return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, true, "", appVersions))
+	return shared.Render(c, http.StatusOK, verTmpl.VerificationPage(page, nil, nil, true, "", appVersions, ""))
 }
 
 // GetTechnician handles GET /verification/gettechnician?id=X.

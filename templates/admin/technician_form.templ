@@ -53,6 +53,7 @@ templ TechnicianFormPage(page layouts.PageData, t TechnicianData, isEdit bool, e
 									placeholder="Nama"
 									maxlength="150"
 									value={ t.TechName }
+									oninput="this.value = this.value.replace(/[^A-Za-z\s.]/g, '')"
 									required
 								/>
 							</div>

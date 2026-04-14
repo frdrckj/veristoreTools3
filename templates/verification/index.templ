@@ -46,7 +46,7 @@ type TechnicianOption struct {
 // 1. Initial: search form with CSI input and app version dropdown.
 // 2. Terminal found: display terminal info + verification form.
 // 3. Report saved: success message (handled by flash messages).
-templ VerificationPage(data layouts.PageData, result *TerminalResult, technicians []TechnicianOption, saved bool, password string, appVersions []string) {
+templ VerificationPage(data layouts.PageData, result *TerminalResult, technicians []TechnicianOption, saved bool, password string, appVersions []string, selectedVersion string) {
 	@layouts.Base(data) {
 		<!-- CSI Search Card -->
 		<div class="card card-primary card-outline">
@@ -81,7 +81,7 @@ templ VerificationPage(data layouts.PageData, result *TerminalResult, technician
 								<select id="appVersion" name="appVersion" class="form-control" style="max-width: 350px;" required="required">
 									<option value="">-- Pilih Versi App --</option>
 									for _, v := range appVersions {
-										<option value={ v }>{ v }</option>
+										<option value={ v } selected?={ v == selectedVersion }>{ v }</option>
 									}
 								</select>
 							</div>

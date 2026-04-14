@@ -38,7 +38,12 @@
       "mcp__plugin_playwright_playwright__browser_click",
       "mcp__plugin_playwright_playwright__browser_console_messages",
       "mcp__plugin_playwright_playwright__browser_evaluate",
-      "Bash(mysql:*)"
+      "Bash(mysql:*)",
+      "Bash(defaults read:*)",
+      "Bash(mdutil -s /)",
+      "Bash(mdutil -s ~)",
+      "Bash(mdutil:*)",
+      "Bash(mdfind:*)"
     ]
   }
 }

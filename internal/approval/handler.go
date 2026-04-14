@@ -75,6 +75,9 @@ func (h *Handler) pageData(c echo.Context, title string) layouts.PageData {
 
 // Index shows the list of CSI requests with pagination.
 func (h *Handler) Index(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
 	page := h.pageData(c, "Persetujuan CSI")
 
 	perPage := 10

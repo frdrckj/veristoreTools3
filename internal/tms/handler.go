@@ -211,6 +211,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 
 	currentUser := mw.GetCurrentUserName(c)
 	page := h.pageData(c, "Terminal Management")
+	viewOnly := mw.GetCurrentUserPrivileges(c) == "TMS SUPERVISOR"
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
@@ -230,7 +231,7 @@ func (h *Handler) Terminal(c echo.Context) error {
 
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load terminals: %v", err))
-		return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, nil, 0, pageNum, vsTmpl.SearchParams{}, components.PaginationData{}, false))
+		return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, nil, 0, pageNum, vsTmpl.SearchParams{}, components.PaginationData{}, false, viewOnly))
 	}
 
 	var terminals []map[string]interface{}
@@ -310,10 +311,10 @@ func (h *Handler) Terminal(c echo.Context) error {
 	}
 
 	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, vsTmpl.TerminalTablePartial(terminals, pagination, searchParams, buttonsDisabled))
+		return shared.Render(c, http.StatusOK, vsTmpl.TerminalTablePartial(terminals, pagination, searchParams, buttonsDisabled, viewOnly))
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, terminals, totalPage, pageNum, searchParams, pagination, buttonsDisabled))
+	return shared.Render(c, http.StatusOK, vsTmpl.TerminalPage(page, terminals, totalPage, pageNum, searchParams, pagination, buttonsDisabled, viewOnly))
 }
 
 // TerminalStatus returns a lightweight JSON response indicating whether

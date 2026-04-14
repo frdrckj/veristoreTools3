@@ -132,7 +132,9 @@ p, TMS ADMIN, /user/:action, *
 p, TMS ADMIN, /veristore/:action, *
 p, TMS ADMIN, /veristore/edit/:action, *
 p, TMS ADMIN, /veristore/check/:action, *
+p, TMS ADMIN, /veristore/merchant, *
 p, TMS ADMIN, /veristore/merchant/:action, *
+p, TMS ADMIN, /veristore/group, *
 p, TMS ADMIN, /veristore/group/:action, *
 
 # TMS Login
@@ -191,7 +193,9 @@ p, TMS SUPERVISOR, /veristore/import-format-merchant, GET
 p, TMS SUPERVISOR, /veristore/import-result-merchant, GET
 p, TMS SUPERVISOR, /veristore/check/:action, GET
 # Merchant & Group (full access)
+p, TMS SUPERVISOR, /veristore/merchant, *
 p, TMS SUPERVISOR, /veristore/merchant/:action, *
+p, TMS SUPERVISOR, /veristore/group, *
 p, TMS SUPERVISOR, /veristore/group/:action, *
 
 # TMS Login
@@ -222,7 +226,9 @@ p, TMS OPERATOR, /user/:action, GET
 p, TMS OPERATOR, /veristore/:action, *
 p, TMS OPERATOR, /veristore/edit/:action, *
 p, TMS OPERATOR, /veristore/check/:action, *
+p, TMS OPERATOR, /veristore/merchant, *
 p, TMS OPERATOR, /veristore/merchant/:action, *
+p, TMS OPERATOR, /veristore/group, *
 p, TMS OPERATOR, /veristore/group/:action, *
 
 # TMS Login
