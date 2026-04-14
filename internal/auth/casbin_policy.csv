@@ -121,6 +121,7 @@ p, OPERATOR, /faq/:action, *
 
 # Backup
 p, OPERATOR, /backup/:action, *
+p, OPERATOR, /tools/:action, *
 
 # ---------------------------------------------------------------------------
 # TMS ADMIN - full TMS access + user management + activation + scheduler
@@ -192,11 +193,11 @@ p, TMS SUPERVISOR, /veristore/import-merchant, POST
 p, TMS SUPERVISOR, /veristore/import-format-merchant, GET
 p, TMS SUPERVISOR, /veristore/import-result-merchant, GET
 p, TMS SUPERVISOR, /veristore/check/:action, GET
-# Merchant & Group (full access)
-p, TMS SUPERVISOR, /veristore/merchant, *
-p, TMS SUPERVISOR, /veristore/merchant/:action, *
-p, TMS SUPERVISOR, /veristore/group, *
-p, TMS SUPERVISOR, /veristore/group/:action, *
+# Merchant & Group (view only - no add/edit/delete)
+p, TMS SUPERVISOR, /veristore/merchant, GET
+p, TMS SUPERVISOR, /veristore/merchant/view, GET
+p, TMS SUPERVISOR, /veristore/group, GET
+p, TMS SUPERVISOR, /veristore/group/terminal, GET
 
 # TMS Login
 p, TMS SUPERVISOR, /tmslogin/:action, *
@@ -242,6 +243,7 @@ p, TMS OPERATOR, /faq/:action, *
 
 # Backup
 p, TMS OPERATOR, /backup/:action, *
+p, TMS OPERATOR, /tools/:action, *
 
 # ---------------------------------------------------------------------------
 # CSI Approval

@@ -106,14 +106,29 @@ templ FaqPage(page layouts.PageData, tree []FaqData, faqTitle string, faqContent
 						data: treeData,
 						levels: 1,
 						borderColor: '#fff',
+						expandIcon: 'fas fa-angle-right',
+						collapseIcon: 'fas fa-angle-down',
+						enableLinks: false,
 						onNodeSelected: function(event, node) {
 							if (node.href) {
 								// Load content via AJAX (matching V2 Pjax behaviour).
+								var contentDiv = document.getElementById('faq-content');
+								contentDiv.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
 								fetch(node.href)
-									.then(function(res) { return res.text(); })
+									.then(function(res) {
+										if (!res.ok) throw new Error('HTTP ' + res.status);
+										return res.text();
+									})
 									.then(function(html) {
-										document.getElementById('faq-content').innerHTML = html;
+										contentDiv.innerHTML = html;
+										contentDiv.scrollIntoView({behavior: 'smooth', block: 'start'});
+									})
+									.catch(function(err) {
+										contentDiv.innerHTML = '<div class="alert alert-warning">Gagal memuat konten: ' + err.message + '</div>';
 									});
+							} else if (node.nodes && node.nodes.length > 0) {
+								// Toggle expand/collapse for parent nodes.
+								$tree.treeview('toggleNodeExpanded', [node.nodeId, { silent: true }]);
 							}
 						}
 					});

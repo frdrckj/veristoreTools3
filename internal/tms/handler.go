@@ -2450,6 +2450,7 @@ func (h *Handler) Merchant(c echo.Context) error {
 	}
 
 	page := h.pageData(c, "Merchant Management")
+	viewOnly := mw.GetCurrentUserPrivileges(c) == "TMS SUPERVISOR"
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
@@ -2468,7 +2469,7 @@ func (h *Handler) Merchant(c echo.Context) error {
 
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load merchants: %v", err))
-		return shared.Render(c, http.StatusOK, vsTmpl.MerchantPage(page, nil, 0, pageNum, search, components.PaginationData{}))
+		return shared.Render(c, http.StatusOK, vsTmpl.MerchantPage(page, nil, 0, pageNum, search, components.PaginationData{}, viewOnly))
 	}
 
 	var merchants []map[string]interface{}
@@ -2496,10 +2497,10 @@ func (h *Handler) Merchant(c echo.Context) error {
 	}
 
 	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, vsTmpl.MerchantTablePartial(merchants, pagination, search))
+		return shared.Render(c, http.StatusOK, vsTmpl.MerchantTablePartial(merchants, pagination, search, viewOnly))
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.MerchantPage(page, merchants, totalPage, pageNum, search, pagination))
+	return shared.Render(c, http.StatusOK, vsTmpl.MerchantPage(page, merchants, totalPage, pageNum, search, pagination, viewOnly))
 }
 
 // AddMerchant handles GET/POST /veristore/merchant/add - Add merchant form.
@@ -2565,6 +2566,31 @@ func (h *Handler) AddMerchant(c echo.Context) error {
 	mw.LogActivityFromContext(c, mw.LogVeristoreAddMerch, "Add merchant "+data.MerchantName)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Add Merchant berhasil!")
 	return c.Redirect(http.StatusFound, "/veristore/merchant")
+}
+
+// ViewMerchant handles GET /veristore/merchant/view - View merchant detail (read-only).
+func (h *Handler) ViewMerchant(c echo.Context) error {
+	if err := h.requireTmsSession(c); err != nil {
+		return err
+	}
+
+	merchantId, _ := strconv.Atoi(c.QueryParam("id"))
+	page := h.pageData(c, "Merchant Detail")
+
+	if merchantId == 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Merchant ID is required")
+		return c.Redirect(http.StatusFound, "/veristore/merchant")
+	}
+
+	resp, err := h.service.GetMerchantDetail(merchantId)
+	if err != nil || resp.ResultCode != 0 {
+		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Failed to load merchant details")
+		return c.Redirect(http.StatusFound, "/veristore/merchant")
+	}
+
+	countries := h.loadCountries()
+	timeZones := h.loadTimeZones()
+	return shared.Render(c, http.StatusOK, vsTmpl.AddMerchantPage(page, resp.Data, countries, timeZones, true, true))
 }
 
 // EditMerchant handles GET/POST /veristore/merchant/edit - Edit merchant form.
@@ -2674,6 +2700,7 @@ func (h *Handler) Group(c echo.Context) error {
 	}
 
 	page := h.pageData(c, "Group Management")
+	viewOnly := mw.GetCurrentUserPrivileges(c) == "TMS SUPERVISOR"
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
 		pageNum = 1
@@ -2692,7 +2719,7 @@ func (h *Handler) Group(c echo.Context) error {
 
 	if err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load groups: %v", err))
-		return shared.Render(c, http.StatusOK, vsTmpl.GroupPage(page, nil, 0, pageNum, search, components.PaginationData{}))
+		return shared.Render(c, http.StatusOK, vsTmpl.GroupPage(page, nil, 0, pageNum, search, components.PaginationData{}, viewOnly))
 	}
 
 	var groups []map[string]interface{}
@@ -2720,10 +2747,10 @@ func (h *Handler) Group(c echo.Context) error {
 	}
 
 	if shared.IsHTMX(c) {
-		return shared.Render(c, http.StatusOK, vsTmpl.GroupTablePartial(groups, pagination, search))
+		return shared.Render(c, http.StatusOK, vsTmpl.GroupTablePartial(groups, pagination, search, viewOnly))
 	}
 
-	return shared.Render(c, http.StatusOK, vsTmpl.GroupPage(page, groups, totalPage, pageNum, search, pagination))
+	return shared.Render(c, http.StatusOK, vsTmpl.GroupPage(page, groups, totalPage, pageNum, search, pagination, viewOnly))
 }
 
 // AddGroup handles GET/POST /veristore/group/add - Add group form.
@@ -2923,12 +2950,85 @@ func (h *Handler) DeleteGroup(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/veristore/group")
 }
 
-// AddGroupTerminal handles GET /veristore/group/terminal - AJAX terminal search for group modal.
+// AddGroupTerminal handles GET /veristore/group/terminal - AJAX terminal search for group modal,
+// or full-page view of group terminals for supervisor.
 func (h *Handler) AddGroupTerminal(c echo.Context) error {
 	if err := h.requireTmsSession(c); err != nil {
 		return err
 	}
 
+	groupId := c.QueryParam("id")
+	groupName := c.QueryParam("name")
+
+	// Full-page view of terminals belonging to a specific group.
+	if groupId != "" && !shared.IsHTMX(c) {
+		groupIdInt, _ := strconv.Atoi(groupId)
+		page := h.pageData(c, "Group Terminals - "+groupName)
+
+		resp, err := h.service.GetGroupDetail(groupIdInt)
+		if err != nil {
+			shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, fmt.Sprintf("Failed to load group terminals: %v", err))
+			return c.Redirect(http.StatusFound, "/veristore/group")
+		}
+
+		var terminals []map[string]interface{}
+		if resp != nil && resp.ResultCode == 0 && resp.Data != nil {
+			if tl, ok := resp.Data["terminals"].([]interface{}); ok {
+				for _, t := range tl {
+					if m, ok := t.(map[string]interface{}); ok {
+						terminals = append(terminals, m)
+					}
+				}
+			}
+			if gn, ok := resp.Data["groupName"].(string); ok && gn != "" {
+				groupName = gn
+			}
+		}
+
+		// Client-side pagination: slice the full list.
+		perPage := 10
+		search := c.QueryParam("q")
+		pageNum, _ := strconv.Atoi(c.QueryParam("page"))
+		if pageNum < 1 {
+			pageNum = 1
+		}
+
+		// Filter by search if provided.
+		if search != "" {
+			searchUpper := strings.ToUpper(search)
+			var filtered []map[string]interface{}
+			for _, t := range terminals {
+				sn := strings.ToUpper(toString(t["sn"]))
+				deviceId := strings.ToUpper(toString(t["deviceId"]))
+				merchant := strings.ToUpper(toString(t["merchantName"]))
+				if strings.Contains(sn, searchUpper) || strings.Contains(deviceId, searchUpper) || strings.Contains(merchant, searchUpper) {
+					filtered = append(filtered, t)
+				}
+			}
+			terminals = filtered
+		}
+
+		total := len(terminals)
+		totalPages := (total + perPage - 1) / perPage
+		start := (pageNum - 1) * perPage
+		end := start + perPage
+		if start > total {
+			start = total
+		}
+		if end > total {
+			end = total
+		}
+		pageTerminals := terminals[start:end]
+
+		pagination := components.PaginationData{
+			CurrentPage: pageNum,
+			TotalPages:  totalPages,
+			Total:       int64(total),
+		}
+		return shared.Render(c, http.StatusOK, vsTmpl.GroupTerminalViewPage(page, groupName, pageTerminals, pagination, search, groupId))
+	}
+
+	// AJAX terminal search for group add/edit modal.
 	search := c.QueryParam("q")
 	pageNum, _ := strconv.Atoi(c.QueryParam("page"))
 	if pageNum < 1 {
@@ -2940,10 +3040,8 @@ func (h *Handler) AddGroupTerminal(c echo.Context) error {
 	var resp *TMSResponse
 	var err error
 	if search != "" {
-		// Search mode: use search API.
 		resp, err = h.service.SearchTerminals(pageNum, search, 0, currentUser)
 	} else {
-		// Default: show all terminals paginated.
 		resp, err = h.service.GetTerminalList(pageNum)
 	}
 
@@ -2957,7 +3055,6 @@ func (h *Handler) AddGroupTerminal(c echo.Context) error {
 		if tl, ok := resp.Data["terminalList"].([]interface{}); ok {
 			for _, t := range tl {
 				if m, ok := t.(map[string]interface{}); ok {
-					// Map field names to match what the template expects.
 					m["terminalId"] = fmt.Sprintf("%v", m["id"])
 					terminals = append(terminals, m)
 				}

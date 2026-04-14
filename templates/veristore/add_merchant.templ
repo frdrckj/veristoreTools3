@@ -4,7 +4,7 @@ import "github.com/verifone/veristoretools3/templates/layouts"
 
 // AddMerchantPage renders the merchant add/edit form.
 // When isEdit is true, merchantData contains the existing merchant data.
-templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}, countries []map[string]interface{}, timeZones []map[string]interface{}, isEdit bool) {
+templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}, countries []map[string]interface{}, timeZones []map[string]interface{}, isEdit bool, viewOnly ...bool) {
 	@layouts.Base(page) {
 		<style>
 			.merchant-form input[type="text"],
@@ -17,7 +17,9 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 			<div class="col-md-8 offset-md-2">
 				<div class="card card-primary">
 					<div class="card-header">
-						if isEdit {
+						if len(viewOnly) > 0 && viewOnly[0] {
+							<h3 class="card-title">Merchant Detail</h3>
+						} else if isEdit {
 							<h3 class="card-title">Edit Merchant</h3>
 						} else {
 							<h3 class="card-title">Add Merchant</h3>
@@ -202,16 +204,19 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 							</div>
 						</div>
 						<div class="card-footer">
-							if isEdit {
+							if len(viewOnly) > 0 && viewOnly[0] {
+								<a href="/veristore/merchant" class="btn btn-default">Back</a>
+							} else if isEdit {
 								<button type="submit" class="btn btn-primary">
 									<i class="fas fa-save"></i> Update Merchant
 								</button>
+								<a href="/veristore/merchant" class="btn btn-default">Cancel</a>
 							} else {
 								<button type="submit" class="btn btn-primary">
 									<i class="fas fa-save"></i> Add Merchant
 								</button>
+								<a href="/veristore/merchant" class="btn btn-default">Cancel</a>
 							}
-							<a href="/veristore/merchant" class="btn btn-default">Cancel</a>
 						</div>
 					</form>
 				</div>
@@ -307,6 +312,14 @@ templ AddMerchantPage(page layouts.PageData, merchantData map[string]interface{}
 				}
 			})();
 		</script>
+		if len(viewOnly) > 0 && viewOnly[0] {
+			<script>
+				// Disable all form fields for view-only mode.
+				document.querySelectorAll('.merchant-form input, .merchant-form select, .merchant-form textarea').forEach(function(el) {
+					el.setAttribute('disabled', 'disabled');
+				});
+			</script>
+		}
 	}
 }
 

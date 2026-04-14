@@ -1,0 +1,101 @@
+package veristore
+
+import (
+	"fmt"
+	"github.com/verifone/veristoretools3/templates/components"
+	"github.com/verifone/veristoretools3/templates/layouts"
+)
+
+// GroupTerminalViewPage renders a full-page read-only view of terminals in a group.
+templ GroupTerminalViewPage(page layouts.PageData, groupName string, terminals []map[string]interface{}, pagination components.PaginationData, search string, groupId string) {
+	@layouts.Base(page) {
+		<div class="card">
+			<div class="card-header">
+				<h3 class="card-title">Group: { groupName }</h3>
+				<div class="card-tools">
+					<div class="d-flex align-items-center">
+						<form
+							class="mr-2"
+							method="GET"
+							action="/veristore/group/terminal"
+						>
+							<input type="hidden" name="id" value={ groupId }/>
+							<input type="hidden" name="name" value={ groupName }/>
+							<div class="input-group input-group-sm" style="width: 250px;">
+								<input
+									type="text"
+									name="q"
+									class="form-control"
+									placeholder="Search terminals..."
+									value={ search }
+								/>
+								<div class="input-group-append">
+									<button type="submit" class="btn btn-default">
+										<i class="fas fa-search"></i>
+									</button>
+								</div>
+							</div>
+						</form>
+						<a href="/veristore/group" class="btn btn-sm btn-default">
+							<i class="fas fa-arrow-left"></i> Back
+						</a>
+					</div>
+				</div>
+			</div>
+			<div class="card-body table-responsive p-0">
+				<table class="table table-hover table-striped table-sm">
+					<thead>
+						<tr>
+							<th>SN</th>
+							<th>Device ID</th>
+							<th>Model</th>
+							<th>Merchant</th>
+						</tr>
+					</thead>
+					<tbody>
+						if len(terminals) == 0 {
+							<tr>
+								<td colspan="4" class="text-center text-muted">No terminals found</td>
+							</tr>
+						}
+						for _, t := range terminals {
+							<tr>
+								<td>{ mapGet(t, "sn") }</td>
+								<td>{ mapGet(t, "deviceId") }</td>
+								<td>{ mapGet(t, "model") }</td>
+								<td>{ mapGet(t, "merchantName") }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+			if pagination.TotalPages > 1 {
+				<div class="card-footer clearfix">
+					<ul class="pagination pagination-sm m-0 float-right">
+						if pagination.CurrentPage > 1 {
+							<li class="page-item">
+								<a class="page-link" href={ templ.SafeURL(fmt.Sprintf("/veristore/group/terminal?id=%s&name=%s&q=%s&page=%d", groupId, groupName, search, pagination.CurrentPage-1)) }>&laquo;</a>
+							</li>
+						}
+						for i := 1; i <= pagination.TotalPages; i++ {
+							if i == pagination.CurrentPage {
+								<li class="page-item active">
+									<span class="page-link">{ fmt.Sprintf("%d", i) }</span>
+								</li>
+							} else if i <= 3 || i > pagination.TotalPages-2 || (i >= pagination.CurrentPage-1 && i <= pagination.CurrentPage+1) {
+								<li class="page-item">
+									<a class="page-link" href={ templ.SafeURL(fmt.Sprintf("/veristore/group/terminal?id=%s&name=%s&q=%s&page=%d", groupId, groupName, search, i)) }>{ fmt.Sprintf("%d", i) }</a>
+								</li>
+							}
+						}
+						if pagination.CurrentPage < pagination.TotalPages {
+							<li class="page-item">
+								<a class="page-link" href={ templ.SafeURL(fmt.Sprintf("/veristore/group/terminal?id=%s&name=%s&q=%s&page=%d", groupId, groupName, search, pagination.CurrentPage+1)) }>&raquo;</a>
+							</li>
+						}
+					</ul>
+				</div>
+			}
+		</div>
+	}
+}

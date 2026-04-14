@@ -278,6 +278,7 @@ func main() {
 	protected.GET("/veristore/merchant", tmsHandler.Merchant)
 	protected.GET("/veristore/merchant/add", tmsHandler.AddMerchant)
 	protected.POST("/veristore/merchant/add", tmsHandler.AddMerchant)
+	protected.GET("/veristore/merchant/view", tmsHandler.ViewMerchant)
 	protected.GET("/veristore/merchant/edit", tmsHandler.EditMerchant)
 	protected.POST("/veristore/merchant/edit", tmsHandler.EditMerchant)
 	protected.POST("/veristore/merchant/delete", tmsHandler.DeleteMerchant)
