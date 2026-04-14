@@ -2,9 +2,14 @@ package admin
 
 import (
 	"strconv"
+	"time"
 	"github.com/verifone/veristoretools3/templates/components"
 	"github.com/verifone/veristoretools3/templates/layouts"
 )
+
+func currentDate() string {
+	return time.Now().Format("2006-01-02")
+}
 
 // ActivityLogFilterData holds filter values for the template.
 type ActivityLogFilterData struct {
@@ -124,6 +129,8 @@ templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.Pagi
 								class="form-control form-control-sm"
 								name="dateFrom"
 								placeholder="Start date"
+								min="2023-01-01"
+								max={ currentDate() }
 								value={ filter.DateFrom }
 								onchange="this.form.requestSubmit()"
 							/>
@@ -135,6 +142,8 @@ templ ActivityLogTablePartial(logs []ActivityLogData, pagination components.Pagi
 								class="form-control form-control-sm"
 								name="dateTo"
 								placeholder="End date"
+								min="2023-01-01"
+								max={ currentDate() }
 								value={ filter.DateTo }
 								onchange="this.form.requestSubmit()"
 							/>
