@@ -557,7 +557,8 @@ func (h *Handler) Edit(c echo.Context) error {
 			}
 		}
 
-		return shared.Render(c, http.StatusOK, vsTmpl.EditPage(page, serialNum, appId, appName, detailResp.Data, paramGroups))
+		isViewOnly := c.QueryParam("view") == "1" || mw.GetCurrentUserPrivileges(c) == "TMS SUPERVISOR"
+		return shared.Render(c, http.StatusOK, vsTmpl.EditPage(page, serialNum, appId, appName, detailResp.Data, paramGroups, isViewOnly))
 	}
 
 	// POST - update parameters.

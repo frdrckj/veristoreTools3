@@ -168,6 +168,8 @@ p, TMS SUPERVISOR, /user/:action, GET
 # Veristore (TMS) — view terminal list, export, report, import, login
 p, TMS SUPERVISOR, /veristore/terminal, GET
 p, TMS SUPERVISOR, /veristore/terminal-status, GET
+p, TMS SUPERVISOR, /veristore/edit, GET
+p, TMS SUPERVISOR, /veristore/edit/param, GET
 p, TMS SUPERVISOR, /veristore/export, GET
 p, TMS SUPERVISOR, /veristore/export, POST
 p, TMS SUPERVISOR, /veristore/exportresult, GET

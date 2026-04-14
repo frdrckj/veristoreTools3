@@ -18,7 +18,7 @@ type ParamGroup struct {
 }
 
 // EditPage renders the edit terminal parameters form (v2-style tree layout).
-templ EditPage(page layouts.PageData, serialNum string, appId string, appName string, detail map[string]interface{}, paramGroups []ParamGroup) {
+templ EditPage(page layouts.PageData, serialNum string, appId string, appName string, detail map[string]interface{}, paramGroups []ParamGroup, viewOnly ...bool) {
 	@layouts.Base(page) {
 		<style>
 			#paramTree .list-group-item {
@@ -47,7 +47,11 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 			}
 		</style>
 		<div class="content-header">
-			<h1>CSI (Edit)</h1>
+			if len(viewOnly) > 0 && viewOnly[0] {
+				<h1>CSI (Detail)</h1>
+			} else {
+				<h1>CSI (Edit)</h1>
+			}
 		</div>
 		if detail != nil {
 			<p class="mb-0"><strong>CSI:</strong> { mapGet(detail, "deviceId") }</p>
@@ -91,13 +95,15 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 						<a href="/veristore/terminal" class="btn btn-danger mr-2">
 							<i class="fas fa-times-circle"></i> Back
 						</a>
-						<button type="button" class="btn btn-info mr-2" onclick="doCheck()">
-							<i class="fas fa-check-circle"></i> Check
-						</button>
-						if page.UserPrivileges != "TMS SUPERVISOR" {
-							<button type="button" class="btn btn-success" onclick="showSubmitConfirm()">
-								<i class="fas fa-save"></i> Submit
+						if !(len(viewOnly) > 0 && viewOnly[0]) {
+							<button type="button" class="btn btn-info mr-2" onclick="doCheck()">
+								<i class="fas fa-check-circle"></i> Check
 							</button>
+							if page.UserPrivileges != "TMS SUPERVISOR" {
+								<button type="button" class="btn btn-success" onclick="showSubmitConfirm()">
+									<i class="fas fa-save"></i> Submit
+								</button>
+							}
 						}
 					</div>
 				</div>
@@ -296,6 +302,31 @@ templ EditPage(page layouts.PageData, serialNum string, appId string, appName st
 						.catch(function(err) { result.innerHTML = '<div class="alert alert-danger">Failed to load check data.</div>'; });
 				}
 			</script>
+		if len(viewOnly) > 0 && viewOnly[0] {
+			<script>
+				// View-only mode: disable all form inputs after each panel loads.
+				var _origSelectParam = selectParam;
+				selectParam = function(el) {
+					_origSelectParam(el);
+					// Delay to let AJAX panel render, then disable inputs.
+					setTimeout(function() {
+						document.querySelectorAll('#paramPanel input, #paramPanel select, #paramPanel textarea').forEach(function(inp) {
+							inp.setAttribute('disabled', 'disabled');
+						});
+					}, 500);
+				};
+				// Also observe for dynamic content changes.
+				var _viewOnlyObserver = new MutationObserver(function() {
+					document.querySelectorAll('#paramPanel input, #paramPanel select, #paramPanel textarea').forEach(function(inp) {
+						inp.setAttribute('disabled', 'disabled');
+					});
+				});
+				var _paramPanelEl = document.getElementById('paramPanel');
+				if (_paramPanelEl) {
+					_viewOnlyObserver.observe(_paramPanelEl, { childList: true, subtree: true });
+				}
+			</script>
+		}
 		} else if appId == "" && detail != nil {
 			<div class="alert alert-info">
 				Select an app above to edit its parameters.

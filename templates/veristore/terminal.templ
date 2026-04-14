@@ -201,9 +201,11 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 					<th>Model</th>
 					<th>Merchant</th>
 					<th>Status</th>
-					if !viewOnly {
-					<th style="width: 200px;">Operation</th>
-				}
+					if viewOnly {
+						<th style="width: 100px;">Detail</th>
+					} else {
+						<th style="width: 200px;">Operation</th>
+					}
 				</tr>
 			</thead>
 			<tbody>
@@ -236,7 +238,16 @@ templ TerminalTablePartial(terminals []map[string]interface{}, pagination compon
 							}
 							&nbsp;{ mapGet(t, "alertMsg") }
 						</td>
-						if !viewOnly {
+						if viewOnly {
+							<td>
+								<a
+									href={ templ.SafeURL(fmt.Sprintf("/veristore/edit?serialNum=%s&view=1", mapGet(t, "deviceId"))) }
+									class="btn btn-sm btn-secondary"
+								>
+									<i class="fas fa-eye"></i> View
+								</a>
+							</td>
+						} else {
 							<td>
 								<a
 									href={ templ.SafeURL(fmt.Sprintf("/veristore/edit?serialNum=%s", mapGet(t, "deviceId"))) }
