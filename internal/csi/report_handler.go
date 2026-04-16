@@ -285,6 +285,7 @@ func (h *ReportHandler) Export(c echo.Context) error {
 
 	filename := fmt.Sprintf("verification_report_%s.xlsx", time.Now().Format("20060102_1504"))
 	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	mw.LogActivityFromContext(c, mw.LogVerificationExport, fmt.Sprintf("Export %d laporan verifikasi", len(reports)))
 	return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }
 
@@ -331,6 +332,7 @@ func (h *ReportHandler) Create(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, reportTmpl.FormPage(page, toReportData(*rpt), false, []string{err.Error()}))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVerificationCreate, "Create laporan verifikasi CSI "+rpt.VfiRptTermDeviceID)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Verification report created successfully")
 	return c.Redirect(http.StatusFound, "/verificationreport/index")
 }
@@ -387,6 +389,7 @@ func (h *ReportHandler) Update(c echo.Context) error {
 		return shared.Render(c, http.StatusOK, reportTmpl.FormPage(page, toReportData(*rpt), true, []string{err.Error()}))
 	}
 
+	mw.LogActivityFromContext(c, mw.LogVerificationEdit, "Edit laporan verifikasi CSI "+rpt.VfiRptTermDeviceID)
 	shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Verification report updated successfully")
 	return c.Redirect(http.StatusFound, "/verificationreport/index")
 }
@@ -398,9 +401,17 @@ func (h *ReportHandler) Delete(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid report ID")
 	}
 
+	// Load the report first so we can include its CSI in the activity log.
+	rpt, _ := h.repo.FindByID(id)
+
 	if err := h.repo.Delete(id); err != nil {
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashError, "Failed to delete verification report")
 	} else {
+		detail := fmt.Sprintf("Delete laporan verifikasi ID %d", id)
+		if rpt != nil && rpt.VfiRptTermDeviceID != "" {
+			detail = "Delete laporan verifikasi CSI " + rpt.VfiRptTermDeviceID
+		}
+		mw.LogActivityFromContext(c, mw.LogVerificationDelete, detail)
 		shared.SetFlash(c, h.store, h.sessionName, shared.FlashSuccess, "Verification report deleted successfully")
 	}
 

@@ -186,8 +186,14 @@ func (r *Repository) FindTodayCSIs() []string {
 	return csis
 }
 
-// FindTodayDeletedCSIs returns CSIs that were deleted or rejected today.
+// FindTodayDeletedCSIs returns CSIs that were deleted or rejected today,
+// EXCLUDING any CSI that was subsequently re-approved later the same day
+// (since the re-approval creates a valid terminal in TMS that should remain
+// in the local DB).
 func (r *Repository) FindTodayDeletedCSIs() []string {
+	// Step 1: Collect the LATEST reject/delete timestamp per CSI from activity_log.
+	rejectTimes := map[string]time.Time{}
+
 	var logs []ActivityLog
 	r.db.Where(
 		"act_log_action IN ? AND DATE(created_dt) = CURDATE()",
@@ -197,8 +203,6 @@ func (r *Repository) FindTodayDeletedCSIs() []string {
 		},
 	).Find(&logs)
 
-	seen := map[string]bool{}
-	var csis []string
 	for _, l := range logs {
 		if l.ActLogDetail == nil {
 			continue
@@ -215,23 +219,67 @@ func (r *Repository) FindTodayDeletedCSIs() []string {
 			continue
 		}
 		csi = strings.TrimSpace(csi)
-		if csi != "" && !seen[csi] {
-			seen[csi] = true
-			csis = append(csis, csi)
+		if csi == "" {
+			continue
+		}
+		if t, ok := rejectTimes[csi]; !ok || l.CreatedDt.After(t) {
+			rejectTimes[csi] = l.CreatedDt
 		}
 	}
 
-	// Also get rejected CSIs from csi_request table today.
-	var rejectedCSIs []string
+	// Also get rejected CSIs from csi_request table today (with timestamps).
+	type csiTimeRow struct {
+		DeviceID   string    `gorm:"column:req_device_id"`
+		ApprovedDt time.Time `gorm:"column:approved_dt"`
+	}
+	var rejectedRows []csiTimeRow
 	r.db.Table("csi_request").
+		Select("req_device_id, approved_dt").
 		Where("req_status = 'REJECTED' AND DATE(approved_dt) = CURDATE()").
-		Pluck("req_device_id", &rejectedCSIs)
-	for _, csi := range rejectedCSIs {
-		csi = strings.TrimSpace(csi)
-		if csi != "" && !seen[csi] {
-			seen[csi] = true
-			csis = append(csis, csi)
+		Scan(&rejectedRows)
+	for _, row := range rejectedRows {
+		csi := strings.TrimSpace(row.DeviceID)
+		if csi == "" {
+			continue
 		}
+		if t, ok := rejectTimes[csi]; !ok || row.ApprovedDt.After(t) {
+			rejectTimes[csi] = row.ApprovedDt
+		}
+	}
+
+	if len(rejectTimes) == 0 {
+		return nil
+	}
+
+	// Step 2: Find CSIs that were APPROVED today (with timestamps) — either via
+	// csi_request or via the terminal table's created_dt (for direct TMS adds
+	// that bypass the approval flow).
+	approveTimes := map[string]time.Time{}
+
+	var approvedRows []csiTimeRow
+	r.db.Table("csi_request").
+		Select("req_device_id, approved_dt").
+		Where("req_status = 'APPROVED' AND DATE(approved_dt) = CURDATE()").
+		Scan(&approvedRows)
+	for _, row := range approvedRows {
+		csi := strings.TrimSpace(row.DeviceID)
+		if csi == "" {
+			continue
+		}
+		if t, ok := approveTimes[csi]; !ok || row.ApprovedDt.After(t) {
+			approveTimes[csi] = row.ApprovedDt
+		}
+	}
+
+	// Step 3: Build final list — only include CSIs where the latest reject/delete
+	// event is AFTER the latest approve event (or there is no approve today).
+	var csis []string
+	for csi, rejectTime := range rejectTimes {
+		if approveTime, ok := approveTimes[csi]; ok && approveTime.After(rejectTime) {
+			// CSI was re-approved after rejection/deletion — keep it.
+			continue
+		}
+		csis = append(csis, csi)
 	}
 
 	return csis

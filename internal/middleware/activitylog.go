@@ -43,6 +43,10 @@ const (
 	LogVeristoreRequestCSI      = "VERISTORE REQUEST CSI"
 	LogVeristoreApproveCSI      = "VERISTORE APPROVE CSI"
 	LogVeristoreRejectCSI       = "VERISTORE REJECT CSI"
+	LogVerificationCreate       = "LAPORAN VERIFIKASI CREATE"
+	LogVerificationEdit         = "LAPORAN VERIFIKASI EDIT"
+	LogVerificationDelete       = "LAPORAN VERIFIKASI DELETE"
+	LogVerificationExport       = "LAPORAN VERIFIKASI EXPORT"
 )
 
 // contextKeyDB is the key used to store *gorm.DB in the echo context.
