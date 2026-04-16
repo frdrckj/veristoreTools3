@@ -21,4 +21,7 @@ static/sync/*
 !static/sync/.gitkeep
 *_templ.go
 deploy-package/
+app-update.tar
 app-update.tar.gz
+veristoretools3
+logs/

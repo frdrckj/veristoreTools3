@@ -47,14 +47,33 @@ func main() {
 	}
 
 	// -----------------------------------------------------------------------
-	// 2. Initialize zerolog
+	// 2. Initialize zerolog (stdout + file)
 	// -----------------------------------------------------------------------
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.TimeFieldFormat = time.RFC3339
+
+	// Create logs directory and open log file.
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create logs directory: %v\n", err)
+	}
+	logFile, err := os.OpenFile("logs/veristoretools.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
+		logFile = nil
+	}
+
 	if cfg.App.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
+		consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+		if logFile != nil {
+			log.Logger = log.Output(zerolog.MultiLevelWriter(consoleWriter, logFile))
+		} else {
+			log.Logger = log.Output(consoleWriter)
+		}
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		if logFile != nil {
+			log.Logger = log.Output(zerolog.MultiLevelWriter(os.Stdout, logFile))
+		}
 	}
 	log.Info().Str("app", cfg.App.Name).Str("version", cfg.App.Version).Msg("starting application")
 
@@ -397,6 +416,8 @@ func main() {
 	protected.GET("/tools/index", toolsHandler.Index)
 	protected.POST("/tools/sync", toolsHandler.SyncDatabase)
 	protected.GET("/tools/download-log", toolsHandler.DownloadLog)
+	protected.GET("/tools/view-app-log", toolsHandler.ViewAppLog)
+	protected.GET("/tools/download-app-log", toolsHandler.DownloadAppLog)
 
 	// -----------------------------------------------------------------------
 	// 15. API routes (basic auth)

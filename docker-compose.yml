@@ -15,6 +15,7 @@ services:
     volumes:
       - ./config.docker.yaml:/app/config.yaml
       - /home/store/market/business/logs:/host-logs:ro
+      - ./logs:/app/logs
     restart: unless-stopped
 
   mysql:
